@@ -108,7 +108,7 @@ ccflags-y += -DCONFIG_VENDOR_RWNX_VHT_NO80
 endif
 
 quiet_cmd_genvers = GENVERSION $@
-      cmd_genvers = ($(if $(KBUILD_EXTMOD),,$(srctree)/)$(src)/../mkvers.sh $@)
+      cmd_genvers = ($(if $(KBUILD_EXTMOD),,$(srctree)/)$(src)/../mkvers.sh rwnx_version_gen.h $@)
 
 $(obj)/rwnx_main.o: $(obj)/rwnx_version_gen.h
 
