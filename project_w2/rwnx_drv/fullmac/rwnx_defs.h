@@ -30,6 +30,7 @@
 #include "rwnx_platform.h"
 #include "rwnx_cmds.h"
 #include "ipc_host.h"
+#include "fi_cmd.h"
 
 #define WPI_HDR_LEN    18
 #define WPI_PN_LEN     16
@@ -51,6 +52,14 @@
 
 // Maximum number of interface at driver level
 #define NX_ITF_MAX (NX_VIRT_DEV_MAX + MAX_AP_VLAN_ITF)
+#define WIFI_CONF_PATH "/vendor/etc/wifi/w2"
+
+
+enum wifi_module_sn {
+      MODULE_ITON = 0X1,
+      MODULE_AMPAK,
+      MODULE_FN_LINK,
+};
 
 /**
  * struct rwnx_bcn - Information of the beacon in used (AP mode)
@@ -353,6 +362,7 @@ struct rwnx_rx_rate_stats {
 struct rwnx_sta_stats {
     u32 rx_pkts;
     u32 tx_pkts;
+    u32 tx_fails;
     u64 rx_bytes;
     u64 tx_bytes;
     unsigned long last_act;
@@ -360,6 +370,14 @@ struct rwnx_sta_stats {
 #ifdef CONFIG_RWNX_DEBUGFS
     struct rwnx_rx_rate_stats rx_rate;
 #endif
+    u32_l bcn_interval;
+    u8_l bw_max;
+    u32_l dtim;
+    u8_l format_mod;
+    u8_l mcs_max;
+    u8_l no_ss;
+    u8_l short_gi;
+    u32_l leg_rate;
 };
 
 /**
@@ -695,9 +713,39 @@ struct rwnx_hw {
     struct rwnx_ipc_buf scan_ie;
     struct rwnx_ipc_buf_pool txcfm_pool;
 
+#if !defined(CONFIG_RWNX_PCIE_MODE)
+    u32 irq;
+    struct ipc_e2a_msg g_msg;
+    struct ipc_dbg_msg g_dbg_msg;
+    struct radar_pulse_array_desc g_pulses;
+    struct list_head tx_desc_save;
+    int radar_pulse_index;
+
+    struct task_struct *rwnx_task;
+    struct task_struct *rwnx_tx_task;
+    struct task_struct *rwnx_tx_cfm_task;
+    struct task_struct *rwnx_msg_task;
+
+    struct semaphore rwnx_tx_cfm_sem;
+    struct semaphore rwnx_msg_sem;
+    struct semaphore rwnx_task_sem;
+    struct semaphore rwnx_tx_task_sem;
+
+#if defined(CONFIG_RWNX_USB_MODE)
+    struct urb *g_urb;
+    struct usb_ctrlrequest *g_cr;
+    unsigned char *g_buffer;
+#endif
+#endif
+
     // Debug FS and stats
     struct rwnx_debugfs debugfs;
     struct rwnx_stats stats;
+#ifdef TEST_MODE
+    // for pcie dma pressure test
+    struct rwnx_ipc_buf pcie_prssr_test;
+    void * pcie_prssr_ul_addr;
+#endif
 };
 
 u8 *rwnx_build_bcn(struct rwnx_bcn *bcn, struct cfg80211_beacon_data *new);
@@ -729,5 +777,13 @@ static inline void *rwnx_get_shared_trace_buf(struct rwnx_hw *rwnx_hw)
 
 void rwnx_external_auth_enable(struct rwnx_vif *vif);
 void rwnx_external_auth_disable(struct rwnx_vif *vif);
+
+enum interface_type{
+    SDIO_MODE,
+    USB_MODE,
+    PCIE_MODE
+};
+
+extern unsigned int aml_bus_type;
 
 #endif /* _RWNX_DEFS_H_ */

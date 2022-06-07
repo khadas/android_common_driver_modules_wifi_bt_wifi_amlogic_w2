@@ -17,6 +17,8 @@
 #include "rwnx_bfmer.h"
 #endif //(CONFIG_RWNX_BFMER)
 #include "rwnx_compat.h"
+#include "fi_cmd.h"
+#include "share_mem_map.h"
 
 const struct mac_addr mac_addr_bcst = {{0xFFFF, 0xFFFF, 0xFFFF}};
 
@@ -109,6 +111,12 @@ static inline bool is_non_blocking_msg(int id)
             (id == MESH_PATH_CREATE_REQ) || (id == MESH_PROXY_ADD_REQ) ||
             (id == SM_EXTERNAL_AUTH_REQUIRED_RSP));
 }
+
+bool rwnx_msg_send_mtheod(int id)
+{
+    return ((id == ME_TRAFFIC_IND_REQ));
+}
+
 
 #ifdef CONFIG_RWNX_FULLMAC
 /**
@@ -387,11 +395,18 @@ static int rwnx_send_msg(struct rwnx_hw *rwnx_hw, const void *msg_params,
     struct lmac_msg *msg;
     struct rwnx_cmd *cmd;
     bool nonblock;
+    bool call_thread;
     int ret;
 
     RWNX_DBG(RWNX_FN_ENTRY_STR);
 
     msg = container_of((void *)msg_params, struct lmac_msg, param);
+    if (rwnx_hw->state > WIFI_SUSPEND_STATE_NONE && (*(msg->param) != MM_SUB_SET_SUSPEND_REQ)
+        && (*(msg->param) != MM_SUB_SCANU_CANCEL_REQ)) {
+        printk("driver in suspend, cmd not allow to send, id:%d\n", msg->id);
+        kfree(msg);
+        return -EBUSY;
+    }
 
     if (!test_bit(RWNX_DEV_STARTED, (void*)&rwnx_hw->flags) &&
         reqid != MM_RESET_CFM && reqid != MM_VERSION_CFM &&
@@ -409,10 +424,12 @@ static int rwnx_send_msg(struct rwnx_hw *rwnx_hw, const void *msg_params,
     }
 
     nonblock = is_non_blocking_msg(msg->id);
+    call_thread = rwnx_msg_send_mtheod(msg->id);
 
     cmd = kzalloc(sizeof(struct rwnx_cmd), nonblock ? GFP_ATOMIC : GFP_KERNEL);
     if (!cmd) {
-         return -ENOMEM;
+        kfree(msg);
+        return -ENOMEM;
     }
     memset(cmd, 0, sizeof(struct rwnx_cmd));
 
@@ -425,6 +442,8 @@ static int rwnx_send_msg(struct rwnx_hw *rwnx_hw, const void *msg_params,
         cmd->flags = RWNX_CMD_FLAG_NONBLOCK;
     if (reqcfm)
         cmd->flags |= RWNX_CMD_FLAG_REQ_CFM;
+    if (call_thread)
+        cmd->flags |= RWNX_CMD_FLAG_CALL_THREAD;
     ret = rwnx_hw->cmd_mgr.queue(&rwnx_hw->cmd_mgr, cmd);
 
     if (!ret)
@@ -448,7 +467,7 @@ static int rwnx_send_msg(struct rwnx_hw *rwnx_hw, const void *msg_params,
  * @return status
  ******************************************************************************
  */
-static int rwnx_priv_send_msg(struct rwnx_hw *rwnx_hw, const void *msg_params,
+int rwnx_priv_send_msg(struct rwnx_hw *rwnx_hw, const void *msg_params,
                          int reqcfm, lmac_msg_id_t reqid, void *cfm)
 {
     void *msg;
@@ -639,11 +658,11 @@ int rwnx_send_set_channel(struct rwnx_hw *rwnx_hw, int phy_idx,
     if (rwnx_hw->phy.limit_bw)
         limit_chan_bw(&req->chan.type, req->chan.prim20_freq, &req->chan.center1_freq);
 
-    RWNX_DBG("mac80211:   freq=%d(c1:%d - c2:%d)/width=%d - band=%d\n"
-             "   hw(%d): prim20=%d(c1:%d - c2:%d)/ type=%d - band=%d\n",
-             center_freq, center_freq1, center_freq2, width, band,
-             phy_idx, req->chan.prim20_freq, req->chan.center1_freq,
-             req->chan.center2_freq, req->chan.type, req->chan.band);
+    //RWNX_DBG("mac80211:   freq=%d(c1:%d - c2:%d)/width=%d - band=%d\n"
+    //         "   hw(%d): prim20=%d(c1:%d - c2:%d)/ type=%d - band=%d\n",
+    //         center_freq, center_freq1, center_freq2, width, band,
+    //         phy_idx, req->chan.prim20_freq, req->chan.center1_freq,
+    //         req->chan.center2_freq, req->chan.type, req->chan.band);
 
     /* Send the MM_SET_CHANNEL_REQ REQ message to LMAC FW */
     /* coverity[leaked_storage] - req will be freed later */
@@ -1517,6 +1536,7 @@ int rwnx_send_scan_req(struct rwnx_hw *rwnx_hw, struct ieee80211_vif *vif,
         req->ssid[i].length = param->ssids[i].ssid_len;
     }
 
+    printk("chris param->ie_len:%d\n", param->ie_len);
     if (param->ie) {
         if (rwnx_ipc_buf_a2e_alloc(rwnx_hw, &rwnx_hw->scan_ie,
                                    param->ie_len, param->ie)) {
@@ -2354,14 +2374,24 @@ int rwnx_send_scanu_req(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
     }
 
     if (param->ie) {
+#if ((!defined(CONFIG_RWNX_USB_MODE)) && (!defined(CONFIG_RWNX_SDIO_MODE)))
         if (rwnx_ipc_buf_a2e_alloc(rwnx_hw, &rwnx_hw->scan_ie,
                                    param->ie_len, param->ie)) {
             netdev_err(rwnx_vif->ndev, "Failed to allocate IPC buf for SCAN IEs\n");
             goto error;
         }
+#endif
 
         req->add_ie_len = param->ie_len;
         req->add_ies = rwnx_hw->scan_ie.dma_addr;
+
+#ifdef CONFIG_RWNX_USB_MODE
+        rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)param->ie, (unsigned char *)SCANU_ADD_IE, param->ie_len, USB_EP4);
+#endif
+#ifdef CONFIG_RWNX_SDIO_MODE
+        rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)param->ie, (unsigned char *)SCANU_ADD_IE, param->ie_len);
+#endif
+
     } else {
         req->add_ie_len = 0;
         req->add_ies = 0;
@@ -2379,10 +2409,14 @@ int rwnx_send_scanu_req(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
     /* Send the SCANU_START_REQ message to LMAC FW */
     /* coverity[leaked_storage] - req will be freed later */
     return rwnx_send_msg(rwnx_hw, req, 0, 0, NULL);
+
+#if ((!defined(CONFIG_RWNX_USB_MODE)) && (!defined(CONFIG_RWNX_SDIO_MODE)))
 error:
     if (req != NULL)
         rwnx_msg_free(rwnx_hw, req);
     /* coverity[leaked_storage] - req have already freed */
+#endif
+
     return -ENOMEM;
 }
 
@@ -3137,6 +3171,9 @@ int aml_rf_reg_read(struct net_device *dev, int addr)
     struct rwnx_vif *rwnx_vif = netdev_priv(dev);
     struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
     struct rf_read_req *rf_read_param;
+    struct rf_read_result_ind ind;
+
+    memset(&ind, 0, sizeof(struct rf_read_result_ind));
 
     rf_read_param = rwnx_priv_msg_zalloc(MM_SUB_RF_READ, sizeof(struct rf_read_req));
     if (!rf_read_param)
@@ -3144,12 +3181,17 @@ int aml_rf_reg_read(struct net_device *dev, int addr)
 
     rf_read_param->rf_addr = addr;
     /* coverity[leaked_storage] - rf_read_param will be freed later */
-    return rwnx_priv_send_msg(rwnx_hw, rf_read_param, 0, 0, NULL);
+    rwnx_priv_send_msg(rwnx_hw, rf_read_param, 1, PRIV_RF_READ_RESULT, &ind);
+
+    if (ind.rf_addr != addr) {
+         printk("get_rf_reg:%x erro!\n");
+    }
+
+    return ind.rf_data;
 }
 
-int aml_scan_hang(struct net_device *dev, int scan_hang)
+int aml_scan_hang(struct rwnx_vif *rwnx_vif, int scan_hang)
 {
-    struct rwnx_vif *rwnx_vif = netdev_priv(dev);
     struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
     struct scan_hang_req *scan_hang_param;
 
@@ -3184,7 +3226,7 @@ int rwnx_send_suspend_req(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif, enum wi
 }
 
 int rwnx_send_wow_pattern (struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif,
-                        struct cfg80211_pkt_pattern *param, int id)
+    struct cfg80211_pkt_pattern *param, int id)
 {
     struct mm_set_wow_pattern *req;
     int mask_len = 0;
@@ -3247,6 +3289,79 @@ int rwnx_send_arp_agent_req(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif, u8 en
     return rwnx_priv_send_msg(rwnx_hw, req, 0, 0, NULL);
 }
 
+int rwnx_get_sched_scan_req(struct rwnx_vif *rwnx_vif, struct cfg80211_sched_scan_request *request,
+    struct scanu_sched_scan_start_req *sched_start_req)
+{
+    struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
+    struct scanu_start_req *req = &sched_start_req->scanu_req;
+    int i;
+    uint8_t chan_flags = 0;
+
+    sched_start_req->reqid = request->reqid;
+
+     /* Set parameters */
+    req->vif_idx = rwnx_vif->vif_index;
+    req->chan_cnt = (u8)min_t(int, SCAN_CHANNEL_MAX, request->n_channels);
+    req->ssid_cnt = (u8)min_t(int, SCAN_SSID_MAX, request->n_ssids);
+    req->bssid = mac_addr_bcst;
+
+    if (req->ssid_cnt == 0)
+        chan_flags |= CHAN_NO_IR;
+    for (i = 0; i < req->ssid_cnt; i++) {
+        int j;
+        for (j = 0; j < request->ssids[i].ssid_len; j++)
+            req->ssid[i].array[j] = request->ssids[i].ssid[j];
+        req->ssid[i].length = request->ssids[i].ssid_len;
+    }
+
+    if (request->ie) {
+        if (rwnx_ipc_buf_a2e_alloc(rwnx_hw, &rwnx_hw->scan_ie,
+                                   request->ie_len, request->ie)) {
+            netdev_err(rwnx_vif->ndev, "Failed to allocate IPC buf for SCAN IEs\n");
+            goto error;
+        }
+
+        req->add_ie_len = request->ie_len;
+        req->add_ies = rwnx_hw->scan_ie.dma_addr;
+    } else {
+        req->add_ie_len = 0;
+        req->add_ies = 0;
+    }
+
+    for (i = 0; i < req->chan_cnt; i++) {
+        struct ieee80211_channel *chan = request->channels[i];
+
+        req->chan[i].band = chan->band;
+        req->chan[i].freq = chan->center_freq;
+        req->chan[i].flags = chan_flags | get_chan_flags(chan->flags);
+        req->chan[i].tx_power = chan_to_fw_pwr(chan->max_reg_power);
+    }
+
+    sched_start_req->n_scan_plans = (u8)min_t(int, MAX_SCHED_SCAN_PLANS,request->n_scan_plans);
+    sched_start_req->match_count = (u8)min_t(int, MAX_MATCH_COUNT,request->n_match_sets);
+
+    for (i = 0; i < sched_start_req->n_scan_plans; i++) {
+        sched_start_req->scan_plans[i].interval = request->scan_plans[i].interval;
+        sched_start_req->scan_plans[i].iterations = request->scan_plans[i].iterations;
+    }
+
+     for (i = 0; i < sched_start_req->match_count; i++) {
+        sched_start_req->match_sets[i].rssiThreshold = request->match_sets[i].rssi_thold;
+
+        memcpy(&sched_start_req->match_sets[i].bssid.array[0], request->match_sets[i].bssid, ETH_ALEN);
+
+        sched_start_req->match_sets[i].ssId.length = request->match_sets[i].ssid.ssid_len;
+        memcpy(&sched_start_req->match_sets[i].ssId.array[0],
+               request->match_sets[i].ssid.ssid,
+               request->match_sets[i].ssid.ssid_len);
+    }
+
+    return 0;
+error:
+        rwnx_msg_free(rwnx_hw, req);
+        return -ENOMEM;
+}
+
 int rwnx_set_rekey_data(struct rwnx_vif *rwnx_vif, const u8 *kek, const u8 *kck, const u8 *replay_ctr)
 {
     struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
@@ -3264,5 +3379,410 @@ int rwnx_set_rekey_data(struct rwnx_vif *rwnx_vif, const u8 *kek, const u8 *kck,
 
     /* coverity[leaked_storage] - rekey_data will be freed later */
     return rwnx_priv_send_msg(rwnx_hw, rekey_data, 0, 0, NULL);
+}
+
+int rwnx_tko_config_req(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif,
+                u16 interval, u16 retry_interval, u16 retry_count)
+{
+    struct tko_config_req *req;
+
+    req = rwnx_priv_msg_zalloc(MM_SUB_TKO_CONFIG_REQ, sizeof(struct tko_config_req));
+    if (!req)
+        return -ENOMEM;
+
+    req->interval = interval;
+    req->retry_interval = retry_interval;
+    req->retry_count = retry_count;
+
+    /* coverity[leaked_storage] - req will be freed later */
+    return rwnx_priv_send_msg(rwnx_hw, req, 0, 0, NULL);
+}
+
+int rwnx_tko_activate_req(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif, u8 active)
+{
+    struct tko_activate_req *req;
+
+    req = rwnx_priv_msg_zalloc(MM_SUB_TKO_ACTIVATE_REQ, sizeof(struct tko_activate_req));
+    if (!req)
+        return -ENOMEM;
+
+    req->active = active;
+
+    /* coverity[leaked_storage] - req will be freed later */
+    return rwnx_priv_send_msg(rwnx_hw, req, 0, 0, NULL);
+}
+
+int rwnx_set_cali_param_req(struct rwnx_hw *rwnx_hw, struct Cali_Param *cali_param)
+{
+    struct Cali_Param *req;
+    req = rwnx_priv_msg_zalloc(MM_SUB_SET_CALI_REQ, sizeof(struct Cali_Param));
+
+    if (!req)
+        return -ENOMEM;
+
+    memcpy(req, cali_param, sizeof(struct Cali_Param));
+    /* coverity[leaked_storage] - req will be freed later */
+    return rwnx_priv_send_msg(rwnx_hw, req, 0, 0, NULL);
+}
+
+int rwnx_get_efuse(struct rwnx_vif *rwnx_vif, u32 addr)
+{
+    struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
+    struct get_efuse_req *req = NULL;
+
+    req = rwnx_priv_msg_zalloc(MM_SUB_GET_EFUSE, sizeof(struct get_efuse_req));
+    if (!req)
+        return -ENOMEM;
+
+    memset((void *)req, 0,sizeof(struct get_efuse_req));
+    req->addr = addr;
+
+    /* coverity[leaked_storage] - req will be freed later */
+    return rwnx_priv_send_msg(rwnx_hw, req, 0, 0, NULL);
+}
+
+int rwnx_set_efuse(struct rwnx_vif *rwnx_vif, u32 addr, u32 value)
+{
+    struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
+    struct set_efuse_req *req = NULL;
+
+    req = rwnx_priv_msg_zalloc(MM_SUB_SET_EFUSE, sizeof(struct set_efuse_req));
+    if (!req)
+        return -ENOMEM;
+
+    memset((void *)req, 0,sizeof(struct set_efuse_req));
+    req->addr = addr;
+    req->value = value;
+
+    /* coverity[leaked_storage] - req will be freed later */
+    return rwnx_priv_send_msg(rwnx_hw, req, 0, 0, NULL);
+}
+
+int rwnx_recovery(struct rwnx_vif *rwnx_vif)
+{
+    struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
+    struct recovery *req = NULL;
+
+    req = rwnx_priv_msg_zalloc(MM_SUB_RECOVERY, sizeof(struct recovery));
+    if (!req)
+        return -ENOMEM;
+
+    memset((void *)req, 0,sizeof(struct recovery));
+    req->vif_idx = rwnx_vif->vif_index;
+
+    /* coverity[leaked_storage] - req will be freed later */
+    return rwnx_priv_send_msg(rwnx_hw, req, 0, 0, NULL);
+}
+
+int rwnx_set_macbypass(struct rwnx_vif *rwnx_vif, int format_type, int bandwidth, int rate, int siso_or_mimo)
+{
+    struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
+    struct set_macbypass *macbypass = NULL;
+
+    macbypass = rwnx_priv_msg_zalloc(MM_SUB_SET_MACBYPASS, sizeof(struct set_macbypass));
+    if (!macbypass)
+        return -ENOMEM;
+
+    memset((void *)macbypass, 0,sizeof(struct set_macbypass));
+    macbypass->format_type = (u8_l)format_type;
+    macbypass->bandwidth = (u8_l)bandwidth;
+    macbypass->rate = (u8_l)rate;
+    macbypass->siso_or_mimo = (u8_l)siso_or_mimo;
+
+    /* coverity[leaked_storage] - macbypass will be freed later */
+    return rwnx_priv_send_msg(rwnx_hw, macbypass, 0, 0, NULL);
+}
+
+int rwnx_set_stop_macbypass(struct rwnx_vif *rwnx_vif)
+{
+    struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
+    struct set_stop_macbypass *stop_macbypass = NULL;
+
+    stop_macbypass = rwnx_priv_msg_zalloc(MM_SUB_SET_STOP_MACBYPASS, sizeof(struct set_stop_macbypass));
+    if (!stop_macbypass)
+        return -ENOMEM;
+
+    memset((void *)stop_macbypass, 0,sizeof(struct set_stop_macbypass));
+    stop_macbypass->vif_idx = rwnx_vif->vif_index;
+
+    /* coverity[leaked_storage] - req will be freed later */
+    return rwnx_priv_send_msg(rwnx_hw, stop_macbypass, 0, 0, NULL);
+
+}
+
+
+int rwnx_send_sched_scan_req(struct rwnx_vif *rwnx_vif,
+    struct cfg80211_sched_scan_request *request)
+{
+    struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
+    struct scanu_sched_scan_start_req *sched_start_req;
+
+    sched_start_req =  rwnx_priv_msg_zalloc(SCANU_SCHED_START_REQ, sizeof(struct scanu_sched_scan_start_req));
+    if (!sched_start_req)
+        return -ENOMEM;
+
+    if (rwnx_get_sched_scan_req(rwnx_vif, request, sched_start_req)) {
+        /* coverity[leaked_storage] - sched_start_req have be freed*/
+        return -ENOMEM;
+    }
+
+    /* coverity[leaked_storage] - sched_start_req will be freed later */
+    return rwnx_priv_send_msg(rwnx_hw, sched_start_req, 0, 0, NULL);
+}
+
+int rwnx_send_sched_scan_stop_req(struct rwnx_vif *rwnx_vif, u64 reqid)
+{
+    struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
+    struct scanu_sched_scan_stop_req *sched_scan_stop_req;
+
+    sched_scan_stop_req =  rwnx_priv_msg_zalloc(SCANU_SCHED_STOP_REQ, sizeof(struct scanu_sched_scan_stop_req));
+    if (!sched_scan_stop_req)
+        return -ENOMEM;
+
+    sched_scan_stop_req->vif_idx = rwnx_vif->vif_index;
+    sched_scan_stop_req->reqid = reqid;
+
+    /* coverity[leaked_storage] - sched_start_req will be freed later */
+    return rwnx_priv_send_msg(rwnx_hw, sched_scan_stop_req, 0, 0, NULL);
+}
+int rwnx_set_amsdu_tx(struct rwnx_hw *rwnx_hw, u8 amsdu_tx)
+{
+    struct set_amsdu_tx_req *req = NULL;
+    req = rwnx_priv_msg_zalloc(MM_SUB_SET_AMSDU_TX, sizeof(struct set_efuse_req));
+    if (!req)
+      return -ENOMEM;
+
+    memset(req, 0, sizeof(struct set_amsdu_tx_req));
+    req->amsdu_tx = amsdu_tx;
+    /* coverity[leaked_storage] - req will be freed later */
+    return rwnx_priv_send_msg(rwnx_hw, req, 0, 0, NULL);
+}
+
+int rwnx_set_tx_lft(struct rwnx_hw *rwnx_hw, u32 tx_lft)
+{
+    struct set_tx_lft_req *req = NULL;
+    req = rwnx_priv_msg_zalloc(MM_SUB_SET_TX_LFT, sizeof(struct set_tx_lft_req));
+    if (!req)
+        return -ENOMEM;
+
+    memset(req, 0, sizeof(struct set_tx_lft_req));
+    req->tx_lft = tx_lft;
+    /* coverity[leaked_storage] - req will be freed later */
+    return rwnx_priv_send_msg(rwnx_hw, req, 0, 0, NULL);
+}
+
+
+int rwnx_set_ldpc_tx(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif)
+{
+    struct ldpc_config_req *req;
+    struct wiphy *wiphy = rwnx_hw->wiphy;
+    struct ieee80211_sta_ht_cap *ht_cap = &wiphy->bands[NL80211_BAND_5GHZ]->ht_cap;
+    struct ieee80211_sta_vht_cap *vht_cap = &wiphy->bands[NL80211_BAND_5GHZ]->vht_cap;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+    struct ieee80211_sta_he_cap const *he_cap;
+#endif
+    uint8_t *ht_mcs = (uint8_t *)&ht_cap->mcs;
+    int i;
+
+    RWNX_DBG(RWNX_FN_ENTRY_STR);
+
+    /* Build the ME_CONFIG_REQ message */
+    req = rwnx_priv_msg_zalloc(MM_SUB_SET_LDPC, sizeof(struct ldpc_config_req));
+    if (!req)
+        return -ENOMEM;
+
+    /* Set parameters for the ME_CONFIG_REQ message */
+    req->ht_supp = ht_cap->ht_supported;
+    req->vht_supp = vht_cap->vht_supported;
+    req->ht_cap.ht_capa_info = cpu_to_le16(ht_cap->cap);
+    req->ht_cap.a_mpdu_param = ht_cap->ampdu_factor |
+                                     (ht_cap->ampdu_density <<
+                                         IEEE80211_HT_AMPDU_PARM_DENSITY_SHIFT);
+    for (i = 0; i < sizeof(ht_cap->mcs); i++)
+        req->ht_cap.mcs_rate[i] = ht_mcs[i];
+    req->ht_cap.ht_extended_capa = 0;
+    req->ht_cap.tx_beamforming_capa = 0;
+    req->ht_cap.asel_capa = 0;
+
+    req->vht_cap.vht_capa_info = cpu_to_le32(vht_cap->cap);
+    req->vht_cap.rx_highest = cpu_to_le16(vht_cap->vht_mcs.rx_highest);
+    req->vht_cap.rx_mcs_map = cpu_to_le16(vht_cap->vht_mcs.rx_mcs_map);
+    req->vht_cap.tx_highest = cpu_to_le16(vht_cap->vht_mcs.tx_highest);
+    req->vht_cap.tx_mcs_map = cpu_to_le16(vht_cap->vht_mcs.tx_mcs_map);
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+    if (wiphy->bands[NL80211_BAND_5GHZ]->iftype_data != NULL) {
+        he_cap = &wiphy->bands[NL80211_BAND_5GHZ]->iftype_data->he_cap;
+
+        req->he_supp = he_cap->has_he;
+        for (i = 0; i < ARRAY_SIZE(he_cap->he_cap_elem.mac_cap_info); i++) {
+            req->he_cap.mac_cap_info[i] = he_cap->he_cap_elem.mac_cap_info[i];
+        }
+        for (i = 0; i < ARRAY_SIZE(he_cap->he_cap_elem.phy_cap_info); i++) {
+            req->he_cap.phy_cap_info[i] = he_cap->he_cap_elem.phy_cap_info[i];
+        }
+        req->he_cap.mcs_supp.rx_mcs_80 = cpu_to_le16(he_cap->he_mcs_nss_supp.rx_mcs_80);
+        req->he_cap.mcs_supp.tx_mcs_80 = cpu_to_le16(he_cap->he_mcs_nss_supp.tx_mcs_80);
+        req->he_cap.mcs_supp.rx_mcs_160 = cpu_to_le16(he_cap->he_mcs_nss_supp.rx_mcs_160);
+        req->he_cap.mcs_supp.tx_mcs_160 = cpu_to_le16(he_cap->he_mcs_nss_supp.tx_mcs_160);
+        req->he_cap.mcs_supp.rx_mcs_80p80 = cpu_to_le16(he_cap->he_mcs_nss_supp.rx_mcs_80p80);
+        req->he_cap.mcs_supp.tx_mcs_80p80 = cpu_to_le16(he_cap->he_mcs_nss_supp.tx_mcs_80p80);
+        for (i = 0; i < MAC_HE_PPE_THRES_MAX_LEN; i++) {
+            req->he_cap.ppe_thres[i] = he_cap->ppe_thres[i];
+        }
+    }
+#else
+    req->he_supp = false;
+#endif
+    if (rwnx_hw->mod_params->use_80)
+        req->phy_bw_max = PHY_CHNL_BW_80;
+    else if (rwnx_hw->mod_params->use_2040)
+        req->phy_bw_max = PHY_CHNL_BW_40;
+    else
+        req->phy_bw_max = PHY_CHNL_BW_20;
+
+    req->vif_idx = rwnx_vif->vif_index;
+    /* coverity[leaked_storage] - req will be freed later */
+    return rwnx_priv_send_msg(rwnx_hw, req, 0, 0, NULL);
+}
+
+int rwnx_set_stbc(struct rwnx_hw *rwnx_hw, u8 vif_idx, u8 stbc_on)
+{
+    struct set_stbc_req *req = NULL;
+    req = rwnx_priv_msg_zalloc(MM_SUB_SET_STBC_ON, sizeof(struct set_stbc_req));
+
+    if (!req)
+      return -ENOMEM;
+
+    memset(req, 0, sizeof(struct set_stbc_req));
+    req->stbc_on = stbc_on;
+    req->vif_idx = vif_idx;
+
+    /* coverity[leaked_storage] - req will be freed later */
+    return rwnx_priv_send_msg(rwnx_hw, req, 0, 0, NULL);
+}
+
+int rwnx_tko_activate(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif, u8 active)
+{
+    struct tko_activate_req *req;
+
+    req = rwnx_priv_msg_zalloc(MM_SUB_TKO_ACTIVATE_REQ, sizeof(struct tko_activate_req));
+    if (!req)
+        return -ENOMEM;
+
+    req->active = active;
+
+    return rwnx_priv_send_msg(rwnx_hw, req, 0, 0, NULL);
+}
+
+
+#ifdef TEST_MODE
+int aml_pcie_dl_malloc_test(struct rwnx_hw *rwnx_hw, int start_addr, int len, u32_l payload)
+{
+    u32_l * read_addr;
+    struct pcie_dl_req *pcie_dl_param = NULL;
+
+    rwnx_ipc_buf_alloc(rwnx_hw, &rwnx_hw->pcie_prssr_test, len, DMA_TO_DEVICE, NULL);
+    memset(rwnx_hw->pcie_prssr_test.addr, payload , len);
+    pcie_dl_param = rwnx_priv_msg_zalloc(MM_SUB_PCIE_DL_TEST, sizeof(struct pcie_dl_req));
+    if (!pcie_dl_param)
+        return -ENOMEM;
+    pcie_dl_param->dma_addr = rwnx_hw->pcie_prssr_test.dma_addr;
+    pcie_dl_param->start_addr = start_addr;
+    pcie_dl_param->len = len - 4;
+    read_addr = (u32_l *)rwnx_hw->pcie_prssr_test.addr;
+    pcie_dl_param->payload = *(read_addr);
+    printk("%s,%d---dma_addr:%lx, start_addr:%lx \n",__func__,__LINE__,pcie_dl_param->dma_addr,pcie_dl_param->start_addr);
+    printk("%s---dma_addr_payload:%x \n",__func__,*(read_addr));
+    return rwnx_priv_send_msg(rwnx_hw, pcie_dl_param, 0, 0, NULL);
+}
+
+int aml_pcie_ul_malloc_test(struct rwnx_hw *rwnx_hw, int start_addr, int len, u32_l payload)
+{
+    struct pcie_ul_req *pcie_ul_param = NULL;
+
+    rwnx_ipc_buf_alloc(rwnx_hw, &rwnx_hw->pcie_prssr_test, len, DMA_FROM_DEVICE, NULL);
+    pcie_ul_param = rwnx_priv_msg_zalloc(MM_SUB_PCIE_UL_TEST, sizeof(struct pcie_ul_req));
+    if (!pcie_ul_param)
+        return -ENOMEM;
+    rwnx_hw->pcie_prssr_ul_addr = rwnx_hw->pcie_prssr_test.addr;
+    pcie_ul_param->dest_addr = rwnx_hw->pcie_prssr_test.dma_addr;
+    pcie_ul_param->src_addr = start_addr;
+    pcie_ul_param->len = len;
+    pcie_ul_param->payload = payload;
+    printk("%s,%d---dest_addr:%lx, src_addr:%lx",__func__,__LINE__,pcie_ul_param->dest_addr,pcie_ul_param->src_addr);
+    printk("%s---dma_addr_payload:%x",__func__, payload);
+    return rwnx_priv_send_msg(rwnx_hw, pcie_ul_param, 0, 0, NULL);
+}
+
+int aml_pcie_prssr_test(struct net_device *dev, int start_addr, int len, u32_l payload)
+{
+    struct rwnx_vif *rwnx_vif = netdev_priv(dev);
+    struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
+
+    //len:
+    //bit0: meaning dma direction, 0 is upload, 1 is download;
+    //bit1 ~ bit31:meaning dma download or upload length.
+    u8_l dir = len & BIT(0);
+    len = len >> 1;
+
+    printk("%s,%d, dir: %d, length: %d \n",__func__, __LINE__, dir, len);
+    if(dir == 1)
+    {
+        aml_pcie_dl_malloc_test(rwnx_hw, start_addr, len, payload);
+    }
+    else if (dir == 0)
+    {
+        aml_pcie_ul_malloc_test(rwnx_hw, start_addr, len, payload);
+    }
+    return 0;
+}
+#endif
+
+int aml_coex_cmd(struct net_device *dev, u32_l coex_cmd, u32_l cmd_ctxt_1, u32_l cmd_ctxt_2)
+{
+    struct rwnx_vif *rwnx_vif = netdev_priv(dev);
+    struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
+    struct coex_cmd_req *coex_cmd_param = NULL;
+
+    coex_cmd_param = rwnx_priv_msg_zalloc(MM_SUB_COEX_CMD, sizeof(struct coex_cmd_req));
+    if (!coex_cmd_param)
+        return -ENOMEM;
+    coex_cmd_param->coex_cmd = coex_cmd;
+    coex_cmd_param->cmd_txt_1 = cmd_ctxt_1;
+    coex_cmd_param->cmd_txt_2 = cmd_ctxt_2;
+    printk("%s,%d, coex_cmd: %d, cmd_ctxt_1:%X, cmd_ctxt_2:%X",__func__, __LINE__, coex_cmd, cmd_ctxt_1, cmd_ctxt_2);
+    return rwnx_priv_send_msg(rwnx_hw, coex_cmd_param, 0, 0, NULL);
+}
+
+int rwnx_set_pt_calibration(struct rwnx_vif *rwnx_vif, int pt_cali_val)
+{
+    struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
+    struct set_pt_calibration *pt_calibration;
+
+    pt_calibration = rwnx_priv_msg_zalloc(MM_SUB_SET_PT_CALIBRATION, sizeof(struct set_pt_calibration));
+
+    if (!pt_calibration)
+        return -ENOMEM;
+
+    memset((void *)pt_calibration, 0,sizeof(struct set_pt_calibration));
+    pt_calibration->pt_cali_cfg = (u32_l)pt_cali_val;
+
+    return rwnx_priv_send_msg(rwnx_hw, pt_calibration, 0, 0, NULL);
+}
+
+int rwnx_send_notify_ip(struct rwnx_vif *rwnx_vif,u8_l ip_ver,u8_l*ip_addr)
+{
+    struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
+    notify_ip_addr_t *notify_ip_addr;
+    notify_ip_addr =  rwnx_priv_msg_zalloc( MM_SUB_NOTIFY_IP, sizeof(notify_ip_addr_t));
+    if (!notify_ip_addr) {
+        return -ENOMEM;
+    }
+
+    notify_ip_addr->vif_idx = rwnx_vif->vif_index;
+    notify_ip_addr->ip_ver = ip_ver;
+    memcpy(notify_ip_addr->ipv4_addr,ip_addr,IPV4_ADDR_LEN);
+    return rwnx_priv_send_msg(rwnx_hw, notify_ip_addr, 0, 0, NULL);
 }
 

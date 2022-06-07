@@ -15,6 +15,21 @@
 #include "hal_desc.h"
 #include "ipc_shared.h"
 
+#define STAT_VAL_OFFSET     36
+#define RX_STAT_DESC_LEN    48
+#define RX_HEADER_OFFSET    28
+#define RX_PAYLOAD_OFFSET   144
+
+ struct drv_stat_val
+{
+    /// Host Buffer Address
+    uint32_t host_id;
+    /// Length
+    uint32_t frame_len;
+    /// Status (@ref rx_status_bits)
+    uint16_t status;
+};
+
 enum rx_status_bits
 {
     /// The buffer can be forwarded to the networking stack

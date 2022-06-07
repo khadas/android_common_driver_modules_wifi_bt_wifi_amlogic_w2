@@ -20,6 +20,7 @@
 #include "rwnx_utils.h"
 #include "rwnx_events.h"
 #include "rwnx_compat.h"
+#include "share_mem_map.h"
 
 struct vendor_radiotap_hdr {
     u8 oui[3];
@@ -987,7 +988,309 @@ u8 rwnx_unsup_rx_vec_ind(void *pthis, void *arg) {
     rwnx_ipc_unsuprxvec_alloc(rwnx_hw, ipc_buf);
     return 0;
 }
+#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
+/**
+ * rwnx_rxdataind - Process rx buffer
+ *
+ * @pthis: Pointer to the object attached to the IPC structure
+ *         (points to struct rwnx_hw is this case)
+ * @arg: Address of the RX descriptor
+ *
+ * This function is called for each buffer received by the fw
+ *
+ */
+uint8_t drv_rxdesc_idx;
+uint32_t g_exit_cnt;
 
+u8 rwnx_rxdataind(void *pthis, void *arg)
+{
+    struct rwnx_hw *rwnx_hw = pthis;
+    struct hw_rxhdr *hw_rxhdr;
+    struct rwnx_vif *rwnx_vif;
+    struct sk_buff *skb;
+    int msdu_offset = sizeof(struct hw_rxhdr) + 2;
+    u16_l status;
+    unsigned int addr;
+    struct drv_stat_val buf;
+    size_t sync_len;
+    struct drv_stat_val reset = {0};
+    uint8_t eth_hdr_offset = 0;
+
+    REG_SW_SET_PROFILING(rwnx_hw, SW_PROF_RWNXDATAIND);
+
+    addr = RXU_STAT_DESC_POOL + STAT_VAL_OFFSET + (drv_rxdesc_idx  * RX_STAT_DESC_LEN);
+    drv_rxdesc_idx = (drv_rxdesc_idx + 1) % IPC_RXDESC_CNT;
+
+#if defined(CONFIG_RWNX_USB_MODE)
+    rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)&buf, (unsigned char *)(unsigned long)addr, sizeof(struct drv_stat_val), USB_EP4);
+
+#elif defined(CONFIG_RWNX_SDIO_MODE)
+    rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)&buf, (unsigned char *)(unsigned long)addr, sizeof(struct drv_stat_val));
+
+#endif
+    if (!buf.status) {
+      if (drv_rxdesc_idx > 0)
+          drv_rxdesc_idx = (drv_rxdesc_idx - 1) % IPC_RXDESC_CNT;
+      else
+          drv_rxdesc_idx = IPC_RXDESC_CNT - 1;
+
+        g_exit_cnt++;
+
+        if (g_exit_cnt > 3) {
+            g_exit_cnt = 0;
+            printk("%s, %d, rx err\n", __func__, __LINE__);
+            drv_rxdesc_idx = (drv_rxdesc_idx + 1) % IPC_RXDESC_CNT;
+        }
+        return -1;
+    } else {
+#if defined(CONFIG_RWNX_USB_MODE)
+        rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)&reset, (unsigned char *)(unsigned long)addr, sizeof(struct drv_stat_val), USB_EP4);
+#elif defined(CONFIG_RWNX_SDIO_MODE)
+        rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)&reset, (unsigned char *)(unsigned long)addr, sizeof(struct drv_stat_val));
+#endif
+    }
+
+    g_exit_cnt = 0;
+
+    eth_hdr_offset = buf.frame_len & 0xff;
+    buf.frame_len >>= 8;
+
+    skb = dev_alloc_skb(buf.frame_len + msdu_offset);
+    if (skb == NULL) {
+        printk("%s,%d, skb == NULL\n", __func__, __LINE__);
+        return -ENOMEM;
+    }
+
+#if defined(CONFIG_RWNX_USB_MODE)
+    rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)skb->data, (unsigned char *)(unsigned long)buf.host_id + RX_HEADER_OFFSET, sizeof(struct hw_rxhdr), USB_EP4);
+    rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)skb->data + msdu_offset, (unsigned char *)(unsigned long)buf.host_id + RX_PAYLOAD_OFFSET + eth_hdr_offset, buf.frame_len, USB_EP4);
+#elif defined(CONFIG_RWNX_SDIO_MODE)
+    rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)skb->data, (unsigned char *)(unsigned long)buf.host_id + RX_HEADER_OFFSET, sizeof(struct hw_rxhdr));
+    rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)skb->data + msdu_offset, (unsigned char *)(unsigned long)buf.host_id + RX_PAYLOAD_OFFSET + eth_hdr_offset, buf.frame_len);
+#endif
+
+    status = buf.status;
+
+    printk("%s,%d, status %d\n", __func__, __LINE__, status);
+    hw_rxhdr = (struct hw_rxhdr *)skb->data;
+    printk("%s,%d, frame_en %d len %d\n", __func__, __LINE__, buf.frame_len, hw_rxhdr->hwvect.len);
+
+    /* Check if we need to delete the buffer */
+    if (status & RX_STAT_DELETE) {
+        dev_kfree_skb(skb);
+        goto end;
+    }
+
+    /* Check if we need to forward the buffer coming from a monitor interface */
+    if (status & RX_STAT_MONITOR) {
+        struct sk_buff *skb_monitor;
+        struct hw_rxhdr hw_rxhdr_copy;
+        u8 rtap_len;
+        u16 frm_len;
+
+        //Check if monitor interface exists and is open
+        rwnx_vif = rwnx_rx_get_vif(rwnx_hw, rwnx_hw->monitor_vif);
+        if (!rwnx_vif) {
+            dev_err(rwnx_hw->dev, "Received monitor frame but there is no monitor interface open\n");
+            goto check_len_update;
+        }
+
+        hw_rxhdr = (struct hw_rxhdr *)skb->data;
+        rwnx_rx_vector_convert(rwnx_hw->machw_type,
+                               &hw_rxhdr->hwvect.rx_vect1,
+                               &hw_rxhdr->hwvect.rx_vect2);
+        rtap_len = rwnx_rx_rtap_hdrlen(&hw_rxhdr->hwvect.rx_vect1, false);
+
+        // Move skb->data pointer to MAC Header or Ethernet header
+        skb->data += msdu_offset;
+
+        //Save frame length
+        frm_len = le32_to_cpu(hw_rxhdr->hwvect.len);
+
+        // Reserve space for frame
+        skb->len = frm_len;
+
+        if (status == RX_STAT_MONITOR) {
+            //rwnx_ipc_buf_e2a_release(rwnx_hw, ipc_buf);
+
+            //Check if there is enough space to add the radiotap header
+            if (skb_headroom(skb) > rtap_len) {
+
+                skb_monitor = skb;
+
+                //Duplicate the HW Rx Header to override with the radiotap header
+                memcpy(&hw_rxhdr_copy, hw_rxhdr, sizeof(hw_rxhdr_copy));
+
+                hw_rxhdr = &hw_rxhdr_copy;
+            } else {
+                //Duplicate the skb and extend the headroom
+                skb_monitor = skb_copy_expand(skb, rtap_len, 0, GFP_ATOMIC);
+
+                //Reset original skb->data pointer
+                skb->data = (void*) hw_rxhdr;
+            }
+        }
+        else
+        {
+        #ifdef CONFIG_RWNX_MON_DATA
+            // Check if MSDU
+            if (!hw_rxhdr->flags_is_80211_mpdu) {
+                // MSDU
+                //Extract MAC header
+                u16 machdr_len = hw_rxhdr->mac_hdr_backup.buf_len;
+                u8* machdr_ptr = hw_rxhdr->mac_hdr_backup.buffer;
+
+                //Pull Ethernet header from skb
+                skb_pull(skb, sizeof(struct ethhdr));
+
+                // Copy skb and extend for adding the radiotap header and the MAC header
+                skb_monitor = skb_copy_expand(skb, rtap_len + machdr_len, 0, GFP_ATOMIC);
+
+                //Reserve space for the MAC Header
+                skb_push(skb_monitor, machdr_len);
+
+                //Copy MAC Header
+                memcpy(skb_monitor->data, machdr_ptr, machdr_len);
+
+                //Update frame length
+                frm_len += machdr_len - sizeof(struct ethhdr);
+            } else {
+                // MPDU
+                skb_monitor = skb_copy_expand(skb, rtap_len, 0, GFP_ATOMIC);
+            }
+
+            //Reset original skb->data pointer
+            skb->data = (void*) hw_rxhdr;
+        #else
+            //Reset original skb->data pointer
+            skb->data = (void*) hw_rxhdr;
+
+            wiphy_err(rwnx_hw->wiphy, "RX status %d is invalid when MON_DATA is disabled\n", status);
+            goto check_len_update;
+        #endif
+        }
+
+        skb_reset_tail_pointer(skb);
+        skb->len = 0;
+        if (skb_monitor != NULL) {
+            skb_reset_tail_pointer(skb_monitor);
+            skb_monitor->len = 0;
+
+            skb_put(skb_monitor, frm_len);
+            /* coverity[remediation] -  hwvect won't cross the line*/
+            if (rwnx_rx_monitor(rwnx_hw, rwnx_vif, skb_monitor, hw_rxhdr, rtap_len))
+                dev_kfree_skb(skb_monitor);
+        }
+
+        if (status == RX_STAT_MONITOR) {
+            status |= RX_STAT_ALLOC;
+            if (skb_monitor != skb) {
+                dev_kfree_skb(skb);
+            }
+        }
+    }
+
+check_len_update:
+    /* Check if we need to update the length */
+    if (status & RX_STAT_LEN_UPDATE) {
+        sync_len = msdu_offset + sizeof(struct ethhdr);
+
+        hw_rxhdr = (struct hw_rxhdr *)skb->data;
+        hw_rxhdr->hwvect.len = buf.frame_len;
+
+        if (status & RX_STAT_ETH_LEN_UPDATE) {
+            /* Update Length Field inside the Ethernet Header */
+            struct ethhdr *hdr = (struct ethhdr *)((u8 *)hw_rxhdr + msdu_offset);
+            hdr->h_proto = htons(buf.frame_len - sizeof(struct ethhdr));
+        }
+
+        dev_kfree_skb(skb);
+        goto end;
+    }
+
+    /* Check if it must be discarded after informing upper layer */
+    if (status & RX_STAT_SPURIOUS) {
+        struct ieee80211_hdr *hdr;
+        sync_len =  msdu_offset + sizeof(*hdr);
+
+        /* Read mac header to obtain Transmitter Address */
+        //rwnx_ipc_buf_e2a_sync(rwnx_hw, ipc_buf, sync_len);
+
+        hw_rxhdr = (struct hw_rxhdr *)skb->data;
+        hdr = (struct ieee80211_hdr *)(skb->data + msdu_offset);
+        rwnx_vif = rwnx_rx_get_vif(rwnx_hw, hw_rxhdr->flags_vif_idx);
+        if (rwnx_vif) {
+            cfg80211_rx_spurious_frame(rwnx_vif->ndev, hdr->addr2, GFP_ATOMIC);
+        }
+
+        dev_kfree_skb(skb);
+        goto end;
+    }
+
+    /* Check if we need to forward the buffer */
+    if (status & RX_STAT_FORWARD) {
+        struct rwnx_sta *sta = NULL;
+
+        hw_rxhdr = (struct hw_rxhdr *)skb->data;
+        rwnx_rx_vector_convert(rwnx_hw->machw_type,
+                               &hw_rxhdr->hwvect.rx_vect1,
+                               &hw_rxhdr->hwvect.rx_vect2);
+
+        skb_reserve(skb, msdu_offset);
+        printk("%s,%d\n", __func__, __LINE__);
+        hw_rxhdr->hwvect.len = buf.frame_len;
+        skb_put(skb, le32_to_cpu(hw_rxhdr->hwvect.len));
+
+        if (hw_rxhdr->flags_sta_idx != RWNX_INVALID_STA &&
+            hw_rxhdr->flags_sta_idx < (NX_REMOTE_STA_MAX + NX_VIRT_DEV_MAX)) {
+            sta = &rwnx_hw->sta_table[hw_rxhdr->flags_sta_idx];
+            /* coverity[remediation] -  hwvect won't cross the line*/
+            rwnx_rx_statistic(rwnx_hw, hw_rxhdr, sta);
+        }
+
+        if (hw_rxhdr->flags_is_80211_mpdu) {
+            rwnx_rx_mgmt_any(rwnx_hw, skb, hw_rxhdr);
+        } else {
+            rwnx_vif = rwnx_rx_get_vif(rwnx_hw, hw_rxhdr->flags_vif_idx);
+
+            if (!rwnx_vif) {
+                dev_err(rwnx_hw->dev, "Frame received but no active vif (%d)",
+                        hw_rxhdr->flags_vif_idx);
+                dev_kfree_skb(skb);
+                goto end;
+            }
+
+            if (sta) {
+                if (sta->vlan_idx != rwnx_vif->vif_index) {
+                    rwnx_vif = rwnx_hw->vif_table[sta->vlan_idx];
+                    if (!rwnx_vif) {
+                        dev_kfree_skb(skb);
+                        goto end;
+                    }
+                }
+
+                if (hw_rxhdr->flags_is_4addr && !rwnx_vif->use_4addr) {
+                    cfg80211_rx_unexpected_4addr_frame(rwnx_vif->ndev,
+                                                       sta->mac_addr, GFP_ATOMIC);
+                }
+            }
+
+            skb->priority = 256 + hw_rxhdr->flags_user_prio;
+            /* coverity[remediation] -  hwvect won't cross the line*/
+            if (!rwnx_rx_data_skb(rwnx_hw, rwnx_vif, skb, hw_rxhdr))
+                dev_kfree_skb(skb);
+        }
+    }
+
+end:
+    REG_SW_CLEAR_PROFILING(rwnx_hw, SW_PROF_RWNXDATAIND);
+
+    return 0;
+}
+
+
+
+#else
 /**
  * rwnx_rxdataind - Process rx buffer
  *
@@ -1250,7 +1553,7 @@ end:
 
     return 0;
 }
-
+#endif
 
 /**
  * rwnx_rx_deferred - Work function to defer processing of buffer that cannot be

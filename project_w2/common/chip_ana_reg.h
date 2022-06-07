@@ -168,6 +168,8 @@ typedef union RG_DPLL_A6_FIELD
 // Bit 15          rg_xo_en_man_sel               U     RW        default = 'h0
 // Bit 16          rg_xo_sel                      U     RW        default = 'h0
 // Bit 21  :17     rg_xo_core_bias_rcal_ctrl      U     RW        default = 'h10
+// Bit 22          rg_xo_buf_wf2g_en_man_sel      U     RW        default = 'h0
+// Bit 23          rg_xo_buf_wf2g_en_man          U     RW        default = 'h1
 typedef union RG_XOSC_A7_FIELD
 {
   unsigned int data;
@@ -185,15 +187,19 @@ typedef union RG_XOSC_A7_FIELD
     unsigned int RG_XO_EN_MAN_SEL : 1;
     unsigned int RG_XO_SEL : 1;
     unsigned int RG_XO_CORE_BIAS_RCAL_CTRL : 5;
-    unsigned int rsvd_1 : 10;
+    unsigned int RG_XO_BUF_WF2G_EN_MAN_SEL : 1;
+    unsigned int RG_XO_BUF_WF2G_EN_MAN : 1;
+    unsigned int rsvd_1 : 8;
   } b;
 } RG_XOSC_A7_FIELD_T;
 
 #define RG_XOSC_A8                                (CHIP_ANA_REG_BASE + 0x24)
 // Bit 3   :0      rg_xo_core_cfixed_ctrl         U     RW        default = 'h8
 // Bit 11  :4      rg_xo_core_ctune_ctrl          U     RW        default = 'h32
-// Bit 15  :12     rg_xo_core_gmos_vb_sel         U     RW        default = 'h8
+// Bit 15  :12     rg_xo_core_gmos_vb_sel         U     RW        default = 'h3
 // Bit 20  :17     rg_xo_pd_vref_sel              U     RW        default = 'h8
+// Bit 21          rg_xo_dcc_ctrl_man_sel         U     RW        default = 'h0
+// Bit 31  :22     rg_xo_dcc_ctrl                 U     RW        default = 'h200
 typedef union RG_XOSC_A8_FIELD
 {
   unsigned int data;
@@ -204,7 +210,8 @@ typedef union RG_XOSC_A8_FIELD
     unsigned int RG_XO_CORE_GMOS_VB_SEL : 4;
     unsigned int rsvd_0 : 1;
     unsigned int RG_XO_PD_VREF_SEL : 4;
-    unsigned int rsvd_1 : 11;
+    unsigned int RG_XO_DCC_CTRL_MAN_SEL : 1;
+    unsigned int RG_XO_DCC_CTRL : 10;
   } b;
 } RG_XOSC_A8_FIELD_T;
 
@@ -214,6 +221,8 @@ typedef union RG_XOSC_A8_FIELD
 // Bit 11  :8      rg_xo_buf3_bias_ctrl           U     RW        default = 'hf
 // Bit 12          rg_xo_aml_cal_error_ctrl       U     RW        default = 'h0
 // Bit 23  :16     rg_xo_core_ctune_offset_ctrl     U     RW        default = 'h0
+// Bit 24          rg_xo_dcc_en_man_sel           U     RW        default = 'h0
+// Bit 26          rg_xo_dcc_en_man               U     RW        default = 'h1
 typedef union RG_XOSC_A9_FIELD
 {
   unsigned int data;
@@ -225,7 +234,10 @@ typedef union RG_XOSC_A9_FIELD
     unsigned int RG_XO_AML_CAL_ERROR_CTRL : 1;
     unsigned int rsvd_0 : 3;
     unsigned int RG_XO_CORE_CTUNE_OFFSET_CTRL : 8;
-    unsigned int rsvd_1 : 8;
+    unsigned int RG_XO_DCC_EN_MAN_SEL : 1;
+    unsigned int rsvd_1 : 1;
+    unsigned int RG_XO_DCC_EN_MAN : 1;
+    unsigned int rsvd_2 : 5;
   } b;
 } RG_XOSC_A9_FIELD_T;
 
@@ -254,8 +266,8 @@ typedef union RG_XOSC_A10_FIELD
 // Bit 3           rg_xo_pd_en_man                U     RW        default = 'h1
 // Bit 4           rg_xo_buf_core_en_man_sel      U     RW        default = 'h0
 // Bit 5           rg_xo_buf_core_en_man          U     RW        default = 'h1
-// Bit 6           rg_xo_buf_wf_en_man_sel        U     RW        default = 'h0
-// Bit 7           rg_xo_buf_wf_en_man            U     RW        default = 'h1
+// Bit 6           rg_xo_buf_wf5g_en_man_sel      U     RW        default = 'h0
+// Bit 7           rg_xo_buf_wf5g_en_man          U     RW        default = 'h1
 // Bit 8           rg_xo_buf_dig_en_man_sel       U     RW        default = 'h0
 // Bit 9           rg_xo_buf_dig_en_man           U     RW        default = 'h1
 // Bit 10          rg_xo_buf_bb_en_man_sel        U     RW        default = 'h0
@@ -276,8 +288,8 @@ typedef union RG_XOSC_A11_FIELD
     unsigned int RG_XO_PD_EN_MAN : 1;
     unsigned int RG_XO_BUF_CORE_EN_MAN_SEL : 1;
     unsigned int RG_XO_BUF_CORE_EN_MAN : 1;
-    unsigned int RG_XO_BUF_WF_EN_MAN_SEL : 1;
-    unsigned int RG_XO_BUF_WF_EN_MAN : 1;
+    unsigned int RG_XO_BUF_WF5G_EN_MAN_SEL : 1;
+    unsigned int RG_XO_BUF_WF5G_EN_MAN : 1;
     unsigned int RG_XO_BUF_DIG_EN_MAN_SEL : 1;
     unsigned int RG_XO_BUF_DIG_EN_MAN : 1;
     unsigned int RG_XO_BUF_BB_EN_MAN_SEL : 1;
@@ -431,174 +443,174 @@ typedef union RG_BG_A17_FIELD
 } RG_BG_A17_FIELD_T;
 
 #define RG_PMIC_A18                               (CHIP_ANA_REG_BASE + 0x4c)
-// Bit 0           rg_pmu_buck_bypass             U     RW        default = 'h0
-// Bit 1           rg_pmu_buck_fpwm               U     RW        default = 'h0
-// Bit 2           rg_pmu_buck_ndis_en            U     RW        default = 'h1
-// Bit 3           rg_pmu_buck_dis_lpmode         U     RW        default = 'h0
-// Bit 7   :4      rg_pmu_buck_zx_offset          U     RW        default = 'h5
-// Bit 8           rg_pmu_buck_zx_pdn             U     RW        default = 'h0
-// Bit 9           rg_pmu_buck_force_2m_internal     U     RW        default = 'h1
-// Bit 10          rg_pmu_buck_1m_en              U     RW        default = 'h0
-// Bit 11          rg_pmu_buck_intclk_dis         U     RW        default = 'h0
-// Bit 15  :12     rg_pmu_buck_vsel_vh            U     RW        default = 'h7
-// Bit 19  :16     rg_pmu_buck_vsel_vl            U     RW        default = 'h6
-// Bit 22  :20     rg_pmu_buck_ndri_on_sr         U     RW        default = 'h4
-// Bit 25  :23     rg_pmu_buck_ndri_off_sr        U     RW        default = 'h4
-// Bit 28  :26     rg_pmu_buck_pdri_on_sr         U     RW        default = 'h4
-// Bit 31  :29     rg_pmu_buck_pdri_off_sr        U     RW        default = 'h4
+// Bit 0           rg_pmu_bucka_bypass            U     RW        default = 'h0
+// Bit 1           rg_pmu_bucka_fpwm              U     RW        default = 'h0
+// Bit 2           rg_pmu_bucka_ndis_en           U     RW        default = 'h1
+// Bit 3           rg_pmu_bucka_dis_lpmode        U     RW        default = 'h0
+// Bit 7   :4      rg_pmu_bucka_zx_offset         U     RW        default = 'h5
+// Bit 8           rg_pmu_bucka_zx_pdn            U     RW        default = 'h0
+// Bit 9           rg_pmu_bucka_force_2m_internal     U     RW        default = 'h1
+// Bit 10          rg_pmu_bucka_1m_en             U     RW        default = 'h0
+// Bit 11          rg_pmu_bucka_intclk_dis        U     RW        default = 'h0
+// Bit 15  :12     rg_pmu_bucka_vsel_vh           U     RW        default = 'h7
+// Bit 19  :16     rg_pmu_bucka_vsel_vl           U     RW        default = 'h6
+// Bit 22  :20     rg_pmu_bucka_ndri_on_sr        U     RW        default = 'h4
+// Bit 25  :23     rg_pmu_bucka_ndri_off_sr       U     RW        default = 'h4
+// Bit 28  :26     rg_pmu_bucka_pdri_on_sr        U     RW        default = 'h4
+// Bit 31  :29     rg_pmu_bucka_pdri_off_sr       U     RW        default = 'h4
 typedef union RG_PMIC_A18_FIELD
 {
   unsigned int data;
   struct
   {
-    unsigned int RG_PMU_BUCK_BYPASS : 1;
-    unsigned int RG_PMU_BUCK_FPWM : 1;
-    unsigned int RG_PMU_BUCK_NDIS_EN : 1;
-    unsigned int RG_PMU_BUCK_DIS_LPMODE : 1;
-    unsigned int RG_PMU_BUCK_ZX_OFFSET : 4;
-    unsigned int RG_PMU_BUCK_ZX_PDN : 1;
-    unsigned int RG_PMU_BUCK_FORCE_2M_INTERNAL : 1;
-    unsigned int RG_PMU_BUCK_1M_EN : 1;
-    unsigned int RG_PMU_BUCK_INTCLK_DIS : 1;
-    unsigned int RG_PMU_BUCK_VSEL_VH : 4;
-    unsigned int RG_PMU_BUCK_VSEL_VL : 4;
-    unsigned int RG_PMU_BUCK_NDRI_ON_SR : 3;
-    unsigned int RG_PMU_BUCK_NDRI_OFF_SR : 3;
-    unsigned int RG_PMU_BUCK_PDRI_ON_SR : 3;
-    unsigned int RG_PMU_BUCK_PDRI_OFF_SR : 3;
+    unsigned int RG_PMU_BUCKA_BYPASS : 1;
+    unsigned int RG_PMU_BUCKA_FPWM : 1;
+    unsigned int RG_PMU_BUCKA_NDIS_EN : 1;
+    unsigned int RG_PMU_BUCKA_DIS_LPMODE : 1;
+    unsigned int RG_PMU_BUCKA_ZX_OFFSET : 4;
+    unsigned int RG_PMU_BUCKA_ZX_PDN : 1;
+    unsigned int RG_PMU_BUCKA_FORCE_2M_INTERNAL : 1;
+    unsigned int RG_PMU_BUCKA_1M_EN : 1;
+    unsigned int RG_PMU_BUCKA_INTCLK_DIS : 1;
+    unsigned int RG_PMU_BUCKA_VSEL_VH : 4;
+    unsigned int RG_PMU_BUCKA_VSEL_VL : 4;
+    unsigned int RG_PMU_BUCKA_NDRI_ON_SR : 3;
+    unsigned int RG_PMU_BUCKA_NDRI_OFF_SR : 3;
+    unsigned int RG_PMU_BUCKA_PDRI_ON_SR : 3;
+    unsigned int RG_PMU_BUCKA_PDRI_OFF_SR : 3;
   } b;
 } RG_PMIC_A18_FIELD_T;
 
 #define RG_PMIC_A19                               (CHIP_ANA_REG_BASE + 0x50)
-// Bit 0           rg_pmu_buck_trimtest_ea        U     RW        default = 'h0
-// Bit 1           rg_pmu_buck_trimtest_vref      U     RW        default = 'h0
-// Bit 2           rg_pmu_buck_trimtest_csp       U     RW        default = 'h0
-// Bit 4   :3      rg_pmu_buck_voutfb_cap         U     RW        default = 'h1
-// Bit 7   :5      rg_pmu_buck_ea_ccomp           U     RW        default = 'h2
-// Bit 11  :8      rg_pmu_buck_ea_rcomp           U     RW        default = 'h4
-// Bit 17  :12     rg_pmu_buck_vref_sel           U     RW        default = 'h8
-// Bit 19  :18     rg_pmu_buck_capslp_ramp        U     RW        default = 'h2
-// Bit 23  :20     rg_pmu_buck_cs_gain_ramp       U     RW        default = 'h8
-// Bit 27  :24     rg_pmu_buck_offset_ramp        U     RW        default = 'h8
-// Bit 31  :28     rg_pmu_buck_slp_ramp           U     RW        default = 'h8
+// Bit 0           rg_pmu_bucka_trimtest_ea       U     RW        default = 'h0
+// Bit 1           rg_pmu_bucka_trimtest_vref     U     RW        default = 'h0
+// Bit 2           rg_pmu_bucka_trimtest_csp      U     RW        default = 'h0
+// Bit 4   :3      rg_pmu_bucka_voutfb_cap        U     RW        default = 'h1
+// Bit 7   :5      rg_pmu_bucka_ea_ccomp          U     RW        default = 'h2
+// Bit 11  :8      rg_pmu_bucka_ea_rcomp          U     RW        default = 'h4
+// Bit 17  :12     rg_pmu_bucka_vref_sel          U     RW        default = 'h8
+// Bit 19  :18     rg_pmu_bucka_capslp_ramp       U     RW        default = 'h2
+// Bit 23  :20     rg_pmu_bucka_cs_gain_ramp      U     RW        default = 'h8
+// Bit 27  :24     rg_pmu_bucka_offset_ramp       U     RW        default = 'h8
+// Bit 31  :28     rg_pmu_bucka_slp_ramp          U     RW        default = 'h8
 typedef union RG_PMIC_A19_FIELD
 {
   unsigned int data;
   struct
   {
-    unsigned int RG_PMU_BUCK_TRIMTEST_EA : 1;
-    unsigned int RG_PMU_BUCK_TRIMTEST_VREF : 1;
-    unsigned int RG_PMU_BUCK_TRIMTEST_CSP : 1;
-    unsigned int RG_PMU_BUCK_VOUTFB_CAP : 2;
-    unsigned int RG_PMU_BUCK_EA_CCOMP : 3;
-    unsigned int RG_PMU_BUCK_EA_RCOMP : 4;
-    unsigned int RG_PMU_BUCK_VREF_SEL : 6;
-    unsigned int RG_PMU_BUCK_CAPSLP_RAMP : 2;
-    unsigned int RG_PMU_BUCK_CS_GAIN_RAMP : 4;
-    unsigned int RG_PMU_BUCK_OFFSET_RAMP : 4;
-    unsigned int RG_PMU_BUCK_SLP_RAMP : 4;
+    unsigned int RG_PMU_BUCKA_TRIMTEST_EA : 1;
+    unsigned int RG_PMU_BUCKA_TRIMTEST_VREF : 1;
+    unsigned int RG_PMU_BUCKA_TRIMTEST_CSP : 1;
+    unsigned int RG_PMU_BUCKA_VOUTFB_CAP : 2;
+    unsigned int RG_PMU_BUCKA_EA_CCOMP : 3;
+    unsigned int RG_PMU_BUCKA_EA_RCOMP : 4;
+    unsigned int RG_PMU_BUCKA_VREF_SEL : 6;
+    unsigned int RG_PMU_BUCKA_CAPSLP_RAMP : 2;
+    unsigned int RG_PMU_BUCKA_CS_GAIN_RAMP : 4;
+    unsigned int RG_PMU_BUCKA_OFFSET_RAMP : 4;
+    unsigned int RG_PMU_BUCKA_SLP_RAMP : 4;
   } b;
 } RG_PMIC_A19_FIELD_T;
 
 #define RG_PMIC_A20                               (CHIP_ANA_REG_BASE + 0x54)
-// Bit 3   :0      rg_pmu_buck_oc_level_csp       U     RW        default = 'h8
-// Bit 4           rg_pmu_buck_csoffset_ramp      U     RW        default = 'h0
-// Bit 7   :5      rg_pmu_buck_rsv1               U     RW        default = 'h7
-// Bit 15  :8      rg_pmu_buck_rsv2               U     RW        default = 'h0
-// Bit 23  :16     rg_pmu_buck_rsv3               U     RW        default = 'h88
-// Bit 31  :24     rg_pmu_buck_rsv4               U     RW        default = 'hff
+// Bit 3   :0      rg_pmu_bucka_oc_level_csp      U     RW        default = 'h8
+// Bit 4           rg_pmu_bucka_csoffset_ramp     U     RW        default = 'h0
+// Bit 7   :5      rg_pmu_bucka_rsv1              U     RW        default = 'h7
+// Bit 15  :8      rg_pmu_bucka_rsv2              U     RW        default = 'h0
+// Bit 23  :16     rg_pmu_bucka_rsv3              U     RW        default = 'h88
+// Bit 31  :24     rg_pmu_bucka_rsv4              U     RW        default = 'hff
 typedef union RG_PMIC_A20_FIELD
 {
   unsigned int data;
   struct
   {
-    unsigned int RG_PMU_BUCK_OC_LEVEL_CSP : 4;
-    unsigned int RG_PMU_BUCK_CSOFFSET_RAMP : 1;
-    unsigned int RG_PMU_BUCK_RSV1 : 3;
-    unsigned int RG_PMU_BUCK_RSV2 : 8;
-    unsigned int RG_PMU_BUCK_RSV3 : 8;
-    unsigned int RG_PMU_BUCK_RSV4 : 8;
+    unsigned int RG_PMU_BUCKA_OC_LEVEL_CSP : 4;
+    unsigned int RG_PMU_BUCKA_CSOFFSET_RAMP : 1;
+    unsigned int RG_PMU_BUCKA_RSV1 : 3;
+    unsigned int RG_PMU_BUCKA_RSV2 : 8;
+    unsigned int RG_PMU_BUCKA_RSV3 : 8;
+    unsigned int RG_PMU_BUCKA_RSV4 : 8;
   } b;
 } RG_PMIC_A20_FIELD_T;
 
 #define RG_PMIC_A21                               (CHIP_ANA_REG_BASE + 0x58)
-// Bit 0           rg_pmu_buck_lg_blank_dis       U     RW        default = 'h0
-// Bit 2   :1      rg_pmu_buck_mode_testmux       U     RW        default = 'h0
-// Bit 4   :3      rg_pmu_buck_testmux_ib         U     RW        default = 'h0
-// Bit 7   :5      rg_pmu_buck_testmux_ana        U     RW        default = 'h0
-// Bit 11  :8      rg_pmu_buck_testmux_dig        U     RW        default = 'h0
+// Bit 0           rg_pmu_bucka_lg_blank_dis      U     RW        default = 'h0
+// Bit 2   :1      rg_pmu_bucka_mode_testmux      U     RW        default = 'h0
+// Bit 4   :3      rg_pmu_bucka_testmux_ib        U     RW        default = 'h0
+// Bit 7   :5      rg_pmu_bucka_testmux_ana       U     RW        default = 'h0
+// Bit 11  :8      rg_pmu_bucka_testmux_dig       U     RW        default = 'h0
 // Bit 12          rg_pmu_testmux_ana_bypass      U     RW        default = 'h0
 // Bit 14  :13     rg_pmu_testmux_mode_sel        U     RW        default = 'h0
 // Bit 17  :15     rg_pmu_testmux_ib_sel          U     RW        default = 'h0
 // Bit 20  :18     rg_pmu_testmux_ana_sel         U     RW        default = 'h0
 // Bit 23  :21     rg_pmu_testmux_dig_sel         U     RW        default = 'h0
-// Bit 25  :24     rg_pmu_buck_con_trim           U     RW        default = 'h0
-// Bit 29  :26     rg_pmu_buck_toff_min_trim      U     RW        default = 'h8
+// Bit 25  :24     rg_pmu_bucka_con_trim          U     RW        default = 'h0
+// Bit 29  :26     rg_pmu_bucka_toff_min_trim     U     RW        default = 'h8
 typedef union RG_PMIC_A21_FIELD
 {
   unsigned int data;
   struct
   {
-    unsigned int RG_PMU_BUCK_LG_BLANK_DIS : 1;
-    unsigned int RG_PMU_BUCK_MODE_TESTMUX : 2;
-    unsigned int RG_PMU_BUCK_TESTMUX_IB : 2;
-    unsigned int RG_PMU_BUCK_TESTMUX_ANA : 3;
-    unsigned int RG_PMU_BUCK_TESTMUX_DIG : 4;
+    unsigned int RG_PMU_BUCKA_LG_BLANK_DIS : 1;
+    unsigned int RG_PMU_BUCKA_MODE_TESTMUX : 2;
+    unsigned int RG_PMU_BUCKA_TESTMUX_IB : 2;
+    unsigned int RG_PMU_BUCKA_TESTMUX_ANA : 3;
+    unsigned int RG_PMU_BUCKA_TESTMUX_DIG : 4;
     unsigned int RG_PMU_TESTMUX_ANA_BYPASS : 1;
     unsigned int RG_PMU_TESTMUX_MODE_SEL : 2;
     unsigned int RG_PMU_TESTMUX_IB_SEL : 3;
     unsigned int RG_PMU_TESTMUX_ANA_SEL : 3;
     unsigned int RG_PMU_TESTMUX_DIG_SEL : 3;
-    unsigned int RG_PMU_BUCK_CON_TRIM : 2;
-    unsigned int RG_PMU_BUCK_TOFF_MIN_TRIM : 4;
+    unsigned int RG_PMU_BUCKA_CON_TRIM : 2;
+    unsigned int RG_PMU_BUCKA_TOFF_MIN_TRIM : 4;
     unsigned int rsvd_0 : 2;
   } b;
 } RG_PMIC_A21_FIELD_T;
 
 #define RG_PMIC_A22                               (CHIP_ANA_REG_BASE + 0x5c)
-// Bit 3   :0      rg_pmu_buck_ton_min_trim       U     RW        default = 'h8
-// Bit 8   :4      rg_pmu_buck_efuse_trim_offset_vref     U     RW        default = 'h10
-// Bit 12  :9      rg_pmu_buck_efuse_trim_iref_vhreg     U     RW        default = 'h8
-// Bit 16  :13     rg_pmu_buck_efuse_trim_iref_vlreg     U     RW        default = 'h8
-// Bit 19  :17     rg_pmu_buck_efuse_trim_vref_burst     U     RW        default = 'h4
-// Bit 24  :20     rg_pmu_buck_efuse_trim_ea      U     RW        default = 'h10
-// Bit 29  :25     rg_pmu_buck_efuse_trim_offset_csp     U     RW        default = 'h10
+// Bit 3   :0      rg_pmu_bucka_ton_min_trim      U     RW        default = 'h8
+// Bit 8   :4      rg_pmu_bucka_efuse_trim_offset_vref     U     RW        default = 'h10
+// Bit 12  :9      rg_pmu_bucka_efuse_trim_iref_vhreg     U     RW        default = 'h8
+// Bit 16  :13     rg_pmu_bucka_efuse_trim_iref_vlreg     U     RW        default = 'h8
+// Bit 19  :17     rg_pmu_bucka_efuse_trim_vref_burst     U     RW        default = 'h4
+// Bit 24  :20     rg_pmu_bucka_efuse_trim_ea     U     RW        default = 'h10
+// Bit 29  :25     rg_pmu_bucka_efuse_trim_offset_csp     U     RW        default = 'h10
 typedef union RG_PMIC_A22_FIELD
 {
   unsigned int data;
   struct
   {
-    unsigned int RG_PMU_BUCK_TON_MIN_TRIM : 4;
-    unsigned int RG_PMU_BUCK_EFUSE_TRIM_OFFSET_VREF : 5;
-    unsigned int RG_PMU_BUCK_EFUSE_TRIM_IREF_VHREG : 4;
-    unsigned int RG_PMU_BUCK_EFUSE_TRIM_IREF_VLREG : 4;
-    unsigned int RG_PMU_BUCK_EFUSE_TRIM_VREF_BURST : 3;
-    unsigned int RG_PMU_BUCK_EFUSE_TRIM_EA : 5;
-    unsigned int RG_PMU_BUCK_EFUSE_TRIM_OFFSET_CSP : 5;
+    unsigned int RG_PMU_BUCKA_TON_MIN_TRIM : 4;
+    unsigned int RG_PMU_BUCKA_EFUSE_TRIM_OFFSET_VREF : 5;
+    unsigned int RG_PMU_BUCKA_EFUSE_TRIM_IREF_VHREG : 4;
+    unsigned int RG_PMU_BUCKA_EFUSE_TRIM_IREF_VLREG : 4;
+    unsigned int RG_PMU_BUCKA_EFUSE_TRIM_VREF_BURST : 3;
+    unsigned int RG_PMU_BUCKA_EFUSE_TRIM_EA : 5;
+    unsigned int RG_PMU_BUCKA_EFUSE_TRIM_OFFSET_CSP : 5;
     unsigned int rsvd_0 : 2;
   } b;
 } RG_PMIC_A22_FIELD_T;
 
 #define RG_PMIC_A23                               (CHIP_ANA_REG_BASE + 0x60)
-// Bit 3   :0      rg_pmu_buck_efuse_trim_slp_csp     U     RW        default = 'h8
-// Bit 6   :4      rg_pmu_buck_efuse_trim_cap_osc     U     RW        default = 'h4
-// Bit 10  :7      rg_pmu_buck_efuse_trim_i_osc     U     RW        default = 'h8
-// Bit 11          ro_oc_status                   U     RO        default = 'h0
-// Bit 12          ro_status_dac                  U     RO        default = 'h0
-// Bit 13          ro_status_offset_csp           U     RO        default = 'h0
-// Bit 14          ro_status_trim_ea              U     RO        default = 'h0
+// Bit 3   :0      rg_pmu_bucka_efuse_trim_slp_csp     U     RW        default = 'h8
+// Bit 6   :4      rg_pmu_bucka_efuse_trim_cap_osc     U     RW        default = 'h4
+// Bit 10  :7      rg_pmu_bucka_efuse_trim_i_osc     U     RW        default = 'h8
+// Bit 11          ro_bucka_oc_status             U     RO        default = 'h0
+// Bit 12          ro_bucka_status_dac            U     RO        default = 'h0
+// Bit 13          ro_bucka_status_offset_csp     U     RO        default = 'h0
+// Bit 14          ro_bucka_status_trim_ea        U     RO        default = 'h0
 typedef union RG_PMIC_A23_FIELD
 {
   unsigned int data;
   struct
   {
-    unsigned int RG_PMU_BUCK_EFUSE_TRIM_SLP_CSP : 4;
-    unsigned int RG_PMU_BUCK_EFUSE_TRIM_CAP_OSC : 3;
-    unsigned int RG_PMU_BUCK_EFUSE_TRIM_I_OSC : 4;
-    unsigned int RO_OC_STATUS : 1;
-    unsigned int RO_STATUS_DAC : 1;
-    unsigned int RO_STATUS_OFFSET_CSP : 1;
-    unsigned int RO_STATUS_TRIM_EA : 1;
+    unsigned int RG_PMU_BUCKA_EFUSE_TRIM_SLP_CSP : 4;
+    unsigned int RG_PMU_BUCKA_EFUSE_TRIM_CAP_OSC : 3;
+    unsigned int RG_PMU_BUCKA_EFUSE_TRIM_I_OSC : 4;
+    unsigned int RO_BUCKA_OC_STATUS : 1;
+    unsigned int RO_BUCKA_STATUS_DAC : 1;
+    unsigned int RO_BUCKA_STATUS_OFFSET_CSP : 1;
+    unsigned int RO_BUCKA_STATUS_TRIM_EA : 1;
     unsigned int rsvd_0 : 17;
   } b;
 } RG_PMIC_A23_FIELD_T;
@@ -610,11 +622,10 @@ typedef union RG_PMIC_A23_FIELD
 // Bit 12          rg_force_pmu_32k_off           U     RW        default = 'h0
 // Bit 16  :13     rg_pmu_32k_adj                 U     RW        default = 'h8
 // Bit 17          rg_force_aldo_off              U     RW        default = 'h0
-// Bit 18          rg_force_buck_off              U     RW        default = 'h0
-// Bit 19          rg_force_cldo_off              U     RW        default = 'h0
+// Bit 18          rg_force_bucka_off             U     RW        default = 'h0
 // Bit 22  :20     rg_prereg_dmmy_ld              U     RW        default = 'h4
 // Bit 26  :23     rg_strup_rsva                  U     RW        default = 'h8
-// Bit 30  :27     rg_strup_rsvb                  U     RW        default = 'h8
+// Bit 30          rg_force_buckd_off             U     RW        default = 'h0
 typedef union RG_PMIC_A24_FIELD
 {
   unsigned int data;
@@ -626,12 +637,13 @@ typedef union RG_PMIC_A24_FIELD
     unsigned int RG_FORCE_PMU_32K_OFF : 1;
     unsigned int RG_PMU_32K_ADJ : 4;
     unsigned int RG_FORCE_ALDO_OFF : 1;
-    unsigned int RG_FORCE_BUCK_OFF : 1;
-    unsigned int RG_FORCE_CLDO_OFF : 1;
+    unsigned int RG_FORCE_BUCKA_OFF : 1;
+    unsigned int rsvd_0 : 1;
     unsigned int RG_PREREG_DMMY_LD : 3;
     unsigned int RG_STRUP_RSVA : 4;
-    unsigned int RG_STRUP_RSVB : 4;
-    unsigned int rsvd_0 : 1;
+    unsigned int rsvd_1 : 3;
+    unsigned int RG_FORCE_BUCKD_OFF : 1;
+    unsigned int rsvd_2 : 1;
   } b;
 } RG_PMIC_A24_FIELD_T;
 
@@ -640,7 +652,8 @@ typedef union RG_PMIC_A24_FIELD
 // Bit 7   :4      rg_strup_rsvd                  U     RW        default = 'h0
 // Bit 11  :8      rg_strup_rsve                  U     RW        default = 'hf
 // Bit 15  :12     ro_strup_status_rsva           U     RO        default = 'h0
-// Bit 19  :16     ro_strup_status_rsvb           U     RO        default = 'hf
+// Bit 19  :16     ro_strup_status_rsvb           U     RO        default = 'h8
+// Bit 23  :20     rg_strup_rsvb                  U     RW        default = 'h8
 typedef union RG_PMIC_A25_FIELD
 {
   unsigned int data;
@@ -651,14 +664,14 @@ typedef union RG_PMIC_A25_FIELD
     unsigned int RG_STRUP_RSVE : 4;
     unsigned int RO_STRUP_STATUS_RSVA : 4;
     unsigned int RO_STRUP_STATUS_RSVB : 4;
-    unsigned int rsvd_0 : 12;
+    unsigned int RG_STRUP_RSVB : 4;
+    unsigned int rsvd_0 : 8;
   } b;
 } RG_PMIC_A25_FIELD_T;
 
 #define RG_PMIC_A26                               (CHIP_ANA_REG_BASE + 0x6c)
 // Bit 0           rg_aoldo_oc_en                 U     RW        default = 'h1
 // Bit 1           rg_aoldo_dischr_en             U     RW        default = 'h1
-// Bit 5   :2      rg_aoldo_vosel                 U     RW        default = 'h8
 // Bit 9   :6      rg_aoldo_ocsel                 U     RW        default = 'h8
 // Bit 13  :10     rg_aoldo_comp_adj              U     RW        default = 'h8
 // Bit 16  :14     rg_aoldo_dummy_ld              U     RW        default = 'h4
@@ -672,79 +685,31 @@ typedef union RG_PMIC_A26_FIELD
   {
     unsigned int RG_AOLDO_OC_EN : 1;
     unsigned int RG_AOLDO_DISCHR_EN : 1;
-    unsigned int RG_AOLDO_VOSEL : 4;
+    unsigned int rsvd_0 : 4;
     unsigned int RG_AOLDO_OCSEL : 4;
     unsigned int RG_AOLDO_COMP_ADJ : 4;
     unsigned int RG_AOLDO_DUMMY_LD : 3;
     unsigned int RG_AOLDO_RSVA : 4;
     unsigned int RG_AOLDO_RSVB : 4;
     unsigned int RG_AOLDO_RSVC : 4;
-    unsigned int rsvd_0 : 3;
+    unsigned int rsvd_1 : 3;
   } b;
 } RG_PMIC_A26_FIELD_T;
 
 #define RG_PMIC_A27                               (CHIP_ANA_REG_BASE + 0x70)
-// Bit 3   :0      rg_aoldo_rsvd                  U     RW        default = 'h0
-// Bit 7   :4      rg_aoldo_rsve                  U     RW        default = 'hf
+// Bit 6   :0      rg_aoldo_vosel                 U     RW        default = 'h20
 // Bit 8           ro_aoldo_oc_status             U     RO        default = 'h0
 typedef union RG_PMIC_A27_FIELD
 {
   unsigned int data;
   struct
   {
-    unsigned int RG_AOLDO_RSVD : 4;
-    unsigned int RG_AOLDO_RSVE : 4;
+    unsigned int RG_AOLDO_VOSEL : 7;
+    unsigned int rsvd_0 : 1;
     unsigned int RO_AOLDO_OC_STATUS : 1;
-    unsigned int rsvd_0 : 23;
+    unsigned int rsvd_1 : 23;
   } b;
 } RG_PMIC_A27_FIELD_T;
-
-#define RG_PMIC_A28                               (CHIP_ANA_REG_BASE + 0x74)
-// Bit 0           rg_cldo_dischr_en              U     RW        default = 'h1
-// Bit 6   :1      rg_cldo_vo_adj                 U     RW        default = 'h1f
-// Bit 10  :7      rg_cldo_oc_adj                 U     RW        default = 'h8
-// Bit 11          rg_cldo_oc_en                  U     RW        default = 'h1
-// Bit 12          rg_cldo_uv_en                  U     RW        default = 'h0
-// Bit 16  :13     rg_cldo_comp_adj               U     RW        default = 'h8
-// Bit 19  :17     rg_cldo_dummy_ld               U     RW        default = 'h4
-// Bit 23  :20     rg_cldo_rsva                   U     RW        default = 'h8
-// Bit 27  :24     rg_cldo_rsvb                   U     RW        default = 'h8
-// Bit 31  :28     rg_cldo_rsvc                   U     RW        default = 'h8
-typedef union RG_PMIC_A28_FIELD
-{
-  unsigned int data;
-  struct
-  {
-    unsigned int RG_CLDO_DISCHR_EN : 1;
-    unsigned int RG_CLDO_VO_ADJ : 6;
-    unsigned int RG_CLDO_OC_ADJ : 4;
-    unsigned int RG_CLDO_OC_EN : 1;
-    unsigned int RG_CLDO_UV_EN : 1;
-    unsigned int RG_CLDO_COMP_ADJ : 4;
-    unsigned int RG_CLDO_DUMMY_LD : 3;
-    unsigned int RG_CLDO_RSVA : 4;
-    unsigned int RG_CLDO_RSVB : 4;
-    unsigned int RG_CLDO_RSVC : 4;
-  } b;
-} RG_PMIC_A28_FIELD_T;
-
-#define RG_PMIC_A29                               (CHIP_ANA_REG_BASE + 0x78)
-// Bit 3   :0      rg_cldo_rsvd                   U     RW        default = 'h0
-// Bit 7   :4      rg_cldo_rsve                   U     RW        default = 'hf
-// Bit 8           ro_cldo_oc_status              U     RO        default = 'h0
-// Bit 9           ro_cldo_uv_status              U     RO        default = 'h0
-typedef union RG_PMIC_A29_FIELD
-{
-  unsigned int data;
-  struct
-  {
-    unsigned int RG_CLDO_RSVD : 4;
-    unsigned int RG_CLDO_RSVE : 4;
-    unsigned int RO_CLDO_OC_STATUS : 1;
-    unsigned int RO_CLDO_UV_STATUS : 1;
-    unsigned int rsvd_0 : 22;
-  } b;
-} RG_PMIC_A29_FIELD_T;
 
 #define RG_PMIC_A30                               (CHIP_ANA_REG_BASE + 0x7c)
 // Bit 7   :0      rg_aldo_vo_adj                 U     RW        default = 'h80
@@ -793,27 +758,6 @@ typedef union RG_PMIC_A31_FIELD
   } b;
 } RG_PMIC_A31_FIELD_T;
 
-#define RG_XOSC_A32                               (CHIP_ANA_REG_BASE + 0x84)
-// Bit 2   :0      rg_xo_buf0_bias_ctrl           U     RW        default = 'h4
-// Bit 5   :4      rg_xo_buf0_rc_ctrl             U     RW        default = 'h2
-// Bit 7   :6      rg_xo_buf1_rc_ctrl             U     RW        default = 'h2
-// Bit 9   :8      rg_xo_buf2_rc_ctrl             U     RW        default = 'h2
-// Bit 11  :10     rg_xo_buf3_rc_ctrl             U     RW        default = 'h2
-typedef union RG_XOSC_A32_FIELD
-{
-  unsigned int data;
-  struct
-  {
-    unsigned int RG_XO_BUF0_BIAS_CTRL : 3;
-    unsigned int rsvd_0 : 1;
-    unsigned int RG_XO_BUF0_RC_CTRL : 2;
-    unsigned int RG_XO_BUF1_RC_CTRL : 2;
-    unsigned int RG_XO_BUF2_RC_CTRL : 2;
-    unsigned int RG_XO_BUF3_RC_CTRL : 2;
-    unsigned int rsvd_1 : 20;
-  } b;
-} RG_XOSC_A32_FIELD_T;
-
 #define RG_WFRF_A33                               (CHIP_ANA_REG_BASE + 0x88)
 // Bit 0           rg_wf_rfdig_clk_fromrf         U     RW        default = 'h0
 // Bit 7   :4      rg_wf_rfdig_clkbuf_rc_ctrl     U     RW        default = 'h8
@@ -843,6 +787,213 @@ typedef union RG_BTRF_A34_FIELD
     unsigned int rsvd_1 : 24;
   } b;
 } RG_BTRF_A34_FIELD_T;
+
+#define RG_PMIC_A35                               (CHIP_ANA_REG_BASE + 0x90)
+// Bit 0           rg_pmu_buckd_bypass            U     RW        default = 'h0
+// Bit 1           rg_pmu_buckd_fpwm              U     RW        default = 'h0
+// Bit 2           rg_pmu_buckd_ndis_en           U     RW        default = 'h1
+// Bit 3           rg_pmu_buckd_dis_lpmode        U     RW        default = 'h0
+// Bit 7   :4      rg_pmu_buckd_zx_offset         U     RW        default = 'h5
+// Bit 8           rg_pmu_buckd_zx_pdn            U     RW        default = 'h0
+// Bit 9           rg_pmu_buckd_force_2m_internal     U     RW        default = 'h1
+// Bit 10          rg_pmu_buckd_1m_en             U     RW        default = 'h0
+// Bit 11          rg_pmu_buckd_intclk_dis        U     RW        default = 'h0
+// Bit 15  :12     rg_pmu_buckd_vsel_vh           U     RW        default = 'h6
+// Bit 19  :16     rg_pmu_buckd_vsel_vl           U     RW        default = 'h6
+// Bit 22  :20     rg_pmu_buckd_ndri_on_sr        U     RW        default = 'h4
+// Bit 25  :23     rg_pmu_buckd_ndri_off_sr       U     RW        default = 'h4
+// Bit 28  :26     rg_pmu_buckd_pdri_on_sr        U     RW        default = 'h4
+// Bit 31  :29     rg_pmu_buckd_pdri_off_sr       U     RW        default = 'h4
+typedef union RG_PMIC_A35_FIELD
+{
+  unsigned int data;
+  struct
+  {
+    unsigned int RG_PMU_BUCKD_BYPASS : 1;
+    unsigned int RG_PMU_BUCKD_FPWM : 1;
+    unsigned int RG_PMU_BUCKD_NDIS_EN : 1;
+    unsigned int RG_PMU_BUCKD_DIS_LPMODE : 1;
+    unsigned int RG_PMU_BUCKD_ZX_OFFSET : 4;
+    unsigned int RG_PMU_BUCKD_ZX_PDN : 1;
+    unsigned int RG_PMU_BUCKD_FORCE_2M_INTERNAL : 1;
+    unsigned int RG_PMU_BUCKD_1M_EN : 1;
+    unsigned int RG_PMU_BUCKD_INTCLK_DIS : 1;
+    unsigned int RG_PMU_BUCKD_VSEL_VH : 4;
+    unsigned int RG_PMU_BUCKD_VSEL_VL : 4;
+    unsigned int RG_PMU_BUCKD_NDRI_ON_SR : 3;
+    unsigned int RG_PMU_BUCKD_NDRI_OFF_SR : 3;
+    unsigned int RG_PMU_BUCKD_PDRI_ON_SR : 3;
+    unsigned int RG_PMU_BUCKD_PDRI_OFF_SR : 3;
+  } b;
+} RG_PMIC_A35_FIELD_T;
+
+#define RG_PMIC_A36                               (CHIP_ANA_REG_BASE + 0x94)
+// Bit 0           rg_pmu_buckd_trimtest_ea       U     RW        default = 'h0
+// Bit 1           rg_pmu_buckd_trimtest_vref     U     RW        default = 'h0
+// Bit 2           rg_pmu_buckd_trimtest_csp      U     RW        default = 'h0
+// Bit 4   :3      rg_pmu_buckd_voutfb_cap        U     RW        default = 'h1
+// Bit 7   :5      rg_pmu_buckd_ea_ccomp          U     RW        default = 'h2
+// Bit 11  :8      rg_pmu_buckd_ea_rcomp          U     RW        default = 'h4
+// Bit 17  :12     rg_pmu_buckd_vref_sel          U     RW        default = 'h8
+// Bit 19  :18     rg_pmu_buckd_capslp_ramp       U     RW        default = 'h2
+// Bit 23  :20     rg_pmu_buckd_cs_gain_ramp      U     RW        default = 'h7
+// Bit 27  :24     rg_pmu_buckd_offset_ramp       U     RW        default = 'h8
+// Bit 31  :28     rg_pmu_buckd_slp_ramp          U     RW        default = 'h8
+typedef union RG_PMIC_A36_FIELD
+{
+  unsigned int data;
+  struct
+  {
+    unsigned int RG_PMU_BUCKD_TRIMTEST_EA : 1;
+    unsigned int RG_PMU_BUCKD_TRIMTEST_VREF : 1;
+    unsigned int RG_PMU_BUCKD_TRIMTEST_CSP : 1;
+    unsigned int RG_PMU_BUCKD_VOUTFB_CAP : 2;
+    unsigned int RG_PMU_BUCKD_EA_CCOMP : 3;
+    unsigned int RG_PMU_BUCKD_EA_RCOMP : 4;
+    unsigned int RG_PMU_BUCKD_VREF_SEL : 6;
+    unsigned int RG_PMU_BUCKD_CAPSLP_RAMP : 2;
+    unsigned int RG_PMU_BUCKD_CS_GAIN_RAMP : 4;
+    unsigned int RG_PMU_BUCKD_OFFSET_RAMP : 4;
+    unsigned int RG_PMU_BUCKD_SLP_RAMP : 4;
+  } b;
+} RG_PMIC_A36_FIELD_T;
+
+#define RG_PMIC_A37                               (CHIP_ANA_REG_BASE + 0x98)
+// Bit 3   :0      rg_pmu_buckd_oc_level_csp      U     RW        default = 'h8
+// Bit 4           rg_pmu_buckd_csoffset_ramp     U     RW        default = 'h0
+// Bit 7   :5      rg_pmu_buckd_rsv1              U     RW        default = 'h7
+// Bit 15  :8      rg_pmu_buckd_rsv2              U     RW        default = 'h0
+// Bit 23  :16     rg_pmu_buckd_rsv3              U     RW        default = 'h88
+// Bit 31  :24     rg_pmu_buckd_rsv4              U     RW        default = 'hff
+typedef union RG_PMIC_A37_FIELD
+{
+  unsigned int data;
+  struct
+  {
+    unsigned int RG_PMU_BUCKD_OC_LEVEL_CSP : 4;
+    unsigned int RG_PMU_BUCKD_CSOFFSET_RAMP : 1;
+    unsigned int RG_PMU_BUCKD_RSV1 : 3;
+    unsigned int RG_PMU_BUCKD_RSV2 : 8;
+    unsigned int RG_PMU_BUCKD_RSV3 : 8;
+    unsigned int RG_PMU_BUCKD_RSV4 : 8;
+  } b;
+} RG_PMIC_A37_FIELD_T;
+
+#define RG_PMIC_A38                               (CHIP_ANA_REG_BASE + 0x9c)
+// Bit 0           rg_pmu_buckd_lg_blank_dis      U     RW        default = 'h0
+// Bit 2   :1      rg_pmu_buckd_mode_testmux      U     RW        default = 'h0
+// Bit 4   :3      rg_pmu_buckd_testmux_ib        U     RW        default = 'h0
+// Bit 7   :5      rg_pmu_buckd_testmux_ana       U     RW        default = 'h0
+// Bit 11  :8      rg_pmu_buckd_testmux_dig       U     RW        default = 'h0
+// Bit 25  :24     rg_pmu_buckd_con_trim          U     RW        default = 'h0
+// Bit 29  :26     rg_pmu_buckd_toff_min_trim     U     RW        default = 'h8
+typedef union RG_PMIC_A38_FIELD
+{
+  unsigned int data;
+  struct
+  {
+    unsigned int RG_PMU_BUCKD_LG_BLANK_DIS : 1;
+    unsigned int RG_PMU_BUCKD_MODE_TESTMUX : 2;
+    unsigned int RG_PMU_BUCKD_TESTMUX_IB : 2;
+    unsigned int RG_PMU_BUCKD_TESTMUX_ANA : 3;
+    unsigned int RG_PMU_BUCKD_TESTMUX_DIG : 4;
+    unsigned int rsvd_0 : 12;
+    unsigned int RG_PMU_BUCKD_CON_TRIM : 2;
+    unsigned int RG_PMU_BUCKD_TOFF_MIN_TRIM : 4;
+    unsigned int rsvd_1 : 2;
+  } b;
+} RG_PMIC_A38_FIELD_T;
+
+#define RG_PMIC_A39                               (CHIP_ANA_REG_BASE + 0xa0)
+// Bit 3   :0      rg_pmu_buckd_ton_min_trim      U     RW        default = 'h8
+// Bit 8   :4      rg_pmu_buckd_efuse_trim_offset_vref     U     RW        default = 'h10
+// Bit 12  :9      rg_pmu_buckd_efuse_trim_iref_vhreg     U     RW        default = 'h8
+// Bit 16  :13     rg_pmu_buckd_efuse_trim_iref_vlreg     U     RW        default = 'h8
+// Bit 19  :17     rg_pmu_buckd_efuse_trim_vref_burst     U     RW        default = 'h4
+// Bit 24  :20     rg_pmu_buckd_efuse_trim_ea     U     RW        default = 'h10
+// Bit 29  :25     rg_pmu_buckd_efuse_trim_offset_csp     U     RW        default = 'h10
+typedef union RG_PMIC_A39_FIELD
+{
+  unsigned int data;
+  struct
+  {
+    unsigned int RG_PMU_BUCKD_TON_MIN_TRIM : 4;
+    unsigned int RG_PMU_BUCKD_EFUSE_TRIM_OFFSET_VREF : 5;
+    unsigned int RG_PMU_BUCKD_EFUSE_TRIM_IREF_VHREG : 4;
+    unsigned int RG_PMU_BUCKD_EFUSE_TRIM_IREF_VLREG : 4;
+    unsigned int RG_PMU_BUCKD_EFUSE_TRIM_VREF_BURST : 3;
+    unsigned int RG_PMU_BUCKD_EFUSE_TRIM_EA : 5;
+    unsigned int RG_PMU_BUCKD_EFUSE_TRIM_OFFSET_CSP : 5;
+    unsigned int rsvd_0 : 2;
+  } b;
+} RG_PMIC_A39_FIELD_T;
+
+#define RG_PMIC_A40                               (CHIP_ANA_REG_BASE + 0xa4)
+// Bit 3   :0      rg_pmu_buckd_efuse_trim_slp_csp     U     RW        default = 'h8
+// Bit 6   :4      rg_pmu_buckd_efuse_trim_cap_osc     U     RW        default = 'h4
+// Bit 10  :7      rg_pmu_buckd_efuse_trim_i_osc     U     RW        default = 'h8
+// Bit 11          ro_buckd_oc_status             U     RO        default = 'h0
+// Bit 12          ro_buckd_status_dac            U     RO        default = 'h0
+// Bit 13          ro_buckd_status_offset_csp     U     RO        default = 'h0
+// Bit 14          ro_buckd_status_trim_ea        U     RO        default = 'h0
+typedef union RG_PMIC_A40_FIELD
+{
+  unsigned int data;
+  struct
+  {
+    unsigned int RG_PMU_BUCKD_EFUSE_TRIM_SLP_CSP : 4;
+    unsigned int RG_PMU_BUCKD_EFUSE_TRIM_CAP_OSC : 3;
+    unsigned int RG_PMU_BUCKD_EFUSE_TRIM_I_OSC : 4;
+    unsigned int RO_BUCKD_OC_STATUS : 1;
+    unsigned int RO_BUCKD_STATUS_DAC : 1;
+    unsigned int RO_BUCKD_STATUS_OFFSET_CSP : 1;
+    unsigned int RO_BUCKD_STATUS_TRIM_EA : 1;
+    unsigned int rsvd_0 : 17;
+  } b;
+} RG_PMIC_A40_FIELD_T;
+
+#define RG_PMIC_A41                               (CHIP_ANA_REG_BASE + 0xa8)
+// Bit 1           rg_ao_hifldo_oc_en             U     RW        default = 'h1
+// Bit 2           rg_ao_hifldo_dischr_en         U     RW        default = 'h1
+// Bit 9   :3      rg_ao_hifldo_vosel             U     RW        default = 'h20
+// Bit 13  :10     rg_ao_hifldo_ocsel             U     RW        default = 'h8
+// Bit 14          ro_ao_hifldo_oc_status         U     RO        default = 'h0
+// Bit 15          rg_force_ao_hifldo_off         U     RW        default = 'h0
+// Bit 19  :16     rg_ao_hifldo_comp_adj          U     RW        default = 'h8
+// Bit 22  :20     rg_ao_hifldo_dummy_ld          U     RW        default = 'h4
+// Bit 26  :23     rg_ao_hifldo_rsva              U     RW        default = 'h8
+// Bit 30  :27     rg_ao_hifldo_rsvb              U     RW        default = 'h8
+typedef union RG_PMIC_A41_FIELD
+{
+  unsigned int data;
+  struct
+  {
+    unsigned int rsvd_0 : 1;
+    unsigned int RG_AO_HIFLDO_OC_EN : 1;
+    unsigned int RG_AO_HIFLDO_DISCHR_EN : 1;
+    unsigned int RG_AO_HIFLDO_VOSEL : 7;
+    unsigned int RG_AO_HIFLDO_OCSEL : 4;
+    unsigned int RO_AO_HIFLDO_OC_STATUS : 1;
+    unsigned int RG_FORCE_AO_HIFLDO_OFF : 1;
+    unsigned int RG_AO_HIFLDO_COMP_ADJ : 4;
+    unsigned int RG_AO_HIFLDO_DUMMY_LD : 3;
+    unsigned int RG_AO_HIFLDO_RSVA : 4;
+    unsigned int RG_AO_HIFLDO_RSVB : 4;
+    unsigned int rsvd_1 : 1;
+  } b;
+} RG_PMIC_A41_FIELD_T;
+
+#define RG_PMIC_A42                               (CHIP_ANA_REG_BASE + 0xac)
+// Bit 3   :0      rg_ao_hifldo_rsvc              U     RW        default = 'h8
+typedef union RG_PMIC_A42_FIELD
+{
+  unsigned int data;
+  struct
+  {
+    unsigned int RG_AO_HIFLDO_RSVC : 4;
+    unsigned int rsvd_0 : 28;
+  } b;
+} RG_PMIC_A42_FIELD_T;
 
 #endif
 

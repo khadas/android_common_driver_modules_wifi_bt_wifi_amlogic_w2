@@ -23,6 +23,9 @@
 
 #include "chip_pmu_reg.h"
 #include "rwnx_irqs.h"
+#include "chip_ana_reg.h"
+#include "wifi_intf_addr.h"
+#include "../common/wifi_top_addr.h"
 
 extern unsigned char auc_driver_insmoded;
 extern struct usb_device *g_udev;
@@ -32,10 +35,16 @@ extern struct rwnx_plat_pci *g_rwnx_plat_pci;
 extern unsigned char g_pci_driver_insmoded;
 extern unsigned char g_pci_after_probe;
 
+#ifndef CONFIG_RWNX_FPGA_PCIE
+extern struct pcie_mem_map_struct pcie_ep_addr_range[PCIE_TABLE_NUM];
+#endif
+
 struct pci_dev *g_pci_dev = NULL;
 
-int wifi_fw_download(void);
+#ifdef CONFIG_RWNX_USB_MODE
+int wifi_fw_download(char *firmware_filename);
 int start_wifi(void);
+#endif
 
 #ifdef CONFIG_RWNX_TL4
 /**
@@ -131,10 +140,14 @@ static int rwnx_plat_bin_fw_upload(struct rwnx_plat *rwnx_plat, u8* fw_addr,
     const struct firmware *fw = NULL;
     struct device *dev = rwnx_platform_get_dev(rwnx_plat);
     int err = 0;
-    unsigned int i, size;
+    unsigned int size;
     u32 *src, *dst;
+#if (!defined(CONFIG_RWNX_USB_MODE) && !defined(CONFIG_RWNX_SDIO_MODE))
+    unsigned int i;
+#endif
 
     printk("%s:%d\n", __func__, __LINE__);
+
     err = request_firmware(&fw, filename, dev);
     if (err) {
         return err;
@@ -149,16 +162,24 @@ static int rwnx_plat_bin_fw_upload(struct rwnx_plat *rwnx_plat, u8* fw_addr,
 
     printk("%s:%d, size %d\n", __func__, __LINE__, size);
     printk("%s:%d, src %x\n", __func__, __LINE__, *src);
+
     /* check potential platform bug on multiple stores vs memcpy */
+#if (defined(CONFIG_RWNX_USB_MODE))
+    rwnx_plat->hif_ops->hi_write_sram((unsigned char *)src, (unsigned char *)dst, size, USB_EP4);
+
+#elif defined(CONFIG_RWNX_SDIO_MODE)
+    rwnx_plat->hif_ops->hi_write_ipc_sram((unsigned char *)src, (unsigned char *)dst, size);
+
+#else
     for (i = 0; i < size; i += 4) {
         *dst++ = *src++;
     }
+#endif
 
     release_firmware(fw);
 
     return err;
 }
-
 //sj
 #define ICCM_ROM_LEN (256 * 1024)
 #define ICCM_RAM_LEN (256 * 1024)
@@ -183,6 +204,7 @@ static int rwnx_plat_bin_fw_upload(struct rwnx_plat *rwnx_plat, u8* fw_addr,
         src += BYTE_IN_LINE;                                 \
     }
 
+#if (!defined(CONFIG_RWNX_USB_MODE) && !defined(CONFIG_RWNX_SDIO_MODE))
 static int rwnx_plat_fw_upload(struct rwnx_plat *rwnx_plat, u8* fw_addr,
                                char *filename)
 {
@@ -216,18 +238,31 @@ static int rwnx_plat_fw_upload(struct rwnx_plat *rwnx_plat, u8* fw_addr,
     printk("%s:%d iccm len %d\n", __func__, __LINE__, size/1024);
     for (i = 1; i <= size / 4; i += 1) {
         IHEX_READ32(data);
-        *dst++ = __swab32(data);
+        *dst = __swab32(data);
+        if (*dst != __swab32(data)) {
+            printk("Download ICCM ERROR!\n");
+            return -1;
+        }
+        dst++;
     }
 
     /* download dccm */
     src = (u8 *)(fw->data) + (size / 4) * BYTE_IN_LINE;
     size = DCCM_ALL_LEN;
-    dst = (u32 *)RWNX_ADDR(rwnx_plat, RWNX_ADDR_AON, DCCM_RAM_ADDR);//new pcie need use bar2
-
+#ifdef CONFIG_RWNX_FPGA_PCIE
+    dst = (u32 *)RWNX_ADDR(rwnx_plat, RWNX_ADDR_AON, DCCM_RAM_ADDR);
+#else
+    dst = (u32 *)RWNX_ADDR(rwnx_plat, RWNX_ADDR_CPU, DCCM_RAM_ADDR);
+#endif
     printk("%s:%d dccm dst %x, size %d\n", __func__, __LINE__, dst, size/1024);
     for (i = 1; i <= size / 4; i += 1) {
         IHEX_READ32(data);
-        *dst++ = __swab32(data);
+        *dst = __swab32(data);
+        if (*dst != __swab32(data)) {
+            printk("Download DCCM ERROR!\n");
+            return -1;
+        }
+        dst++;
     }
 
 #if 0
@@ -245,6 +280,8 @@ end:
     release_firmware(fw);
     return err;
 }
+#endif
+
 #ifndef CONFIG_RWNX_TL4
 #define IHEX_REC_DATA           0
 #define IHEX_REC_EOF            1
@@ -449,6 +486,7 @@ static u32 rwnx_plat_get_rf(struct rwnx_plat *rwnx_plat)
 
     return ver;
 }
+#endif
 
 /**
  * rwnx_plat_get_clkctrl_addr() - Return the clock control register address
@@ -508,7 +546,6 @@ static void rwnx_plat_stop_agcfsm(struct rwnx_plat *rwnx_plat, int agc_reg,
     }
 }
 
-
 /**
  * rwnx_plat_start_agcfsm() - Restart a AGC state machine
  *
@@ -537,7 +574,6 @@ static void rwnx_plat_start_agcfsm(struct rwnx_plat *rwnx_plat, int agc_reg,
     /* Restart state machine: xxAGCCNTL0[AGCFSMRESET]=0 */
     RWNX_REG_WRITE(agcctl & ~BIT(12), rwnx_plat, RWNX_ADDR_SYSTEM, agc_reg);
 }
-#endif
 
 /**
  * rwnx_plat_get_agc_load_version() - Return the agc load protocol version and the
@@ -580,6 +616,7 @@ static u8 rwnx_plat_get_agc_load_version(struct rwnx_plat *rwnx_plat, u32 rf,
  * @rwnx_plat: platform data
  * c.f Modem UM (AGC/CCA initialization)
  */
+
 static int rwnx_plat_agc_load(struct rwnx_plat *rwnx_plat)
 {
     int ret = 0;
@@ -681,6 +718,8 @@ static int rwnx_ldpc_load(struct rwnx_hw *rwnx_hw)
 }
 #endif
 
+
+#if (!defined(CONFIG_RWNX_USB_MODE) && !defined(CONFIG_RWNX_SDIO_MODE))
 /**
  * rwnx_plat_lmac_load() - Load FW code
  *
@@ -696,13 +735,13 @@ static int rwnx_plat_lmac_load(struct rwnx_plat *rwnx_plat)
                                   RWNX_MAC_FW_NAME);
     #else
     ret = rwnx_plat_fw_upload(rwnx_plat,
-            RWNX_ADDR(rwnx_plat, RWNX_ADDR_CPU, RAM_LMAC_FW_ADDR),
+            (u8 *)RWNX_ADDR(rwnx_plat, RWNX_ADDR_CPU, RAM_LMAC_FW_ADDR),
             RWNX_MAC_FW_NAME3);
     #endif
 
     return ret;
 }
-
+#endif
 /**
  * rwnx_rf_fw_load() - Load RF FW if any
  *
@@ -917,6 +956,298 @@ static void rwnx_term_restore_config(struct rwnx_plat *rwnx_plat,
 }
 
 #ifndef CONFIG_RWNX_FHOST
+#if defined(CONFIG_RWNX_USB_MODE)
+int rwnx_check_fw_compatibility(struct rwnx_hw *rwnx_hw)
+{
+    struct ipc_shared_env_tag *shared = NULL;
+
+    #ifdef CONFIG_RWNX_SOFTMAC
+    struct wiphy *wiphy = rwnx_hw->hw->wiphy;
+    #else //CONFIG_RWNX_SOFTMAC
+    struct wiphy *wiphy = rwnx_hw->wiphy;
+    #endif //CONFIG_RWNX_SOFTMAC
+    #ifdef CONFIG_RWNX_OLD_IPC
+    int ipc_shared_version = 10;
+    #else //CONFIG_RWNX_OLD_IPC
+    int ipc_shared_version = 11;
+    #endif //CONFIG_RWNX_OLD_IPC
+    int res = 0;
+
+    shared = (struct ipc_shared_env_tag *)kzalloc(sizeof(struct ipc_shared_env_tag), GFP_KERNEL);
+    if (!shared) {
+        printk("%s: %d, alloc shared failed!\n", __FILE__, __LINE__);
+        return -ENOMEM;
+    }
+
+    rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)&(shared->comp_info),
+        (unsigned char *)&(rwnx_hw->ipc_env->shared->comp_info),
+        sizeof(struct compatibility_tag), USB_EP4);
+
+    if (shared->comp_info.ipc_shared_version != ipc_shared_version)
+    {
+        wiphy_err(wiphy, "Different versions of IPC shared version between driver and FW (%d != %d)\n ",
+                  ipc_shared_version, shared->comp_info.ipc_shared_version);
+        res = -1;
+    }
+
+    if (shared->comp_info.radarbuf_cnt != IPC_RADARBUF_CNT)
+    {
+        wiphy_err(wiphy, "Different number of host buffers available for Radar events handling "\
+                  "between driver and FW (%d != %d)\n", IPC_RADARBUF_CNT,
+                  shared->comp_info.radarbuf_cnt);
+        res = -1;
+    }
+
+    if (shared->comp_info.unsuprxvecbuf_cnt != IPC_UNSUPRXVECBUF_CNT)
+    {
+        wiphy_err(wiphy, "Different number of host buffers available for unsupported Rx vectors "\
+                  "handling between driver and FW (%d != %d)\n", IPC_UNSUPRXVECBUF_CNT,
+                  shared->comp_info.unsuprxvecbuf_cnt);
+        res = -1;
+    }
+
+    #ifdef CONFIG_RWNX_FULLMAC
+    if (shared->comp_info.rxdesc_cnt != IPC_RXDESC_CNT)
+    {
+        wiphy_err(wiphy, "Different number of shared descriptors available for Data RX handling "\
+                  "between driver and FW (%d != %d)\n", IPC_RXDESC_CNT,
+                  shared->comp_info.rxdesc_cnt);
+        res = -1;
+    }
+    #endif /* CONFIG_RWNX_FULLMAC */
+
+    if (shared->comp_info.rxbuf_cnt != IPC_RXBUF_CNT)
+    {
+        wiphy_err(wiphy, "Different number of host buffers available for Data Rx handling "\
+                  "between driver and FW (%d != %d)\n", IPC_RXBUF_CNT,
+                  shared->comp_info.rxbuf_cnt);
+        res = -1;
+    }
+
+    if (shared->comp_info.msge2a_buf_cnt != IPC_MSGE2A_BUF_CNT)
+    {
+        wiphy_err(wiphy, "Different number of host buffers available for Emb->App MSGs "\
+                  "sending between driver and FW (%d != %d)\n", IPC_MSGE2A_BUF_CNT,
+                  shared->comp_info.msge2a_buf_cnt);
+        res = -1;
+    }
+
+    if (shared->comp_info.dbgbuf_cnt != IPC_DBGBUF_CNT)
+    {
+        wiphy_err(wiphy, "Different number of host buffers available for debug messages "\
+                  "sending between driver and FW (%d != %d)\n", IPC_DBGBUF_CNT,
+                  shared->comp_info.dbgbuf_cnt);
+        res = -1;
+    }
+
+    if (shared->comp_info.bk_txq != NX_TXDESC_CNT0)
+    {
+        wiphy_err(wiphy, "Driver and FW have different sizes of BK TX queue (%d != %d)\n",
+                  NX_TXDESC_CNT0, shared->comp_info.bk_txq);
+        res = -1;
+    }
+
+    if (shared->comp_info.be_txq != NX_TXDESC_CNT1)
+    {
+        wiphy_err(wiphy, "Driver and FW have different sizes of BE TX queue (%d != %d)\n",
+                  NX_TXDESC_CNT1, shared->comp_info.be_txq);
+        res = -1;
+    }
+
+    if (shared->comp_info.vi_txq != NX_TXDESC_CNT2)
+    {
+        wiphy_err(wiphy, "Driver and FW have different sizes of VI TX queue (%d != %d)\n",
+                  NX_TXDESC_CNT2, shared->comp_info.vi_txq);
+        res = -1;
+    }
+
+    if (shared->comp_info.vo_txq != NX_TXDESC_CNT3)
+    {
+        wiphy_err(wiphy, "Driver and FW have different sizes of VO TX queue (%d != %d)\n",
+                  NX_TXDESC_CNT3, shared->comp_info.vo_txq);
+        res = -1;
+    }
+
+    #if NX_TXQ_CNT == 5
+    if (shared->comp_info.bcn_txq != NX_TXDESC_CNT4)
+    {
+        wiphy_err(wiphy, "Driver and FW have different sizes of BCN TX queue (%d != %d)\n",
+                NX_TXDESC_CNT4, shared->comp_info.bcn_txq);
+        res = -1;
+    }
+    #else
+    if (shared->comp_info.bcn_txq > 0)
+    {
+        wiphy_err(wiphy, "BCMC enabled in firmware but disabled in driver\n");
+        res = -1;
+    }
+    #endif /* NX_TXQ_CNT == 5 */
+
+    if (shared->comp_info.ipc_shared_size != sizeof(ipc_shared_env))
+    {
+        wiphy_err(wiphy, "Different sizes of IPC shared between driver and FW (%zd != %d)\n",
+                  sizeof(ipc_shared_env), shared->comp_info.ipc_shared_size);
+        res = -1;
+    }
+
+    if (shared->comp_info.msg_api != MSG_API_VER)
+    {
+        wiphy_err(wiphy, "Different supported message API versions between "\
+                  "driver and FW (%d != %d)\n", MSG_API_VER, shared->comp_info.msg_api);
+        res = -1;
+    }
+
+    kfree(shared);
+
+    return res;
+}
+
+
+#elif defined(CONFIG_RWNX_SDIO_MODE)
+int rwnx_check_fw_compatibility(struct rwnx_hw *rwnx_hw)
+{
+    struct ipc_shared_env_tag *shared = NULL;
+    #ifdef CONFIG_RWNX_SOFTMAC
+    struct wiphy *wiphy = rwnx_hw->hw->wiphy;
+    #else //CONFIG_RWNX_SOFTMAC
+    struct wiphy *wiphy = rwnx_hw->wiphy;
+    #endif //CONFIG_RWNX_SOFTMAC
+    #ifdef CONFIG_RWNX_OLD_IPC
+    int ipc_shared_version = 10;
+    #else //CONFIG_RWNX_OLD_IPC
+    int ipc_shared_version = 11;
+    #endif //CONFIG_RWNX_OLD_IPC
+    int res = 0;
+
+    shared = (struct ipc_shared_env_tag *)kzalloc(sizeof(struct ipc_shared_env_tag), GFP_KERNEL);
+    if (!shared) {
+        printk("%s: %d, alloc shared failed!\n", __FILE__, __LINE__);
+        return -ENOMEM;
+    }
+
+    rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)&(shared->comp_info), (unsigned char *)&(rwnx_hw->ipc_env->shared->comp_info),
+        sizeof(struct compatibility_tag));
+
+    if (shared->comp_info.ipc_shared_version != ipc_shared_version)
+    {
+        wiphy_err(wiphy, "Different versions of IPC shared version between driver and FW (%d != %d)\n ",
+                  ipc_shared_version, shared->comp_info.ipc_shared_version);
+        res = -1;
+    }
+
+    if (shared->comp_info.radarbuf_cnt != IPC_RADARBUF_CNT)
+    {
+        wiphy_err(wiphy, "Different number of host buffers available for Radar events handling "\
+                  "between driver and FW (%d != %d)\n", IPC_RADARBUF_CNT,
+                  shared->comp_info.radarbuf_cnt);
+        res = -1;
+    }
+
+    if (shared->comp_info.unsuprxvecbuf_cnt != IPC_UNSUPRXVECBUF_CNT)
+    {
+        wiphy_err(wiphy, "Different number of host buffers available for unsupported Rx vectors "\
+                  "handling between driver and FW (%d != %d)\n", IPC_UNSUPRXVECBUF_CNT,
+                  shared->comp_info.unsuprxvecbuf_cnt);
+        res = -1;
+    }
+
+    #ifdef CONFIG_RWNX_FULLMAC
+    if (shared->comp_info.rxdesc_cnt != IPC_RXDESC_CNT)
+    {
+        wiphy_err(wiphy, "Different number of shared descriptors available for Data RX handling "\
+                  "between driver and FW (%d != %d)\n", IPC_RXDESC_CNT,
+                  shared->comp_info.rxdesc_cnt);
+        res = -1;
+    }
+    #endif /* CONFIG_RWNX_FULLMAC */
+
+    if (shared->comp_info.rxbuf_cnt != IPC_RXBUF_CNT)
+    {
+        wiphy_err(wiphy, "Different number of host buffers available for Data Rx handling "\
+                  "between driver and FW (%d != %d)\n", IPC_RXBUF_CNT,
+                  shared->comp_info.rxbuf_cnt);
+        res = -1;
+    }
+
+    if (shared->comp_info.msge2a_buf_cnt != IPC_MSGE2A_BUF_CNT)
+    {
+        wiphy_err(wiphy, "Different number of host buffers available for Emb->App MSGs "\
+                  "sending between driver and FW (%d != %d)\n", IPC_MSGE2A_BUF_CNT,
+                  shared->comp_info.msge2a_buf_cnt);
+        res = -1;
+    }
+
+    if (shared->comp_info.dbgbuf_cnt != IPC_DBGBUF_CNT)
+    {
+        wiphy_err(wiphy, "Different number of host buffers available for debug messages "\
+                  "sending between driver and FW (%d != %d)\n", IPC_DBGBUF_CNT,
+                  shared->comp_info.dbgbuf_cnt);
+        res = -1;
+    }
+
+    if (shared->comp_info.bk_txq != NX_TXDESC_CNT0)
+    {
+        wiphy_err(wiphy, "Driver and FW have different sizes of BK TX queue (%d != %d)\n",
+                  NX_TXDESC_CNT0, shared->comp_info.bk_txq);
+        res = -1;
+    }
+
+    if (shared->comp_info.be_txq != NX_TXDESC_CNT1)
+    {
+        wiphy_err(wiphy, "Driver and FW have different sizes of BE TX queue (%d != %d)\n",
+                  NX_TXDESC_CNT1, shared->comp_info.be_txq);
+        res = -1;
+    }
+
+    if (shared->comp_info.vi_txq != NX_TXDESC_CNT2)
+    {
+        wiphy_err(wiphy, "Driver and FW have different sizes of VI TX queue (%d != %d)\n",
+                  NX_TXDESC_CNT2, shared->comp_info.vi_txq);
+        res = -1;
+    }
+
+    if (shared->comp_info.vo_txq != NX_TXDESC_CNT3)
+    {
+        wiphy_err(wiphy, "Driver and FW have different sizes of VO TX queue (%d != %d)\n",
+                  NX_TXDESC_CNT3, shared->comp_info.vo_txq);
+        res = -1;
+    }
+
+    #if NX_TXQ_CNT == 5
+    if (shared->comp_info.bcn_txq != NX_TXDESC_CNT4)
+    {
+        wiphy_err(wiphy, "Driver and FW have different sizes of BCN TX queue (%d != %d)\n",
+                NX_TXDESC_CNT4, shared->comp_info.bcn_txq);
+        res = -1;
+    }
+    #else
+    if (shared->comp_info.bcn_txq > 0)
+    {
+        wiphy_err(wiphy, "BCMC enabled in firmware but disabled in driver\n");
+        res = -1;
+    }
+    #endif /* NX_TXQ_CNT == 5 */
+
+    if (shared->comp_info.ipc_shared_size != sizeof(ipc_shared_env))
+    {
+        wiphy_err(wiphy, "Different sizes of IPC shared between driver and FW (%zd != %d)\n",
+                  sizeof(ipc_shared_env), shared->comp_info.ipc_shared_size);
+        res = -1;
+    }
+
+    if (shared->comp_info.msg_api != MSG_API_VER)
+    {
+        wiphy_err(wiphy, "Different supported message API versions between "\
+                  "driver and FW (%d != %d)\n", MSG_API_VER, shared->comp_info.msg_api);
+        res = -1;
+    }
+
+    kfree(shared);
+    return res;
+}
+
+
+#else
 static int rwnx_check_fw_compatibility(struct rwnx_hw *rwnx_hw)
 {
     struct ipc_shared_env_tag *shared = rwnx_hw->ipc_env->shared;
@@ -1048,62 +1379,273 @@ static int rwnx_check_fw_compatibility(struct rwnx_hw *rwnx_hw)
 
     return res;
 }
+#endif
 #endif /* !CONFIG_RWNX_FHOST */
 
-#ifdef CONFIG_RWNX_USB_MODE
+unsigned int bbpll_init(struct rwnx_plat *rwnx_plat)
+{
+    RG_DPLL_A0_FIELD_T rg_dpll_a0;
+    RG_DPLL_A1_FIELD_T rg_dpll_a1;
+    RG_DPLL_A2_FIELD_T rg_dpll_a2;
+    RG_DPLL_A3_FIELD_T rg_dpll_a3;
+    RG_DPLL_A4_FIELD_T rg_dpll_a4;
+    RG_DPLL_A5_FIELD_T rg_dpll_a5;
+    RG_DPLL_A6_FIELD_T rg_dpll_a6;
+
+    rg_dpll_a0.data = 0x00800060;  //close test path
+    RWNX_REG_WRITE(rg_dpll_a0.data, rwnx_plat, RWNX_ADDR_AON, RG_DPLL_A0);
+
+    rg_dpll_a1.data = 0x00000c02;
+    RWNX_REG_WRITE(rg_dpll_a1.data, rwnx_plat, RWNX_ADDR_AON, RG_DPLL_A1);
+
+    rg_dpll_a2.data = 0x00021f1f;
+    RWNX_REG_WRITE(rg_dpll_a2.data, rwnx_plat, RWNX_ADDR_AON, RG_DPLL_A2);
+
+    rg_dpll_a3.data = 0x00000020;
+    RWNX_REG_WRITE(rg_dpll_a3.data, rwnx_plat, RWNX_ADDR_AON, RG_DPLL_A3);
+
+    rg_dpll_a4.data = 0x0000000a;
+    RWNX_REG_WRITE(rg_dpll_a4.data, rwnx_plat, RWNX_ADDR_AON, RG_DPLL_A4);
+
+    rg_dpll_a5.data = 0x000000c0;
+    RWNX_REG_WRITE(rg_dpll_a5.data, rwnx_plat, RWNX_ADDR_AON, RG_DPLL_A5);
+
+    rg_dpll_a6.data = 0x00000000;
+    RWNX_REG_WRITE(rg_dpll_a6.data, rwnx_plat, RWNX_ADDR_AON, RG_DPLL_A6);
+
+    return 0;
+}
+
+unsigned int bbpll_start(struct rwnx_plat *rwnx_plat)
+{
+    //RG_DPLL_A0_FIELD_T rg_dpll_a0;
+    RG_DPLL_A1_FIELD_T rg_dpll_a1;
+    //RG_DPLL_A2_FIELD_T rg_dpll_a2;
+    RG_DPLL_A3_FIELD_T rg_dpll_a3;
+    //RG_DPLL_A4_FIELD_T rg_dpll_a4;
+    //RG_DPLL_A5_FIELD_T rg_dpll_a5;
+    RG_DPLL_A6_FIELD_T rg_dpll_a6;
+
+    //1.enable PLL and set PLL configuration
+    rg_dpll_a1.data = RWNX_REG_READ(rwnx_plat, RWNX_ADDR_AON, RG_DPLL_A1);
+    rg_dpll_a1.b.rg_bbpll_en = 0x1;
+    RWNX_REG_WRITE(rg_dpll_a1.data, rwnx_plat, RWNX_ADDR_AON, RG_DPLL_A1);
+
+    //delay 20us for LDO and Band-gap to establish the working state
+    udelay(20);
+
+    //2.disable PLL reset
+    rg_dpll_a1.b.rg_bbpll_rst = 0x0;
+    RWNX_REG_WRITE(rg_dpll_a1.data, rwnx_plat, RWNX_ADDR_AON, RG_DPLL_A1);
+
+    //delay 20 us for lock detector
+    udelay(20);
+
+    //3.enable PLL lock-detecor
+    rg_dpll_a3.data = RWNX_REG_READ(rwnx_plat, RWNX_ADDR_AON, RG_DPLL_A3);
+    rg_dpll_a3.b.rg_bbpll_lk_rst = 0;
+    RWNX_REG_WRITE(rg_dpll_a3.data, rwnx_plat, RWNX_ADDR_AON, RG_DPLL_A3);
+
+    //4.check PLL status
+    rg_dpll_a6.data = RWNX_REG_READ(rwnx_plat, RWNX_ADDR_AON, RG_DPLL_A6);
+    if (rg_dpll_a6.b.ro_bbpll_done == 1)
+    {
+        printk("bbpll done !\n");
+        return 1;
+    }
+    else
+    {
+        printk("bbpll start failed !\n");
+        return 0;
+    }
+}
+
+unsigned int bbpll_stop(struct rwnx_plat *rwnx_plat)
+{
+    RG_DPLL_A1_FIELD_T rg_dpll_a1;
+    RG_DPLL_A3_FIELD_T rg_dpll_a3;
+
+    //1.enable PLL and set PLL configuration
+    rg_dpll_a1.data = RWNX_REG_READ(rwnx_plat, RWNX_ADDR_AON, RG_DPLL_A1);
+    rg_dpll_a1.b.rg_bbpll_en = 0x0;
+    RWNX_REG_WRITE(rg_dpll_a1.data, rwnx_plat, RWNX_ADDR_AON, RG_DPLL_A1);
+    udelay(5);
+
+    rg_dpll_a1.b.rg_bbpll_rst = 0x1;
+    RWNX_REG_WRITE(rg_dpll_a1.data, rwnx_plat, RWNX_ADDR_AON, RG_DPLL_A1);
+    udelay(5);
+
+    rg_dpll_a3.data = RWNX_REG_READ(rwnx_plat, RWNX_ADDR_AON, RG_DPLL_A3);
+    rg_dpll_a3.b.rg_bbpll_lk_rst = 1;
+    RWNX_REG_WRITE(rg_dpll_a3.data, rwnx_plat, RWNX_ADDR_AON, RG_DPLL_A3);
+
+    return 0;
+}
+
+void rwnx_tx_rx_buf_init(struct rwnx_plat *rwnx_plat)
+{
+    int i;
+    for (i = 0; i < 1024; i += 4)
+    {
+        RWNX_REG_WRITE(0, rwnx_plat, RWNX_ADDR_MAC_PHY, MAC_SRAM_BASE + i);
+    }
+}
+
+#if !defined(CONFIG_RWNX_PCIE_MODE)
+extern int rwnx_tx_task(void *data);
+extern int rwnx_tx_cfm_task(void *data);
+extern int rwnx_msg_task(void *data);
+
+#if defined(CONFIG_RWNX_USB_MODE)
+void usb_stor_control_msg(struct rwnx_hw *rwnx_hw, struct urb *urb)
+{
+    int ret;
+    struct usb_device *udev = rwnx_hw->plat->usb_dev;
+
+    /* fill in the devrequest structure */
+    rwnx_hw->g_cr->bRequestType = USB_CTRL_IN_REQTYPE;
+    rwnx_hw->g_cr->bRequest = CMD_USB_IRQ;
+    rwnx_hw->g_cr->wValue = 0;
+    rwnx_hw->g_cr->wIndex = 0;
+    rwnx_hw->g_cr->wLength = cpu_to_le16(sizeof(int));
+
+    /*fill a control urb*/
+    usb_fill_control_urb(urb,
+        udev,
+        usb_rcvctrlpipe(udev, USB_EP0),
+        (unsigned char *)(rwnx_hw->g_cr),
+        rwnx_hw->g_buffer,
+        2 * sizeof(int),
+        (usb_complete_t)rwnx_irq_hdlr,
+        rwnx_hw);
+
+    /*submit urb*/
+    ret = usb_submit_urb(urb, GFP_ATOMIC);
+    if (ret < 0) {
+        ERROR_DEBUG_OUT("usb_submit_urb failed %d\n", ret);
+    }
+}
+#endif
+
+int rwnx_create_thread(struct rwnx_hw *rwnx_hw)
+{
+    sema_init(&rwnx_hw->rwnx_task_sem, 0);
+    sema_init(&rwnx_hw->rwnx_tx_task_sem, 0);
+    sema_init(&rwnx_hw->rwnx_tx_cfm_sem, 0);
+    sema_init(&rwnx_hw->rwnx_msg_sem, 0);
+
+    rwnx_hw->rwnx_task = kthread_run(rwnx_task, rwnx_hw, "rwnx_task");
+    if (IS_ERR(rwnx_hw->rwnx_task)) {
+        rwnx_hw->rwnx_task = NULL;
+        ERROR_DEBUG_OUT("create rwnx_task error!!!!\n");
+        return -1;
+    }
+
+    rwnx_hw->rwnx_tx_task = kthread_run(rwnx_tx_task, rwnx_hw, "rwnx_tx_task");
+    if (IS_ERR(rwnx_hw->rwnx_tx_task)) {
+        kthread_stop(rwnx_hw->rwnx_task);
+        rwnx_hw->rwnx_tx_task = NULL;
+        ERROR_DEBUG_OUT("create rwnx_tx_task error!!!!\n");
+        return -1;
+    }
+
+    rwnx_hw->rwnx_tx_cfm_task = kthread_run(rwnx_tx_cfm_task, rwnx_hw, "rwnx_tx_cfm_task");
+    if (IS_ERR(rwnx_hw->rwnx_tx_cfm_task)) {
+        kthread_stop(rwnx_hw->rwnx_task);
+        kthread_stop(rwnx_hw->rwnx_tx_task);
+        rwnx_hw->rwnx_tx_cfm_task = NULL;
+        ERROR_DEBUG_OUT("create rwnx_tx_cfm_task error!!!!\n");
+        return -1;
+    }
+
+    rwnx_hw->rwnx_msg_task = kthread_run(rwnx_msg_task, rwnx_hw, "rwnx_tx_cfm_task");
+    if (IS_ERR(rwnx_hw->rwnx_msg_task)) {
+        kthread_stop(rwnx_hw->rwnx_task);
+        kthread_stop(rwnx_hw->rwnx_tx_task);
+        kthread_stop(rwnx_hw->rwnx_tx_cfm_task);
+        rwnx_hw->rwnx_msg_task = NULL;
+        ERROR_DEBUG_OUT("create rwnx_msg_task error!!!!\n");
+        return -1;
+    }
+
+    return 0;
+}
+
 int rwnx_platform_on(struct rwnx_hw *rwnx_hw, void *config)
 {
     u8 *shared_ram;
     struct rwnx_plat *rwnx_plat = rwnx_hw->plat;
     int ret;
+    RG_DPLL_A6_FIELD_T rg_dpll_a6;
+    unsigned int mac_clk_reg;
 
     if (rwnx_plat->enabled)
         return 0;
+
+    rg_dpll_a6.data = RWNX_REG_READ(rwnx_plat, RWNX_ADDR_AON, RG_DPLL_A6);
+
+    /*bpll not init*/
+    if (rg_dpll_a6.b.ro_bbpll_done != 1) {
+        bbpll_init(rwnx_plat);
+        bbpll_start(rwnx_plat);
+        printk("bbpll init ok!\n");
+    } else {
+        printk("bbpll already init,not need to init!\n");
+    }
+
+    //change cpu clock to 240M
+    RWNX_REG_WRITE(CPU_CLK_VALUE, rwnx_plat, RWNX_ADDR_MAC_PHY, CPU_CLK_REG_ADDR);
+    //change mac clock to 240M
+    mac_clk_reg = RWNX_REG_READ(rwnx_plat, RWNX_ADDR_MAC_PHY, RG_INTF_MACCORE_CLK);
+    mac_clk_reg |= 0x30000;
+    RWNX_REG_WRITE(mac_clk_reg, rwnx_plat, RWNX_ADDR_MAC_PHY, RG_INTF_MACCORE_CLK);
+
+    rwnx_tx_rx_buf_init(rwnx_plat);
 
     if (rwnx_platform_reset(rwnx_plat))
         return -1;
 
     rwnx_plat_mpif_sel(rwnx_plat);
 
-#ifndef CONFIG_RWNX_FHOST
+    #ifndef CONFIG_RWNX_FHOST
     /* By default, we consider that there is only one RF in the system */
     rwnx_hw->phy.cnt = 1;
-#endif // CONFIG_RWNX_FHOST
+    #endif // CONFIG_RWNX_FHOST
 
-    if ((ret = wifi_fw_download()))
+    if ((ret = rwnx_plat_agc_load(rwnx_plat)))
         return ret;
 
-    if ((ret =  start_wifi()))
+#if defined(CONFIG_RWNX_USB_MODE)
+    if ((ret = wifi_fw_download(RWNX_MAC_FW_NAME3)))
         return ret;
 
-    shared_ram = RWNX_ADDR(rwnx_plat, RWNX_ADDR_SYSTEM, SHARED_RAM_START_ADDR);
+    if ((ret = start_wifi()))
+        return ret;
+#else
+    aml_download_wifi_fw_img(RWNX_MAC_FW_NAME3);
+#endif
+
+    if ((ret = hal_host_init()))
+        return ret;
+
+    shared_ram = (u8 *)SHARED_RAM_START_ADDR;
     if ((ret = rwnx_ipc_init(rwnx_hw, shared_ram)))
         return ret;
 
-    //if ((ret = rwnx_plat->enable(rwnx_hw)))
-        //return ret;
     RWNX_REG_WRITE(BOOTROM_ENABLE, rwnx_plat,
-                   RWNX_ADDR_SYSTEM, SYSCTRL_MISC_CNTL_ADDR);
-
-    //change cpu clock
-    RWNX_REG_WRITE(0x4f770033, rwnx_plat,
-                   RWNX_ADDR_MAC_PHY, 0x00a0d090);
-
-    printk("%s:%d, reg:0xa070b4 : value %x", __func__, __LINE__, rwnx_plat->hif_ops->hi_read_word(RWNX_ADDR_MAC_PHY + 0x00a070b4, USB_EP4));
-    msleep(10);
-    printk("%s:%d, reg:0xa070b4 : value %x", __func__, __LINE__, rwnx_plat->hif_ops->hi_read_word(RWNX_ADDR_MAC_PHY + 0x00a070b4, USB_EP4));
-    msleep(10);
-    printk("%s:%d, reg:0xa070b4 : value %x", __func__, __LINE__, rwnx_plat->hif_ops->hi_read_word(RWNX_ADDR_MAC_PHY + 0x00a070b4, USB_EP4 ));
-    msleep(10);
+                       RWNX_ADDR_SYSTEM, SYSCTRL_MISC_CNTL_ADDR);
 
     //start firmware cpu
     RWNX_REG_WRITE(0x00070000, rwnx_plat, RWNX_ADDR_AON, RG_PMU_A22);
+    RWNX_REG_WRITE(CPU_CLK_VALUE, rwnx_plat, RWNX_ADDR_MAC_PHY, CPU_CLK_REG_ADDR);
+
     //printk("%s:%d, value %x", __func__, __LINE__, readl(rwnx_plat->get_address(rwnx_plat, RWNX_ADDR_MAC_PHY, 0x00a070b4)));
     rwnx_fw_trace_config_filters(rwnx_get_shared_trace_buf(rwnx_hw),
                                  rwnx_ipc_fw_trace_desc_get(rwnx_hw),
                                  rwnx_hw->mod_params->ftl);
 
-    #ifndef CONFIG_RWNX_FHOST
+
+#ifndef CONFIG_RWNX_FHOST
     if ((ret = rwnx_check_fw_compatibility(rwnx_hw)))
     {
         if (rwnx_hw->plat->disable)
@@ -1112,17 +1654,61 @@ int rwnx_platform_on(struct rwnx_hw *rwnx_hw, void *config)
         rwnx_ipc_deinit(rwnx_hw);
         return ret;
     }
-    #endif /* !CONFIG_RWNX_FHOST */
+#endif /* !CONFIG_RWNX_FHOST */
 
     if (config)
         rwnx_term_restore_config(rwnx_plat, config);
 
     rwnx_ipc_start(rwnx_hw);
 
+#if defined(CONFIG_RWNX_USB_MODE)
+    rwnx_hw->g_buffer = ZMALLOC(2 * sizeof(int), "fw_stat",GFP_DMA | GFP_ATOMIC);
+    if (!rwnx_hw->g_buffer) {
+        ERROR_DEBUG_OUT("malloc fail!\n");
+        return -ENOMEM;
+    }
+
+    rwnx_hw->g_cr =  ZMALLOC(sizeof(struct usb_ctrlrequest), "fw_stat",GFP_DMA | GFP_ATOMIC);
+    if (!rwnx_hw->g_cr) {
+        FREE(rwnx_hw->g_buffer, "fw_stat");
+        ERROR_DEBUG_OUT("malloc fail!\n");
+        return -ENOMEM;
+    }
+
+    rwnx_hw->g_urb = usb_alloc_urb(0, GFP_ATOMIC);
+    if (!rwnx_hw->g_urb) {
+        FREE(rwnx_hw->g_buffer, "fw_stat");
+        FREE(rwnx_hw->g_cr, "fw_stat");
+        ERROR_DEBUG_OUT("error,no urb!\n");
+        return -ENOMEM;
+    }
+#endif
+
+    if (rwnx_create_thread(rwnx_hw)) {
+#if defined(CONFIG_RWNX_USB_MODE)
+        FREE(rwnx_hw->g_buffer, "fw_stat");
+        FREE(rwnx_hw->g_cr, "fw_stat");
+        usb_free_urb(rwnx_hw->g_urb);
+#endif
+        return -ENOMEM;
+    }
+    INIT_LIST_HEAD(&rwnx_hw->tx_desc_save);
+
+#if defined(CONFIG_RWNX_SDIO_MODE)
+    if ((ret = rwnx_plat->enable(rwnx_hw)))
+        return ret;
+#endif
+
+#if defined(CONFIG_RWNX_USB_MODE)
+    usb_stor_control_msg(rwnx_hw, rwnx_hw->g_urb);
+#endif
     rwnx_plat->enabled = true;
 
+    printk("%s %d end\n", __func__, __LINE__);
     return 0;
 }
+
+
 #else
 /**
  * rwnx_platform_on() - Start the platform
@@ -1143,9 +1729,32 @@ int rwnx_platform_on(struct rwnx_hw *rwnx_hw, void *config)
     u8 *shared_ram;
     struct rwnx_plat *rwnx_plat = rwnx_hw->plat;
     int ret;
+    RG_DPLL_A6_FIELD_T rg_dpll_a6;
+    unsigned int mac_clk_reg;
 
     if (rwnx_plat->enabled)
         return 0;
+
+     rg_dpll_a6.data = RWNX_REG_READ(rwnx_plat, RWNX_ADDR_AON, RG_DPLL_A6);
+    /*bpll not init*/
+    if (rg_dpll_a6.b.ro_bbpll_done != 1) {
+        bbpll_init(rwnx_plat);
+        bbpll_start(rwnx_plat);
+        printk("bbpll init ok!\n");
+    } else {
+        printk("bbpll already init,not need to init!\n");
+    }
+
+    //change cpu clock to 240M
+    RWNX_REG_WRITE(CPU_CLK_VALUE, rwnx_plat,
+                   RWNX_ADDR_MAC_PHY, CPU_CLK_REG_ADDR);
+
+    //change mac clock to 240M
+    mac_clk_reg = RWNX_REG_READ(rwnx_plat, RWNX_ADDR_MAC_PHY, RG_INTF_MACCORE_CLK);
+    mac_clk_reg |= 0x30000;
+    RWNX_REG_WRITE(mac_clk_reg, rwnx_plat, RWNX_ADDR_MAC_PHY, RG_INTF_MACCORE_CLK);
+
+    rwnx_tx_rx_buf_init(rwnx_plat);
 
     if (rwnx_platform_reset(rwnx_plat))
         return -1;
@@ -1163,7 +1772,7 @@ int rwnx_platform_on(struct rwnx_hw *rwnx_hw, void *config)
     if ((ret = rwnx_plat_lmac_load(rwnx_plat)))
         return ret;
 
-    shared_ram = RWNX_ADDR(rwnx_plat, RWNX_ADDR_SYSTEM, SHARED_RAM_START_ADDR);
+    shared_ram = (u8 *)RWNX_ADDR(rwnx_plat, RWNX_ADDR_SYSTEM, SHARED_RAM_START_ADDR);
     if ((ret = rwnx_ipc_init(rwnx_hw, shared_ram)))
         return ret;
 
@@ -1171,10 +1780,6 @@ int rwnx_platform_on(struct rwnx_hw *rwnx_hw, void *config)
         return ret;
     RWNX_REG_WRITE(BOOTROM_ENABLE, rwnx_plat,
                    RWNX_ADDR_SYSTEM, SYSCTRL_MISC_CNTL_ADDR);
-
-    //change cpu clock
-    RWNX_REG_WRITE(0x4f770033, rwnx_plat,
-                   RWNX_ADDR_MAC_PHY, 0x00a0d090);
 
     printk("%s:%d, reg:0xa070b4 : value %x", __func__, __LINE__, readl(rwnx_plat->get_address(rwnx_plat, RWNX_ADDR_MAC_PHY, 0x00a070b4 )));
     msleep(10);
@@ -1291,7 +1896,30 @@ void rwnx_platform_deinit(struct rwnx_hw *rwnx_hw)
 #endif
 }
 
-#ifdef CONFIG_RWNX_USB_MODE
+#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
+#define RWNX_BASE_ADDR  0x60000000
+static unsigned char *rwnx_get_address(struct rwnx_plat *rwnx_plat, int addr_name,
+                               unsigned int offset)
+{
+    unsigned char *addr = NULL;
+
+    if (addr_name == RWNX_ADDR_SYSTEM) {
+        addr = (unsigned char *)(unsigned long)(offset + RWNX_BASE_ADDR);
+    } else {
+        addr = (unsigned char *)(unsigned long)offset;
+    }
+
+    return addr;
+}
+#endif
+
+#if defined(CONFIG_RWNX_USB_MODE)
+
+static void rwnx_pci_ack_irq(struct rwnx_plat *rwnx_plat)
+{
+    ;
+}
+
 int rwnx_platform_register_drv(void)
 {
     int ret = 0;
@@ -1310,6 +1938,10 @@ int rwnx_platform_register_drv(void)
 
     rwnx_plat->usb_dev = g_udev;
     rwnx_plat->hif_ops = &g_auc_hif_ops;
+
+    ipc_basic_address = (u8 *)IPC_BASIC_ADDRESS;
+    rwnx_plat->get_address = rwnx_get_address;
+    rwnx_plat->ack_irq = rwnx_pci_ack_irq;
 
     rwnx_platform_init(rwnx_plat, &drv_data);
     dev_set_drvdata(&rwnx_plat->usb_dev->dev, drv_data);
@@ -1332,14 +1964,84 @@ void rwnx_platform_unregister_drv(void)
 
     dev_set_drvdata(&g_udev->dev, NULL);
 }
-#else
+#elif defined(CONFIG_RWNX_SDIO_MODE)
+extern int wifi_irq_num(void);
+static int rwnx_pci_platform_enable(struct rwnx_hw *rwnx_hw)
+{
+    int ret;
+    unsigned int irq_flag = 0;
 
-//fpga bar0 0x6000_0000~0x603f_ffff 4M
-//fpga bar1 0x0020_0000~0x004f_ffff 4M
-//fpga bar2 0x00c0_0000~0x00ff_ffff 4M
-//fpga bar3 0x00a0_0000~0x00af_ffff 1M
-//fpga bar4 0x0000_0000~0x0007_ffff 512K
-//fpga bar5 0x6080_0000~0x60ff_ffff 8M
+    rwnx_hw->irq = wifi_irq_num();
+    irq_flag = IORESOURCE_IRQ | IORESOURCE_IRQ_LOWLEVEL | IORESOURCE_IRQ_SHAREABLE;
+    printk("%s(%d) irq_flag=0x%x  irq=%d\n", __func__, __LINE__, irq_flag,  rwnx_hw->irq);
+
+    ret = request_irq(rwnx_hw->irq, rwnx_irq_hdlr, irq_flag, "rwnx", rwnx_hw);
+    printk("%s(%d) request_irq ret=%d\n",__func__,__LINE__, ret);
+
+    return ret;
+}
+
+static int rwnx_pci_platform_disable(struct rwnx_hw *rwnx_hw)
+{
+    free_irq(rwnx_hw->irq, rwnx_hw);
+    return 0;
+}
+
+static void rwnx_pci_ack_irq(struct rwnx_plat *rwnx_plat)
+{
+    rwnx_plat->hif_ops->hi_read_ipc_word(RG_WIFI_IF_HOST_IRQ_ST);
+}
+
+int rwnx_platform_register_drv(void)
+{
+    int ret = 0;
+    struct rwnx_plat *rwnx_plat;
+    void *drv_data = NULL;
+    struct sdio_func *func = aml_priv_to_func(SDIO_FUNC7);
+
+    if (!g_sdio_driver_insmoded) {
+        ret = aml_sdio_init();
+    }
+
+    rwnx_plat = kzalloc(sizeof(struct rwnx_plat), GFP_KERNEL);
+    if (!rwnx_plat)
+        return -ENOMEM;
+
+    printk("%s:%d \n", __func__, __LINE__);
+    rwnx_plat->enable = rwnx_pci_platform_enable;
+    rwnx_plat->disable = rwnx_pci_platform_disable;
+    rwnx_plat->ack_irq = rwnx_pci_ack_irq;
+
+    rwnx_plat->dev = &func->dev;
+    rwnx_plat->hif_ops = &g_hif_sdio_ops;
+
+    ipc_basic_address = (u8 *)IPC_BASIC_ADDRESS;
+    rwnx_plat->get_address = rwnx_get_address;
+
+    rwnx_platform_init(rwnx_plat, &drv_data);
+    dev_set_drvdata(rwnx_plat->dev, drv_data);
+
+    return ret;
+}
+
+void rwnx_platform_unregister_drv(void)
+{
+    struct rwnx_hw *rwnx_hw;
+    struct rwnx_plat *rwnx_plat;
+    struct sdio_func *func = aml_priv_to_func(SDIO_FUNC7);
+
+    RWNX_DBG(RWNX_FN_ENTRY_STR);
+
+    rwnx_hw = dev_get_drvdata(&func->dev);
+    rwnx_plat = rwnx_hw->plat;
+
+    rwnx_platform_deinit(rwnx_hw);
+    kfree(rwnx_plat);
+
+    dev_set_drvdata(&func->dev, NULL);
+}
+
+#else
 u8* rwnx_pci_get_map_address(struct net_device *dev, unsigned int offset)
 {
     struct rwnx_vif *rwnx_vif = netdev_priv(dev);
@@ -1350,7 +2052,14 @@ u8* rwnx_pci_get_map_address(struct net_device *dev, unsigned int offset)
     if (!rwnx_pci) {
         return NULL;
     }
-    printk("%s,%d\n", __func__, __LINE__);
+
+#ifdef CONFIG_RWNX_FPGA_PCIE
+    //fpga bar0 0x6000_0000~0x603f_ffff 4M
+    //fpga bar1 0x0020_0000~0x004f_ffff 4M
+    //fpga bar2 0x00c0_0000~0x00ff_ffff 4M
+    //fpga bar3 0x00a0_0000~0x00af_ffff 1M
+    //fpga bar4 0x0000_0000~0x0007_ffff 512K
+    //fpga bar5 0x6080_0000~0x60ff_ffff 8M
     if (offset >= 0x60000000 && offset <= 0x603fffff) {
         return ( rwnx_pci->pci_bar0_vaddr + (offset - 0x60000000));
 
@@ -1373,6 +2082,85 @@ u8* rwnx_pci_get_map_address(struct net_device *dev, unsigned int offset)
         printk("offset error \n");
         return NULL;
     }
+#else
+    // bar2 table0 address
+    if (offset >=PCIE_BAR2_TABLE0_EP_BASE_ADDR && offset < PCIE_BAR2_TABLE0_EP_END_ADDR) {
+        return rwnx_pci->pci_bar2_vaddr + PCIE_BAR2_TABLE0_OFFSET + (offset - PCIE_BAR2_TABLE0_EP_BASE_ADDR);
+    }
+
+    // bar2 table1 address
+    if (offset < PCIE_BAR2_TABLE1_EP_END_ADDR) {
+        return rwnx_pci->pci_bar2_vaddr + PCIE_BAR2_TABLE1_OFFSET + (offset - PCIE_BAR2_TABLE1_EP_BASE_ADDR);
+    }
+
+    // bar2 table2 address
+    if (offset >=PCIE_BAR2_TABLE2_EP_BASE_ADDR && offset < PCIE_BAR2_TABLE2_EP_END_ADDR) {
+        return rwnx_pci->pci_bar2_vaddr + PCIE_BAR2_TABLE2_OFFSET + (offset - PCIE_BAR2_TABLE2_EP_BASE_ADDR);
+    }
+
+    // bar2 table3 address
+    if (offset >=PCIE_BAR2_TABLE3_EP_BASE_ADDR && offset < PCIE_BAR2_TABLE3_EP_END_ADDR) {
+        return rwnx_pci->pci_bar2_vaddr + PCIE_BAR2_TABLE3_OFFSET + (offset - PCIE_BAR2_TABLE3_EP_BASE_ADDR);
+    }
+
+    // bar2 table4 address
+    if (offset >=PCIE_BAR2_TABLE4_EP_BASE_ADDR && offset < PCIE_BAR2_TABLE4_EP_END_ADDR) {
+        return rwnx_pci->pci_bar2_vaddr + PCIE_BAR2_TABLE4_OFFSET + (offset - PCIE_BAR2_TABLE4_EP_BASE_ADDR);
+    }
+
+    // bar2 table5 address
+    if (offset >=PCIE_BAR2_TABLE5_EP_BASE_ADDR && offset < PCIE_BAR2_TABLE5_EP_END_ADDR) {
+        return rwnx_pci->pci_bar2_vaddr + PCIE_BAR2_TABLE5_OFFSET + (offset - PCIE_BAR2_TABLE5_EP_BASE_ADDR);
+    }
+
+    // bar2 table6 address
+    if (offset >=PCIE_BAR2_TABLE6_EP_BASE_ADDR && offset < PCIE_BAR2_TABLE6_EP_END_ADDR) {
+        return rwnx_pci->pci_bar2_vaddr + PCIE_BAR2_TABLE6_OFFSET + (offset - PCIE_BAR2_TABLE6_EP_BASE_ADDR);
+    }
+
+    // bar4 table0 address
+    if (offset >=PCIE_BAR4_TABLE0_EP_BASE_ADDR && offset < PCIE_BAR4_TABLE0_EP_END_ADDR) {
+        return rwnx_pci->pci_bar4_vaddr + PCIE_BAR4_TABLE0_OFFSET + (offset - PCIE_BAR4_TABLE0_EP_BASE_ADDR);
+    }
+
+    // bar4 table1 address
+    if (offset >=PCIE_BAR4_TABLE1_EP_BASE_ADDR && offset < PCIE_BAR4_TABLE1_EP_END_ADDR) {
+        return rwnx_pci->pci_bar4_vaddr + PCIE_BAR4_TABLE1_OFFSET + (offset - PCIE_BAR4_TABLE1_EP_BASE_ADDR);
+    }
+
+    // bar4 table2 address
+    if (offset >=PCIE_BAR4_TABLE2_EP_BASE_ADDR && offset < PCIE_BAR4_TABLE2_EP_END_ADDR) {
+        return rwnx_pci->pci_bar4_vaddr + PCIE_BAR4_TABLE2_OFFSET + (offset - PCIE_BAR4_TABLE2_EP_BASE_ADDR);
+    }
+
+    // bar4 table3 address
+    if (offset >=PCIE_BAR4_TABLE3_EP_BASE_ADDR && offset < PCIE_BAR4_TABLE3_EP_END_ADDR) {
+        return rwnx_pci->pci_bar4_vaddr + PCIE_BAR4_TABLE3_OFFSET + (offset - PCIE_BAR4_TABLE3_EP_BASE_ADDR);
+    }
+
+    // bar4 table4 address
+    if (offset >=PCIE_BAR4_TABLE4_EP_BASE_ADDR && offset < PCIE_BAR4_TABLE4_EP_END_ADDR) {
+        return rwnx_pci->pci_bar4_vaddr + PCIE_BAR4_TABLE4_OFFSET + (offset - PCIE_BAR4_TABLE4_EP_BASE_ADDR);
+    }
+
+    // bar4 table5 address
+    if (offset >=PCIE_BAR4_TABLE5_EP_BASE_ADDR && offset < PCIE_BAR4_TABLE5_EP_END_ADDR) {
+        return rwnx_pci->pci_bar4_vaddr + PCIE_BAR4_TABLE5_OFFSET + (offset - PCIE_BAR4_TABLE5_EP_BASE_ADDR);
+    }
+
+    // bar4 table6 address
+    if (offset >=PCIE_BAR4_TABLE6_EP_BASE_ADDR && offset < PCIE_BAR4_TABLE6_EP_END_ADDR) {
+        return rwnx_pci->pci_bar4_vaddr + PCIE_BAR4_TABLE6_OFFSET + (offset - PCIE_BAR4_TABLE6_EP_BASE_ADDR);
+    }
+
+    // bar4 table7 address
+    if (offset >=PCIE_BAR4_TABLE7_EP_BASE_ADDR && offset < PCIE_BAR4_TABLE7_EP_END_ADDR) {
+        return rwnx_pci->pci_bar4_vaddr + PCIE_BAR4_TABLE7_OFFSET + (offset - PCIE_BAR4_TABLE7_EP_BASE_ADDR);
+    }
+
+    printk("offset error \n");
+    return NULL;
+#endif
 }
 
 static int rwnx_pci_platform_enable(struct rwnx_hw *rwnx_hw)
@@ -1394,10 +2182,16 @@ static int rwnx_pci_platform_disable(struct rwnx_hw *rwnx_hw)
 static u8* rwnx_pci_get_address(struct rwnx_plat *rwnx_plat, int addr_name,
                                unsigned int offset)
 {
+#ifndef CONFIG_RWNX_FPGA_PCIE
+    unsigned int i;
+    unsigned int addr;
+#endif
     struct rwnx_pci *rwnx_pci = (struct rwnx_pci *)rwnx_plat->priv;
 
     if (WARN(addr_name >= RWNX_ADDR_MAX, "Invalid address %d", addr_name))
         return NULL;
+
+#ifdef CONFIG_RWNX_FPGA_PCIE
 
     if (addr_name == RWNX_ADDR_CPU) //0x00000000-0x0007ffff (ICCM)
     {
@@ -1432,11 +2226,47 @@ static u8* rwnx_pci_get_address(struct rwnx_plat *rwnx_plat, int addr_name,
         printk("%s:%d, error addr_name\n", __func__,__LINE__);
         return NULL;
     }
+
+#else
+
+    if (addr_name == RWNX_ADDR_SYSTEM)
+    {
+        addr = offset + PCIE_BAR4_TABLE0_EP_BASE_ADDR;
+    }
+    else
+    {
+        addr = offset;
+    }
+
+    for (i = 0; i < PCIE_TABLE_NUM; i++)
+    {
+        if ((addr_name == pcie_ep_addr_range[i].mem_domain) &&
+            (addr >= pcie_ep_addr_range[i].pcie_bar_table_base_addr) &&
+            (addr <= pcie_ep_addr_range[i].pcie_bar_table_high_addr))
+        {
+            if (pcie_ep_addr_range[i].pcie_bar_index == PCIE_BAR2)
+            {
+                return rwnx_pci->pci_bar2_vaddr + pcie_ep_addr_range[i].pcie_bar_table_offset + (addr - pcie_ep_addr_range[i].pcie_bar_table_base_addr);
+            }
+            else
+            {
+                return rwnx_pci->pci_bar4_vaddr + pcie_ep_addr_range[i].pcie_bar_table_offset + (addr - pcie_ep_addr_range[i].pcie_bar_table_base_addr);
+            }
+        }
+    }
+
+    printk("%s:%d, addr(0x%x) or addr_name(0x%x) err\n", __func__,__LINE__, offset, addr_name);
+    return NULL;
+
+#endif //CONFIG_RWNX_FPGA_PCIE
 }
 
 static void rwnx_pci_ack_irq(struct rwnx_plat *rwnx_plat)
 {
-
+   unsigned int reg_data;
+   reg_data = RWNX_REG_READ(rwnx_plat, RWNX_ADDR_MAC_PHY, ISTATUS_HOST);
+   // clean pci irq status
+   RWNX_REG_WRITE(reg_data, rwnx_plat, RWNX_ADDR_MAC_PHY, ISTATUS_HOST);
 }
 
 static const u32 rwnx_pci_config_reg[] = {
@@ -1482,7 +2312,7 @@ int rwnx_platform_register_drv(void)
     printk("%s,%d, g_pci_driver_insmoded=%d\n", __func__, __LINE__, g_pci_driver_insmoded);
 
     if (!g_pci_driver_insmoded) {
-        ret = aml_pci_insmod();
+        aml_pci_insmod();
         msleep(100);
     }
 

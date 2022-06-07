@@ -36,10 +36,16 @@
 #include "rwnx_events.h"
 #include "rwnx_compat.h"
 #include "rwnx_iwpriv_cmds.h"
+#include "fi_cmd.h"
+#include "rwnx_main.h"
+#include "rwnx_regdom.h"
 
 #define RW_DRV_DESCRIPTION  "RivieraWaves 11nac driver for Linux cfg80211"
 #define RW_DRV_COPYRIGHT    "Copyright (C) RivieraWaves 2015-2021"
 #define RW_DRV_AUTHOR       "RivieraWaves S.A.S"
+
+#define PNO_MAX_SUPP_NETWORKS  16
+
 
 #define RWNX_PRINT_CFM_ERR(req) \
         printk(KERN_CRIT "%s: Status Error(%d)\n", #req, (&req##_cfm)->status)
@@ -389,6 +395,19 @@ rwnx_default_mgmt_stypes[NUM_NL80211_IFTYPES] = {
     },
 };
 
+/* if wowlan is not supported, kernel generate a disconnect at each suspend
+ * cf: /net/wireless/sysfs.c, so register a stub wowlan.
+ * Moreover wowlan has to be enabled via a the nl80211_set_wowlan callback.
+ * (from user space, e.g. iw phy0 wowlan enable)
+ */
+static const struct wiphy_wowlan_support wowlan_stub =
+{
+    .flags = WIPHY_WOWLAN_ANY,
+    .n_patterns = 0,
+    .pattern_max_len = 0,
+    .pattern_min_len = 0,
+    .max_pkt_offset = 0,
+};
 
 static u32 cipher_suites[] = {
     WLAN_CIPHER_SUITE_WEP40,
@@ -440,6 +459,8 @@ static const int rwnx_hwq2uapsd[NL80211_NUM_ACS] = {
     [RWNX_HWQ_BE] = IEEE80211_WMM_IE_STA_QOSINFO_AC_BE,
     [RWNX_HWQ_BK] = IEEE80211_WMM_IE_STA_QOSINFO_AC_BK,
 };
+
+static char * rf_conf_path = WIFI_CONF_PATH;
 
 extern void rwnx_print_version(void);
 
@@ -1073,13 +1094,29 @@ static int rwnx_set_mac_address(struct net_device *dev, void *addr)
     return ret;
 }
 
+static int rwnx_priv_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
+{
+    //struct rwnx_vif *rwnx_vif = netdev_priv(dev);
+
+    /* FIXME: android will call SIOCDEVPRIVATE+1, if invokes failed,
+     * it will cause the dynamic p2p interface create failed. */
+    switch (cmd) {
+        case SIOCDEVPRIVATE + 1:
+            return 0;
+        default:
+            break;
+    }
+    return -EINVAL;
+}
+
 static const struct net_device_ops rwnx_netdev_ops = {
     .ndo_open               = rwnx_open,
     .ndo_stop               = rwnx_close,
     .ndo_start_xmit         = rwnx_start_xmit,
     .ndo_get_stats          = rwnx_get_stats,
     .ndo_select_queue       = rwnx_select_queue,
-    .ndo_set_mac_address    = rwnx_set_mac_address
+    .ndo_set_mac_address    = rwnx_set_mac_address,
+    .ndo_do_ioctl           = rwnx_priv_ioctl,
 //    .ndo_set_features       = rwnx_set_features,
 //    .ndo_set_rx_mode        = rwnx_set_multicast_list,
 };
@@ -1132,7 +1169,7 @@ static struct wireless_dev *rwnx_interface_add(struct rwnx_hw *rwnx_hw,
     int vif_idx = -1;
     int i;
 
-    printk("%s:%d\n", __func__, __LINE__);
+    RWNX_INFO("interface type=%d\n", type);
     // Look for an available VIF
     if (type == NL80211_IFTYPE_AP_VLAN) {
         min_idx = NX_VIRT_DEV_MAX;
@@ -1185,6 +1222,7 @@ static struct wireless_dev *rwnx_interface_add(struct rwnx_hw *rwnx_hw,
     switch (type) {
     case NL80211_IFTYPE_STATION:
     case NL80211_IFTYPE_P2P_CLIENT:
+    case NL80211_IFTYPE_P2P_DEVICE:
         vif->sta.flags = 0;
         vif->sta.ap = NULL;
         vif->sta.tdls_sta = NULL;
@@ -1376,6 +1414,7 @@ int rwnx_cfg80211_change_iface(struct wiphy *wiphy,
 
     RWNX_DBG(RWNX_FN_ENTRY_STR);
 
+    RWNX_INFO("interface type=%d\n", type);
     if (vif->up)
         return (-EBUSY);
 
@@ -1402,6 +1441,7 @@ int rwnx_cfg80211_change_iface(struct wiphy *wiphy,
     switch (type) {
     case NL80211_IFTYPE_STATION:
     case NL80211_IFTYPE_P2P_CLIENT:
+    case NL80211_IFTYPE_P2P_DEVICE:
         vif->sta.flags = 0;
         vif->sta.ap = NULL;
         vif->sta.tdls_sta = NULL;
@@ -1698,9 +1738,16 @@ static int rwnx_cfg80211_disconnect(struct wiphy *wiphy, struct net_device *dev,
 {
     struct rwnx_hw *rwnx_hw = wiphy_priv(wiphy);
     struct rwnx_vif *rwnx_vif = netdev_priv(dev);
+    int error = 0;
 
     RWNX_DBG(RWNX_FN_ENTRY_STR);
-
+    if (rwnx_hw->scan_request) {
+        error = rwnx_cancel_scan(rwnx_hw, rwnx_vif);
+        if (error) {
+            rwnx_vif->sta.scan_hang = 0;
+            printk("cancel scan fail:error = %d\n");
+        }
+    }
     return(rwnx_send_sm_disconnect_req(rwnx_hw, rwnx_vif, reason_code));
 }
 
@@ -2378,7 +2425,13 @@ static int rwnx_cfg80211_set_power_mgmt(struct wiphy *wiphy,
         ps_mode = MM_PS_MODE_OFF;
     }
 
-    return rwnx_send_me_set_ps_mode(rwnx_hw, ps_mode);
+    /* TODO:
+     * Enable power save mode which will cause STA
+     * connect/disconnect repeating.
+     * For stability, temporarily closed power save mode.
+     * */
+    //return rwnx_send_me_set_ps_mode(rwnx_hw, ps_mode);
+    return rwnx_send_me_set_ps_mode(rwnx_hw, MM_PS_MODE_OFF);
 }
 
 /**
@@ -2504,7 +2557,7 @@ static int rwnx_cfg80211_dump_survey(struct wiphy *wiphy, struct net_device *net
     struct ieee80211_supported_band *sband;
     struct rwnx_survey_info *rwnx_survey;
 
-    RWNX_DBG(RWNX_FN_ENTRY_STR);
+    //RWNX_DBG(RWNX_FN_ENTRY_STR);
 
     if (idx >= ARRAY_SIZE(rwnx_hw->survey))
         return -ENOENT;
@@ -3231,7 +3284,7 @@ static int rwnx_fill_station_info(struct rwnx_sta *sta, struct rwnx_vif *vif,
     sinfo->tx_packets = stats->tx_pkts;
     sinfo->rx_packets = stats->rx_pkts;
     sinfo->signal = rx_vect1->rssi1;
-
+    sinfo->tx_failed = stats->tx_fails;
     switch (rx_vect1->ch_bw) {
         case PHY_CHNL_BW_20:
             sinfo->rxrate.bw = RATE_INFO_BW_20;
@@ -3249,7 +3302,6 @@ static int rwnx_fill_station_info(struct rwnx_sta *sta, struct rwnx_vif *vif,
             sinfo->rxrate.bw = RATE_INFO_BW_HE_RU;
             break;
     }
-
     switch (rx_vect1->format_mod) {
         case FORMATMOD_NON_HT:
         case FORMATMOD_NON_HT_DUP_OFDM:
@@ -3286,15 +3338,73 @@ static int rwnx_fill_station_info(struct rwnx_sta *sta, struct rwnx_vif *vif,
         default :
             return -EINVAL;
     }
-
     sinfo->filled = (BIT(NL80211_STA_INFO_INACTIVE_TIME) |
                      BIT(NL80211_STA_INFO_RX_BYTES64)    |
                      BIT(NL80211_STA_INFO_TX_BYTES64)    |
                      BIT(NL80211_STA_INFO_RX_PACKETS)    |
                      BIT(NL80211_STA_INFO_TX_PACKETS)    |
+                     BIT(NL80211_STA_INFO_TX_FAILED)     |
                      BIT(NL80211_STA_INFO_SIGNAL)        |
                      BIT(NL80211_STA_INFO_RX_BITRATE));
 
+
+    switch (stats->bw_max) {
+        case PHY_CHNL_BW_20:
+            sinfo->txrate.bw = RATE_INFO_BW_20;
+            break;
+        case PHY_CHNL_BW_40:
+            sinfo->txrate.bw = RATE_INFO_BW_40;
+            break;
+        case PHY_CHNL_BW_80:
+            sinfo->txrate.bw = RATE_INFO_BW_80;
+            break;
+        case PHY_CHNL_BW_160:
+            sinfo->txrate.bw = RATE_INFO_BW_160;
+            break;
+        default:
+            sinfo->txrate.bw = RATE_INFO_BW_HE_RU;
+            break;
+    }
+     switch (stats->format_mod) {
+        case FORMATMOD_NON_HT:
+        case FORMATMOD_NON_HT_DUP_OFDM:
+            sinfo->txrate.flags = 0;
+            sinfo->txrate.legacy = stats->leg_rate;
+            break;
+        case FORMATMOD_HT_MF:
+        case FORMATMOD_HT_GF:
+            sinfo->txrate.flags = RATE_INFO_FLAGS_MCS;
+            if (stats->short_gi)
+                sinfo->txrate.flags |= RATE_INFO_FLAGS_SHORT_GI;
+            sinfo->txrate.mcs = stats->mcs_max;
+            break;
+        case FORMATMOD_VHT:
+            sinfo->txrate.flags = RATE_INFO_FLAGS_VHT_MCS;
+            if (stats->short_gi)
+                sinfo->txrate.flags |= RATE_INFO_FLAGS_SHORT_GI;
+            sinfo->txrate.mcs = stats->mcs_max;
+            sinfo->txrate.nss = stats->no_ss + 1;
+            break;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)
+        case FORMATMOD_HE_MU:
+        case FORMATMOD_HE_SU:
+        case FORMATMOD_HE_ER:
+        case FORMATMOD_HE_TB:
+            sinfo->txrate.flags = RATE_INFO_FLAGS_HE_MCS;
+            sinfo->txrate.mcs = stats->mcs_max;
+            sinfo->txrate.nss = stats->no_ss + 1;
+            break;
+#endif
+        default :
+            return -EINVAL;
+    }
+    sinfo->filled |= BIT(NL80211_STA_INFO_TX_BITRATE);
+
+    sinfo->bss_param.flags = 0;
+    //sinfo->bss_param.dtim_period = stats->dtim; TODO:need to add later
+    sinfo->bss_param.beacon_interval = stats->bcn_interval / 1024;
+
+    sinfo->filled |= BIT(NL80211_STA_INFO_BSS_PARAM);
     // Mesh specific info
     if (RWNX_VIF_TYPE(vif) == NL80211_IFTYPE_MESH_POINT)
     {
@@ -3333,7 +3443,6 @@ static int rwnx_cfg80211_get_station(struct wiphy *wiphy, struct net_device *dev
 {
     struct rwnx_vif *vif = netdev_priv(dev);
     struct rwnx_sta *sta = NULL;
-
     if (RWNX_VIF_TYPE(vif) == NL80211_IFTYPE_MONITOR)
         return -EINVAL;
     else if ((RWNX_VIF_TYPE(vif) == NL80211_IFTYPE_STATION) ||
@@ -3351,10 +3460,8 @@ static int rwnx_cfg80211_get_station(struct wiphy *wiphy, struct net_device *dev
             }
         }
     }
-
     if (sta)
         return rwnx_fill_station_info(sta, vif, sinfo);
-
     return -EINVAL;
 }
 
@@ -3807,7 +3914,7 @@ int rwnx_pwrsave_wow_sta(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif)
 
 
 int rwnx_pwrsave_wow_usr(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
-                           struct cfg80211_wowlan *wow, unsigned int *filter)
+    struct cfg80211_wowlan *wow, unsigned int *filter)
 {
     int i, error;
 
@@ -3818,6 +3925,11 @@ int rwnx_pwrsave_wow_usr(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
     for (i = 0; i < wow->n_patterns; i++){
         if ((error = rwnx_send_wow_pattern(rwnx_hw, rwnx_vif, &wow->patterns[i], i)))
             return error;
+    }
+
+    /* pno offload*/
+    if (wow->nd_config) {
+        rwnx_send_sched_scan_req(rwnx_vif, wow->nd_config);
     }
 
     /*get wakeup filter */
@@ -3839,7 +3951,7 @@ int rwnx_pwrsave_wow_usr(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
     return 0;
 }
 
-static int rwnx_cancel_scan(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif)
+int rwnx_cancel_scan(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif)
 {
     struct scanu_cancel_cfm scanu_cancel_cfm;
     int error = 0, cnt = 0;
@@ -3920,7 +4032,6 @@ static int rwnx_set_arp_agent(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif
     return rwnx_send_arp_agent_req(rwnx_hw, rwnx_vif, enable, ipv4, ipv6);
 }
 
-
 static int rwnx_ps_wow_resume(struct rwnx_hw *rwnx_hw)
 {
     struct rwnx_vif *rwnx_vif;
@@ -3930,66 +4041,112 @@ static int rwnx_ps_wow_resume(struct rwnx_hw *rwnx_hw)
     if (rwnx_hw->state == WIFI_SUSPEND_STATE_NONE) {
         return -EINVAL;
     }
+
     list_for_each_entry(rwnx_vif, &rwnx_hw->vifs, list) {
         if (!rwnx_vif->up || rwnx_vif->ndev == NULL) {
             continue;
         }
-        if ((RWNX_VIF_TYPE(rwnx_vif) ==  NL80211_IFTYPE_STATION ||
-               RWNX_VIF_TYPE(rwnx_vif) ==  NL80211_IFTYPE_P2P_CLIENT) &&
-              rwnx_vif->sta.ap && rwnx_vif->sta.ap->valid) {
-            rwnx_set_arp_agent(rwnx_hw, rwnx_vif, 0);
-            rwnx_vif->filter = 0;
-            if ((error = rwnx_send_suspend_req(rwnx_hw, rwnx_vif, WIFI_SUSPEND_STATE_NONE))) {
-                return error;
-            }
-            rwnx_vif->sta.scan_hang = 0;
-            netif_wake_queue(rwnx_vif->ndev);
+
+        if (RWNX_VIF_TYPE(rwnx_vif) == NL80211_IFTYPE_STATION) {
+            break;
         }
     }
-    rwnx_hw->state = WIFI_SUSPEND_STATE_NONE;
-    rwnx_send_me_set_ps_mode(rwnx_hw, MM_PS_MODE_OFF);
+
+    if (rwnx_vif != NULL) {
+        error = rwnx_send_suspend_req(rwnx_hw, rwnx_vif, WIFI_SUSPEND_STATE_NONE);
+        if (error) {
+            return error;
+        }
+
+        netif_start_queue(rwnx_vif->ndev);
+
+        rwnx_hw->state = WIFI_SUSPEND_STATE_NONE;
+
+        if (rwnx_vif->sta.ap && rwnx_vif->sta.ap->valid) {
+            rwnx_txq_vif_start(rwnx_vif, RWNX_TXQ_STOP, rwnx_hw);
+            rwnx_vif->filter = 0;
+            rwnx_set_arp_agent(rwnx_hw, rwnx_vif, 0);
+            rwnx_tko_activate(rwnx_hw, rwnx_vif, 0);
+        }
+
+        netif_wake_queue(rwnx_vif->ndev);
+
+        aml_scan_hang(rwnx_vif, 0);
+        rwnx_vif->sta.scan_hang = 0;
+    } else {
+        printk("no sta interface, do nothing now\n");
+    }
 
     return 0;
 }
-
 
 static int rwnx_ps_wow_suspend(struct rwnx_hw *rwnx_hw, struct cfg80211_wowlan *wow)
 {
     struct rwnx_vif *rwnx_vif;
     int error = 0;
     unsigned int filter = 0;
+    int count = 0;
 
     RWNX_DBG(RWNX_FN_ENTRY_STR);
     if (rwnx_hw->state == WIFI_SUSPEND_STATE_WOW) {
         return -EINVAL;
     }
+
+    //only support suspend under sta interface.
     list_for_each_entry(rwnx_vif, &rwnx_hw->vifs, list) {
         if (!rwnx_vif->up || rwnx_vif->ndev == NULL) {
             continue;
         }
-        if ((RWNX_VIF_TYPE(rwnx_vif) ==  NL80211_IFTYPE_STATION ||
-             RWNX_VIF_TYPE(rwnx_vif) ==  NL80211_IFTYPE_P2P_CLIENT) &&
-             rwnx_vif->sta.ap && rwnx_vif->sta.ap->valid) {
-            if ((error = rwnx_cancel_scan(rwnx_hw, rwnx_vif))) {
-                return error;
-            }
-            netif_stop_queue(rwnx_vif->ndev);
 
-            rwnx_txq_vif_start(rwnx_vif, RWNX_TXQ_STOP, rwnx_hw);
-            if (wow != NULL)
-                rwnx_pwrsave_wow_usr(rwnx_hw, rwnx_vif, wow, &filter);
-            else
-                rwnx_pwrsave_wow_sta(rwnx_hw, rwnx_vif);
-
-            rwnx_set_arp_agent(rwnx_hw, rwnx_vif, 1);
-            rwnx_vif->filter = filter;
-            if ((error = rwnx_send_suspend_req(rwnx_hw, rwnx_vif, WIFI_SUSPEND_STATE_WOW))) {
-                return error;
-            }
+        if (RWNX_VIF_TYPE(rwnx_vif) == NL80211_IFTYPE_STATION) {
+            break;
         }
     }
-    rwnx_hw->state = WIFI_SUSPEND_STATE_WOW;
-    rwnx_send_me_set_ps_mode(rwnx_hw, MM_PS_MODE_ON_DYN);
+
+    if (rwnx_vif != NULL) {
+        netif_stop_queue(rwnx_vif->ndev);
+
+        if (rwnx_vif->sta.ap && rwnx_vif->sta.ap->valid) {
+            rwnx_txq_vif_stop(rwnx_vif, RWNX_TXQ_STOP, rwnx_hw);
+            rwnx_set_arp_agent(rwnx_hw, rwnx_vif, 1);
+            rwnx_tko_activate(rwnx_hw, rwnx_vif, 1);
+
+            if (wow != NULL) {
+                rwnx_pwrsave_wow_usr(rwnx_hw, rwnx_vif, wow, &filter);
+
+            } else {
+                rwnx_pwrsave_wow_sta(rwnx_hw, rwnx_vif);
+            }
+            rwnx_vif->filter = filter;
+
+            while (!rwnx_txq_is_empty(rwnx_hw, rwnx_vif->sta.ap)) {
+                msleep(10);
+
+                if(count++ > 10) {
+                     return -EINVAL;
+                }
+           }
+        }
+
+//        rwnx_send_me_set_ps_mode(rwnx_hw, MM_PS_MODE_ON_DYN);
+        rwnx_hw->state = WIFI_SUSPEND_STATE_WOW;
+
+        printk("before cancel scan:%d\n", rwnx_hw->cmd_mgr.queue_sz);
+        error = rwnx_cancel_scan(rwnx_hw, rwnx_vif);
+        if (error) {
+            return error;
+        }
+
+        //last cmd before suspend
+        error = rwnx_send_suspend_req(rwnx_hw, rwnx_vif, WIFI_SUSPEND_STATE_WOW);
+        if (error) {
+            return error;
+        }
+        printk("after suspend cmd:%d\n", rwnx_hw->cmd_mgr.queue_sz);
+
+    } else {
+        printk("no sta interface, do nothing now\n");
+    }
 
     return 0;
 }
@@ -3999,20 +4156,20 @@ static int rwnx_cfg80211_suspend(struct wiphy *wiphy, struct cfg80211_wowlan *wo
 {
 #ifdef CONFIG_RWNX_SUSPEND
     struct rwnx_hw *rwnx_hw = wiphy_priv(wiphy);
-    struct rwnx_vif *rwnx_vif;
     int error = 0;
-    unsigned int filter = 0, cnt = 0;
+
     if (wow && (wow->n_patterns > WOW_MAX_PATTERNS))
         return -EINVAL;
 
     RWNX_DBG(RWNX_FN_ENTRY_STR);
 
-    if (error = rwnx_ps_wow_suspend(rwnx_hw, wow)){
+    error = rwnx_ps_wow_suspend(rwnx_hw, wow);
+    if (error){
         return error;
     }
     return 0;
 #else
-    printk("%s,%d, suspend is not supported\n", __func__, __LINE__);
+    printk("test %s,%d, suspend is not supported\n", __func__, __LINE__);
     return 0;
 #endif
 }
@@ -4024,7 +4181,8 @@ static int rwnx_cfg80211_resume(struct wiphy *wiphy)
     int error = 0;
 
     RWNX_DBG(RWNX_FN_ENTRY_STR);
-    if (error = rwnx_ps_wow_resume(rwnx_hw)){
+    error = rwnx_ps_wow_resume(rwnx_hw);
+    if (error){
         return error;
     }
     return 0;
@@ -4045,6 +4203,432 @@ static int rwnx_cfg80211_set_rekey_data(struct wiphy *wiphy,
     }
 
     return -1;
+}
+
+unsigned char rwnx_get_s8_item(char *varbuf, int len, char *item, char *item_value)
+{
+    unsigned int n;
+    char tmpbuf[20];
+    char *p = item_value;
+    int ret = 0;
+    unsigned int pos = 0;
+    unsigned int index = 0;
+
+    while (pos  < len) {
+        index = pos;
+        ret = 0;
+
+        while ((varbuf[pos] != 0) && (varbuf[pos] != '=')) {
+            if (((pos - index) >= strlen(item)) || (varbuf[pos] != item[pos - index])) {
+                ret = 1;
+                break;
+            }
+            else {
+                pos++;
+            }
+        }
+
+        pos++;
+
+        if ((ret == 0) && (strlen(item) == pos - index - 1)) {
+            do {
+                memset(tmpbuf, 0, sizeof(tmpbuf));
+                n = 0;
+                while ((varbuf[pos] != 0) && (varbuf[pos] != ',') && (pos < len))
+                    tmpbuf[n++] = varbuf[pos++];
+
+                *p++ = (char)simple_strtol(tmpbuf, NULL, 0);
+            }
+            while (varbuf[pos++] == ',');
+
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+unsigned char rwnx_get_s16_item(char *varbuf, int len, char *item, short *item_value)
+{
+    unsigned int n;
+    char tmpbuf[60];
+    short *p = item_value;
+    int ret = 0;
+    unsigned int pos = 0;
+    unsigned int index = 0;
+
+    while (pos  < len) {
+        index = pos;
+        ret = 0;
+
+        while ((varbuf[pos] != 0) && (varbuf[pos] != '=')) {
+            if (((pos - index) >= strlen(item)) || (varbuf[pos] != item[pos - index])) {
+                ret = 1;
+                break;
+            }
+            else {
+                pos++;
+            }
+        }
+
+        pos++;
+
+        if ((ret == 0) && (strlen(item) == pos - index - 1)) {
+            do {
+                memset(tmpbuf, 0, sizeof(tmpbuf));
+                n = 0;
+                while ((varbuf[pos] != 0) && (varbuf[pos] != ',') && (pos < len))
+                    tmpbuf[n++] = varbuf[pos++];
+
+                *p++ = (short)simple_strtol(tmpbuf, NULL, 0);
+            }
+            while (varbuf[pos++] == ',');
+
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+unsigned char rwnx_get_s32_item(char *varbuf, int len, char *item, unsigned int *item_value)
+{
+    unsigned int n;
+    char tmpbuf[120];
+    unsigned int *p = item_value;
+    int ret = 0;
+    unsigned int pos = 0;
+    unsigned int index = 0;
+
+    while (pos  < len) {
+        index = pos;
+        ret = 0;
+
+        while ((varbuf[pos] != 0) && (varbuf[pos] != '=')) {
+            if (((pos - index) >= strlen(item)) || (varbuf[pos] != item[pos - index])) {
+                ret = 1;
+                break;
+            }
+            else {
+                pos++;
+            }
+        }
+
+        pos++;
+
+        if ((ret == 0) && (strlen(item) == pos - index - 1)) {
+            do {
+                memset(tmpbuf, 0, sizeof(tmpbuf));
+                n = 0;
+                while ((varbuf[pos] != 0) && (varbuf[pos] != ',') && (pos < len))
+                    tmpbuf[n++] = varbuf[pos++];
+
+                *p++ = (unsigned int)simple_strtol(tmpbuf, NULL, 0);
+            }
+            while (varbuf[pos++] == ',');
+
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+unsigned int rwnx_process_cali_content(char *varbuf, unsigned int len)
+{
+    char *dp;
+    bool findNewline;
+    int column;
+    unsigned int buf_len, n;
+    unsigned int pad = 0;
+
+    dp = varbuf;
+    findNewline = false;
+    column = 0;
+
+    for (n = 0; n < len; n++) {
+        if (varbuf[n] == '\r')
+            continue;
+
+        if (findNewline && varbuf[n] != '\n')
+            continue;
+        findNewline = false;
+        if (varbuf[n] == '#') {
+            findNewline = true;
+            continue;
+        }
+        if (varbuf[n] == '\n') {
+            if (column == 0)
+                continue;
+            *dp++ = 0;
+            column = 0;
+            continue;
+        }
+        *dp++ = varbuf[n];
+        column++;
+    }
+    buf_len = (unsigned int)(dp - varbuf);
+    if (buf_len % 4) {
+        pad = 4 - buf_len % 4;
+        if (pad && (buf_len + pad <= len)) {
+            buf_len += pad;
+        }
+    }
+
+    while (dp < varbuf + n)
+        *dp++ = 0;
+
+    return buf_len;
+}
+
+unsigned char rwnx_parse_cali_param(char *varbuf, int len, struct Cali_Param *cali_param)
+{
+    //unsigned short platform_verid = 0; // default: 0
+    unsigned short cali_config = 0;
+    unsigned int version = 0;
+
+    rwnx_get_s32_item(varbuf, len, "version", &version);
+    rwnx_get_s16_item(varbuf, len, "cali_config", &cali_config);
+    rwnx_get_s8_item(varbuf, len, "freq_offset", &cali_param->freq_offset);
+    rwnx_get_s8_item(varbuf, len, "htemp_freq_offset", &cali_param->htemp_freq_offset);
+    rwnx_get_s8_item(varbuf, len, "tssi_2g_offset", &cali_param->tssi_2g_offset);
+    rwnx_get_s8_item(varbuf, len, "tssi_5g_offset_5200", &cali_param->tssi_5g_offset[0]);
+    rwnx_get_s8_item(varbuf, len, "tssi_5g_offset_5400", &cali_param->tssi_5g_offset[1]);
+    rwnx_get_s8_item(varbuf, len, "tssi_5g_offset_5600", &cali_param->tssi_5g_offset[2]);
+    rwnx_get_s8_item(varbuf, len, "tssi_5g_offset_5800", &cali_param->tssi_5g_offset[3]);
+    rwnx_get_s8_item(varbuf, len, "wf2g_spur_rmen", &cali_param->wf2g_spur_rmen);
+    rwnx_get_s16_item(varbuf, len, "spur_freq", &cali_param->spur_freq);
+    rwnx_get_s8_item(varbuf, len, "rf_count", &cali_param->rf_num);
+
+    cali_param->version = version;
+    cali_param->cali_config = cali_config;
+
+    printk("======>>>>>> version = %ld\n", cali_param->version);
+    printk("======>>>>>> cali_config = %d\n", cali_param->cali_config);
+    printk("======>>>>>> freq_offset = %d\n", cali_param->freq_offset);
+    printk("======>>>>>> htemp_freq_offset = %d\n", cali_param->htemp_freq_offset);
+    printk("======>>>>>> tssi_2g_offset = 0x%x\n", cali_param->tssi_2g_offset);
+    printk("======>>>>>> tssi_5g_offset_5200 = 0x%x\n", cali_param->tssi_5g_offset[0]);
+    printk("======>>>>>> tssi_5g_offset_5400 = 0x%x\n", cali_param->tssi_5g_offset[1]);
+    printk("======>>>>>> tssi_5g_offset_5600 = 0x%x\n", cali_param->tssi_5g_offset[2]);
+    printk("======>>>>>> tssi_5g_offset_5800 = 0x%x\n", cali_param->tssi_5g_offset[3]);
+    printk("======>>>>>> wf2g_spur_rmen = %d\n", cali_param->wf2g_spur_rmen);
+    printk("======>>>>>> spur_freq = %d\n", cali_param->spur_freq);
+    printk("======>>>>>> rf_count = %d\n", cali_param->rf_num);
+
+    return 0;
+}
+
+static int rwnx_readFile(struct file *fp, char *buf, int len)
+{
+    int rlen = 0, sum = 0;
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0))
+    if (!(fp->f_mode & FMODE_CAN_READ)) {
+#else
+    if (!fp->f_op || !fp->f_op->read) {
+#endif
+        return -EPERM;
+    }
+
+    while (sum < len) {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0))
+        rlen = kernel_read(fp, buf + sum, len - sum, &fp->f_pos);
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0))
+        rlen = __vfs_read(fp, buf + sum, len - sum, &fp->f_pos);
+#else
+        rlen = fp->f_op->read(fp, buf + sum, len - sum, &fp->f_pos);
+#endif
+        if (rlen > 0) {
+            sum += rlen;
+        } else if (0 != rlen) {
+            return rlen;
+        } else {
+            break;
+        }
+    }
+
+    return sum;
+}
+
+/*
+* Test if the specifi @param path is a file and readable
+* If readable, @param sz is got
+* @param path the path of the file to test
+* @return Linux specific error code
+*/
+int rwnx_isFileReadable(const char *path, u32 *sz)
+{
+    struct file *fp;
+    int ret = 0;
+    mm_segment_t oldfs;
+    char buf;
+
+    fp = filp_open(path, O_RDONLY, 0);
+    if (IS_ERR(fp)) {
+        ret = PTR_ERR(fp);
+    } else {
+        oldfs = get_fs();
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0))
+        set_fs(KERNEL_DS);
+#else
+        set_fs(get_ds());
+#endif
+
+        if (1 != rwnx_readFile(fp, &buf, 1)) {
+            ret = PTR_ERR(fp);
+        }
+
+        if (ret == 0 && sz) {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0))
+            *sz = i_size_read(fp->f_path.dentry->d_inode);
+#else
+            *sz = i_size_read(fp->f_dentry->d_inode);
+#endif
+        }
+
+        set_fs(oldfs);
+        filp_close(fp, NULL);
+    }
+    return ret;
+}
+
+unsigned char rwnx_get_cali_param(struct Cali_Param *cali_param)
+{
+    struct file *fp;
+    struct kstat stat;
+    int size, len;
+    int error = 0;
+    char *content =  NULL;
+    mm_segment_t fs;
+
+    unsigned int chip_id_l = 0;
+    unsigned char chip_id_buf[100];
+
+    //chip_id_l = efuse_manual_read(0xf);
+    chip_id_l = chip_id_l & 0xffff;
+    sprintf(chip_id_buf, "%s/aml_wifi_rf_%04x.txt", rf_conf_path, chip_id_l);
+    if (rwnx_isFileReadable(chip_id_buf, NULL) != 0) {
+        memset(chip_id_buf,'\0',sizeof(chip_id_buf));
+        switch ((chip_id_l & 0xff00) >> 8) {
+            case MODULE_ITON:
+                sprintf(chip_id_buf, "%s/aml_wifi_rf_iton.txt", rf_conf_path);
+                break;
+            case MODULE_AMPAK:
+                sprintf(chip_id_buf, "%s/aml_wifi_rf_ampak.txt", rf_conf_path);
+                break;
+            case MODULE_FN_LINK:
+                sprintf(chip_id_buf, "%s/aml_wifi_rf_fn_link.txt", rf_conf_path);
+                break;
+            default:
+                sprintf(chip_id_buf, "%s/aml_wifi_rf.txt", rf_conf_path);
+        }
+        printk("aml wifi module SN:%04x  sn txt not found, the rf config: %s\n", chip_id_l, chip_id_buf);
+    } else
+        printk("aml wifi module SN:%04x  the rf config: %s\n", chip_id_l, chip_id_buf);
+    fs = get_fs();
+    set_fs(KERNEL_DS);
+
+    fp = filp_open(chip_id_buf, O_RDONLY, 0);
+
+    if (IS_ERR(fp)) {
+        fp = NULL;
+        goto err;
+    }
+
+    error = vfs_stat(chip_id_buf, &stat);
+    if (error) {
+        filp_close(fp, NULL);
+        goto err;
+    }
+
+    size = (int)stat.size;
+    if (size <= 0) {
+        filp_close(fp, NULL);
+        goto err;
+    }
+
+    content = ZMALLOC(size, "wifi_cali_param", GFP_KERNEL);
+
+    if (content == NULL) {
+        filp_close(fp, NULL);
+        goto err;
+    }
+
+    if (vfs_read(fp, content, size, &fp->f_pos) != size) {
+        FREE(content, "wifi_cali_param");
+        filp_close(fp, NULL);
+        goto err;
+    }
+
+    len = rwnx_process_cali_content(content, size);
+    rwnx_parse_cali_param(content, len, cali_param);
+
+    if (chip_id_l & 0xf0) {
+        if (chip_id_l & BIT(5))
+            cali_param->rf_num = 2;
+        else
+            cali_param->rf_num = 1;
+        printk("rf_cout is: %d\n", cali_param->rf_num);
+    }
+    FREE(content, "wifi_cali_param");
+    filp_close(fp, NULL);
+    set_fs(fs);
+
+    return 0;
+err:
+    set_fs(fs);
+    return 1;
+}
+
+void rwnx_config_cali_param(struct rwnx_hw *rwnx_hw)
+{
+    struct Cali_Param cali_param;
+    unsigned char err = 0;
+
+    memset((void *)&cali_param, 0, sizeof(struct Cali_Param));
+
+    err = rwnx_get_cali_param(&cali_param);
+
+    if (err == 0) {
+        printk("%s:%d, set calibration parameter \n", __func__, __LINE__);
+        rwnx_set_cali_param_req(rwnx_hw, &cali_param);
+    }
+    else {
+        printk("%s:%d, set calibration parameter failed\n", __func__, __LINE__);
+    }
+}
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 12, 0)
+void rwnx_cfg80211_sched_scan_results(struct wiphy *wiphy, uint64_t reqid)
+{
+    cfg80211_sched_scan_results(wiphy);
+}
+#else
+void rwnx_cfg80211_sched_scan_results(struct wiphy *wiphy, uint64_t reqid)
+{
+    cfg80211_sched_scan_results(wiphy, reqid);
+}
+#endif
+
+
+static int rwnx_cfg80211_sched_scan_start(struct wiphy *wiphy,
+    struct net_device *dev, struct cfg80211_sched_scan_request *request)
+{
+    struct rwnx_vif *rwnx_vif = netdev_priv(dev);
+
+    rwnx_send_sched_scan_req(rwnx_vif, request);
+
+    return 0;
+}
+
+static int rwnx_cfg80211_sched_scan_stop(struct wiphy *wiphy, struct net_device *dev, u64 reqid)
+{
+    struct rwnx_vif *rwnx_vif = netdev_priv(dev);
+
+    rwnx_send_sched_scan_stop_req(rwnx_vif, reqid);
+
+    return 0;
 }
 
 
@@ -4096,6 +4680,8 @@ static struct cfg80211_ops rwnx_cfg80211_ops = {
     .external_auth = rwnx_cfg80211_external_auth,
 #endif
     .set_rekey_data =  rwnx_cfg80211_set_rekey_data,
+    .sched_scan_start = rwnx_cfg80211_sched_scan_start,
+    .sched_scan_stop = rwnx_cfg80211_sched_scan_stop,
 };
 
 
@@ -4132,6 +4718,10 @@ static void rwnx_reg_notifier(struct wiphy *wiphy,
 {
     struct rwnx_hw *rwnx_hw = wiphy_priv(wiphy);
 
+    RWNX_INFO("initiator=%d, hint_type=%d, alpha=%s, region=%d\n",
+                request->initiator, request->user_reg_hint_type,
+                request->alpha2, request->dfs_region);
+    rwnx_apply_custom_regdom(wiphy, request->alpha2);
     // For now trust all initiator
     rwnx_radar_set_domain(&rwnx_hw->radar, request->dfs_region);
     rwnx_send_me_chan_config_req(rwnx_hw);
@@ -4164,6 +4754,89 @@ static void rwnx_enable_mesh(struct rwnx_hw *rwnx_hw)
     rwnx_limits_dfs[0].types |= BIT(NL80211_IFTYPE_MESH_POINT);
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 12, 0)
+static inline void
+rwnx_wiphy_set_max_sched_scans(struct wiphy *wiphy, uint8_t max_scans)
+{
+    if (max_scans == 0)
+        wiphy->flags &= ~WIPHY_FLAG_SUPPORTS_SCHED_SCAN;
+    else
+        wiphy->flags |= WIPHY_FLAG_SUPPORTS_SCHED_SCAN;
+}
+#else
+static inline void
+rwnx_wiphy_set_max_sched_scans(struct wiphy *wiphy, uint8_t max_scans)
+{
+    wiphy->max_sched_scan_reqs = max_scans;
+}
+#endif /* KERNEL_VERSION(4, 12, 0) */
+
+/**
+ * rwnx_cfg80211_add_connected_pno_support() - Set connected PNO support
+ * @wiphy: Pointer to wireless phy
+ *
+ * This function is used to set connected PNO support to kernel
+ *
+ * Return: None
+ */
+#if defined(CFG80211_REPORT_BETTER_BSS_IN_SCHED_SCAN)
+static void rwnx_cfg80211_add_connected_pno_support(struct wiphy *wiphy)
+{
+    wiphy_ext_feature_set(wiphy,
+        NL80211_EXT_FEATURE_SCHED_SCAN_RELATIVE_RSSI);
+}
+#else
+static void rwnx_cfg80211_add_connected_pno_support(struct wiphy *wiphy)
+{
+    return;
+}
+#endif
+
+static int rwnx_inetaddr_event(struct notifier_block *this,unsigned long event, void *ptr) {
+    struct net_device *ndev;
+    struct rwnx_vif *rwnx_vif;
+    struct in_ifaddr *ifa = (struct in_ifaddr *)ptr;
+
+    if (!ifa || !(ifa->ifa_dev->dev)) {
+        return NOTIFY_DONE;
+    }
+
+    if (ifa->ifa_dev->dev->netdev_ops != &rwnx_netdev_ops) {
+        return NOTIFY_DONE;
+    }
+
+    ndev = ifa->ifa_dev->dev;
+    rwnx_vif = netdev_priv(ndev);
+
+    switch (rwnx_vif->wdev.iftype) {
+    case NL80211_IFTYPE_STATION:
+    case NL80211_IFTYPE_P2P_CLIENT:
+        if (event == NETDEV_UP) {
+            int ret;
+            uint8_t* ip_addr = (uint8_t*)&ifa->ifa_address;
+            ret = rwnx_send_notify_ip(rwnx_vif, IPV4_VER,ip_addr);
+            printk("notify ip addr,ret:%d,ip:%d.%d.%d.%d\n",ret,ip_addr[0],ip_addr[1],ip_addr[2],ip_addr[3]);
+        }
+        break;
+
+    default:
+        break;
+    }
+    return NOTIFY_DONE;
+}
+
+static int rwnx_inetaddr6_event(struct notifier_block *this,unsigned long event, void *ptr) {
+    //DO STH
+    return NOTIFY_DONE;
+}
+
+static struct notifier_block rwnx_ipv4_cb = {
+    .notifier_call = rwnx_inetaddr_event
+};
+
+static struct notifier_block rwnx_ipv6_cb = {
+    .notifier_call = rwnx_inetaddr6_event
+};
 
 /**
  *
@@ -4175,6 +4848,7 @@ int rwnx_cfg80211_init(struct rwnx_plat *rwnx_plat, void **platform_data)
     int ret = 0;
     struct wiphy *wiphy;
     struct wireless_dev *wdev;
+    char alpha2[2];
     int i;
 
     RWNX_DBG(RWNX_FN_ENTRY_STR);
@@ -4231,6 +4905,8 @@ int rwnx_cfg80211_init(struct rwnx_plat *rwnx_plat, void **platform_data)
     memcpy(wiphy->perm_addr, init_conf.mac_addr, ETH_ALEN);
     wiphy->mgmt_stypes = rwnx_default_mgmt_stypes;
 
+    wiphy->wowlan = &wowlan_stub;
+
     wiphy->bands[NL80211_BAND_2GHZ] = &rwnx_band_2GHz;
     wiphy->bands[NL80211_BAND_5GHZ] = &rwnx_band_5GHz;
     wiphy->interface_modes =
@@ -4246,6 +4922,12 @@ int rwnx_cfg80211_init(struct rwnx_plat *rwnx_plat, void **platform_data)
         WIPHY_FLAG_4ADDR_AP |
         WIPHY_FLAG_REPORTS_OBSS |
         WIPHY_FLAG_OFFCHAN_TX;
+
+    /*init for pno*/
+    rwnx_wiphy_set_max_sched_scans(wiphy, 1);
+    wiphy->max_match_sets       = PNO_MAX_SUPP_NETWORKS;
+    wiphy->max_sched_scan_ie_len = SCANU_MAX_IE_LEN;
+    rwnx_cfg80211_add_connected_pno_support(wiphy);
 
     wiphy->max_scan_ssids = SCAN_SSID_MAX;
     wiphy->max_scan_ie_len = SCANU_MAX_IE_LEN;
@@ -4273,6 +4955,10 @@ int rwnx_cfg80211_init(struct rwnx_plat *rwnx_plat, void **platform_data)
     wiphy->n_iface_combinations = ARRAY_SIZE(rwnx_combinations) - 1;
     wiphy->reg_notifier = rwnx_reg_notifier;
 
+    alpha2[0] = '0';
+    alpha2[1] = '0';
+    rwnx_apply_custom_regdom(wiphy, alpha2);
+
     wiphy->signal_type = CFG80211_SIGNAL_TYPE_MBM;
 
     wiphy->cipher_suites = cipher_suites;
@@ -4286,7 +4972,9 @@ int rwnx_cfg80211_init(struct rwnx_plat *rwnx_plat, void **platform_data)
     wiphy->extended_capabilities_mask = rwnx_hw->ext_capa;
     wiphy->extended_capabilities_len = ARRAY_SIZE(rwnx_hw->ext_capa);
 
+#if defined(CONFIG_RWNX_PCIE_MODE)
     tasklet_init(&rwnx_hw->task, rwnx_task, (unsigned long)rwnx_hw);
+#endif
 
     INIT_LIST_HEAD(&rwnx_hw->vifs);
 
@@ -4302,6 +4990,7 @@ int rwnx_cfg80211_init(struct rwnx_plat *rwnx_plat, void **platform_data)
     printk("%s:%d\n", __func__, __LINE__);
     if ((ret = rwnx_send_reset(rwnx_hw)))
         goto err_lmac_reqs;
+
     if ((ret = rwnx_send_version_req(rwnx_hw, &rwnx_hw->version_cfm)))
         goto err_lmac_reqs;
     rwnx_set_vers(rwnx_hw);
@@ -4354,8 +5043,36 @@ int rwnx_cfg80211_init(struct rwnx_plat *rwnx_plat, void **platform_data)
 
     rtnl_unlock();
 
+    /* register ipv4 addr notifier cb */
+    ret = register_inetaddr_notifier(&rwnx_ipv4_cb);
+    if (ret) {
+        printk("%s failed to register ipv4 notifier(%d)!\n",__func__, ret);
+    }
+
+    /* register ipv6 addr notifier cb */
+    ret = register_inet6addr_notifier(&rwnx_ipv6_cb);
+    if (ret) {
+        printk("%s failed to register ipv6 notifier(%d)!\n",__func__, ret);
+    }
+
     if (!wdev) {
         wiphy_err(wiphy, "Failed to instantiate a network device\n");
+        ret = -ENOMEM;
+        goto err_add_interface;
+    }
+
+    wiphy_info(wiphy, "New interface create %s", wdev->netdev->name);
+
+    rtnl_lock();
+
+    /* Add an p2p interface */
+    wdev = rwnx_interface_add(rwnx_hw, "p2p%d", NET_NAME_UNKNOWN,
+               NL80211_IFTYPE_P2P_DEVICE, NULL);
+
+    rtnl_unlock();
+
+    if (!wdev) {
+        wiphy_err(wiphy, "Failed to instantiate a p2p network device\n");
         ret = -ENOMEM;
         goto err_add_interface;
     }
@@ -4386,6 +5103,9 @@ err_out:
 void rwnx_cfg80211_deinit(struct rwnx_hw *rwnx_hw)
 {
     RWNX_DBG(RWNX_FN_ENTRY_STR);
+
+    unregister_inetaddr_notifier(&rwnx_ipv4_cb);
+    unregister_inet6addr_notifier(&rwnx_ipv6_cb);
 
     rwnx_dbgfs_unregister(rwnx_hw);
     del_timer_sync(&rwnx_hw->txq_cleanup);

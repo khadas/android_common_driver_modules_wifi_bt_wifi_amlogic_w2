@@ -1,4 +1,5 @@
 /**
+
  ****************************************************************************************
  *
  * @file lmac_msg.h
@@ -74,6 +75,9 @@ enum
 };
 
 #define TASK_PRIV   (TASK_MAX + 1)
+#define MAX_SCHED_SCAN_PLANS 1
+#define MAX_MATCH_COUNT 2
+
 
 /// For MAC HW States copied from "hal_machw.h"
 enum
@@ -371,6 +375,11 @@ enum priv_e2a_tag {
     /// PRIV_RF_RESULT up rf_regvalue to fw
     PRIV_RF_READ_RESULT = LMAC_FIRST_MSG(TASK_PRIV),
     PRIV_SCANU_CANCEL_CFM,
+    PRIV_TKO_CONN_DEAD_IND,
+    PRIV_SCHED_SCAN_CFM,
+    PRIV_DMA_UL_RESULT,
+    PRIV_DMA_DL_RESULT,
+    PRIV_CONNECT_INFO,
 
     PRIV_SUB_E2A_MAX,
 };
@@ -385,7 +394,26 @@ enum mm_sub_a2e_tag {
     MM_SUB_SCANU_CANCEL_REQ,
     MM_SUB_ARP_AGENT_REQ,
     MM_SUB_SET_REKEY_DATA,
-
+    MM_SUB_TKO_CONFIG_REQ,
+    MM_SUB_TKO_ACTIVATE_REQ,
+    MM_SUB_SET_CALI_REQ,
+    MM_SUB_GET_EFUSE,
+    MM_SUB_SET_EFUSE,
+    MM_SUB_RECOVERY,
+    MM_SUB_SET_MACBYPASS,
+    MM_SUB_SET_STOP_MACBYPASS,
+    SCANU_SCHED_START_REQ,
+    SCANU_SCHED_STOP_REQ,
+    MM_SUB_SET_AMSDU_TX,
+    MM_SUB_SET_LDPC,
+    MM_SUB_SET_TX_LFT,
+    MM_SUB_SET_STBC_ON,
+    MM_SUB_COEX_CMD,
+    MM_SUB_PCIE_DL_TEST,
+    MM_SUB_PCIE_UL_TEST,
+    MM_SUB_SET_PT_CALIBRATION,
+    MM_SUB_NOTIFY_IP,
+    MM_SUB_CALIBRATION,
     /// the MAX
     MM_SUB_A2E_MAX,
     /// New members cannot be added below
@@ -1441,6 +1469,84 @@ struct scanu_start_req
     u32_l duration;
 };
 
+struct scanu_macth_set
+{
+  //SSID to be matched; may be zero-length in case of BSSID match or no match (RSSI only)
+  struct mac_ssid ssId;
+  //BSSID to be matched; may be all-zero BSSID in case of SSID match or no match (RSSI only)
+  struct mac_addr bssid;
+  //don't report scan results below this threshold (in s32 dBm)
+  int8_t    rssiThreshold;
+  //Minimum rssi threshold for each band to be applied
+  //for filtering out scan results received. Drivers advertize this support
+  //of band specific rssi based filtering through the feature capability
+  //%NL80211_EXT_FEATURE_SCHED_SCAN_BAND_SPECIFIC_RSSI_THOLD. These band
+  //specific rssi thresholds take precedence over rssi_thold, if specified.
+  //If not specified for any band, it will be assigned with rssi_thold of
+  //corresponding matchset
+  int8_t per_band_rssi_thold[PHY_BAND_MAX];
+};
+
+struct scanu_sched_plan
+{
+    //Interval between scheduled scan iterations. In seconds.
+    uint32_t interval;
+    //number of scan iterations in this scan plan. Zero means infinite loop.
+    uint32_t iterations;
+};
+
+struct scanu_bss_select_adjust {
+    //band of BSS which should match for RSSI level adjustment
+    uint8_t band;
+    //value of RSSI level adjustment.
+    int8_t delta;
+};
+
+/// Structure containing the parameters of the @ref SCANU_SCHED_START_REQ message
+struct scanu_sched_scan_start_req
+{
+    //identifies this request.
+    uint64_t reqid;
+
+    struct scanu_start_req scanu_req;
+
+    //number of match sets
+    uint8_t match_count;
+    //sets of parameters to be matched for a scan result
+    struct scanu_macth_set match_sets[MAX_MATCH_COUNT];
+    //for drivers only supporting a single threshold, this
+    //contains the minimum over all matchsets
+    int8_t min_rssi_thold;
+
+    //MAC address used with randomisation
+    uint8_t mac_addr[MAC_ADDR_LEN];
+    //MAC address mask used with randomisation, bits that
+    //are 0 in the mask should be randomised, bits that are 1 should
+    //be taken from the @mac_addr
+    uint8_t mac_addr_mask[MAC_ADDR_LEN];
+
+    //delay in seconds to use before starting the first scan cycle
+    uint32_t delay;
+    //scan plans to be executed in this scheduled scan. Lowest
+    //index must be executed first.
+    struct scanu_sched_plan scan_plans[MAX_SCHED_SCAN_PLANS];
+    uint8_t n_scan_plans;
+
+    //Indicates whether @relative_rssi is set or not
+    uint8_t relative_rssi_set;
+    //Relative RSSI threshold in dB to restrict scan result
+    //reporting in connected state to cases where a matching BSS is determined
+    //to have better or slightly worse RSSI than the current connected BSS.
+    //The relative RSSI threshold values are ignored in disconnected state.
+    int8_t relative_rssi;
+    //delta dB of RSSI preference to be given to the BSSs that belong
+    //to the specified band while deciding whether a better BSS is reported
+    //using @relative_rssi. If delta is a negative number, the BSSs that
+    //belong to the specified band will be penalized by delta dB in relative
+    //comparisions.
+    struct scanu_bss_select_adjust rssi_adjust;
+};
+
 /// Structure containing the parameters of the @ref SCANU_START_CFM message
 struct scanu_start_cfm
 {
@@ -2012,6 +2118,19 @@ struct sm_connect_ind
     u32_l ac_param[AC_MAX];
     /// IE buffer
     u32_l assoc_ie_buf[0];
+};
+
+struct sm_connect_ind_ex
+{
+    u8_l ap_idx;
+    u32_l bcn_interval;
+    u8_l bw_max;
+    u32_l dtim;
+    u8_l format_mod;
+    u8_l mcs_max;
+    u8_l no_ss;
+    u8_l short_gi;
+    u8_l r_idx_max;
 };
 
 /// Structure containing the parameters of the @ref SM_DISCONNECT_REQ message.
@@ -2784,6 +2903,22 @@ struct rf_read_result_ind
     u32_l rf_data;
 };
 
+#ifdef TEST_MODE
+struct dma_dl_result_ind
+{
+    u8_l result;
+    u32_l start_addr;
+    u32_l len;
+    u32_l payload;
+};
+
+struct dma_ul_result_ind
+{
+    u32_l dest_addr;
+    u32_l len;
+    u32_l payload;
+};
+#endif
 struct scan_hang_req
 {
     u8_l scan_hang;
@@ -2858,5 +2993,137 @@ struct set_rekey_data_req
     u8_l vif_idx;
 };
 
+struct tko_config_req {
+    u16_l interval;
+    u16_l retry_interval;
+    u16_l retry_count;
+};
+
+struct tko_activate_req {
+    u8_l active;
+};
+
+struct tko_conn_dead_ind {
+    u8_l vif_idx;
+    u32_l src_ip;
+    u16_l src_port;
+    u32_l dst_ip;
+    u16_l dst_port;
+};
+
+struct get_efuse_req
+{
+    u32_l addr;
+};
+
+struct set_efuse_req
+{
+    u32_l addr;
+    u32_l value;
+};
+
+struct recovery
+{
+    u8_l vif_idx;
+};
+
+struct set_macbypass
+{
+    u8_l format_type;
+    u8_l bandwidth;
+    u8_l rate;
+    u8_l siso_or_mimo;
+};
+
+struct set_stop_macbypass
+{
+    u8_l vif_idx;
+};
+
+struct scanu_sched_scan_stop_req
+{
+    /// VIF Index
+    u8_l vif_idx;
+    u64_l reqid;
+};
+
+struct set_amsdu_tx_req
+{
+    u8_l amsdu_tx;
+};
+
+struct set_tx_lft_req
+{
+    u32_l tx_lft;
+};
+
+struct ldpc_config_req
+{
+    /// HT Capabilities
+    struct mac_htcapability ht_cap;
+    /// VHT Capabilities
+    struct mac_vhtcapability vht_cap;
+    /// HE capabilities
+    struct mac_hecapability he_cap;
+    /// Maximum supported BW
+    u8_l phy_bw_max;
+    /// VIF Index
+    u8_l vif_idx;
+	/// Boolean indicating if HT is supported or not
+    u8_l ht_supp;
+    /// Boolean indicating if VHT is supported or not
+    u8_l vht_supp;
+    /// Boolean indicating if HE is supported or not
+    u8_l he_supp;
+};
+
+struct set_stbc_req
+{
+    u8_l vif_idx;
+    u8_l stbc_on;
+};
+
+#ifdef TEST_MODE
+struct pcie_dl_req
+{
+    u32_l start_addr;
+    u32_l dma_addr;
+    u32_l len;
+    u32_l payload;
+};
+
+struct pcie_ul_req
+{
+    u32_l src_addr;
+    u32_l dest_addr;
+    u32_l len;
+    u32_l payload;
+};
+#endif
+
+struct coex_cmd_req
+{
+    u32_l coex_cmd;
+    u32_l cmd_txt_1;
+    u32_l cmd_txt_2;
+};
+
+struct set_pt_calibration
+{
+    u32_l pt_cali_cfg;
+};
+
+#define IPV4_ADDR_LEN   4
+#define IPV6_ADDR_LEN   16
+#define IPV4_VER        4
+#define IPV6_VER        6
+
+typedef struct
+{
+    unsigned char vif_idx;
+    unsigned char ip_ver;
+    unsigned char ipv4_addr[IPV4_ADDR_LEN];
+    unsigned char ipv6_addr[IPV6_ADDR_LEN];
+}notify_ip_addr_t;
 
 #endif // LMAC_MSG_H_

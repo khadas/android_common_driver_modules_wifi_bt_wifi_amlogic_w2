@@ -275,79 +275,7 @@ static ssize_t rwnx_dbgfs_stats_write(struct file *file,
 
 DEBUGFS_READ_WRITE_FILE_OPS(stats);
 
-#define TXQ_STA_PREF "tid|"
-#define TXQ_STA_PREF_FMT "%3d|"
-
-#ifdef CONFIG_RWNX_FULLMAC
-#define TXQ_VIF_PREF "type|"
-#define TXQ_VIF_PREF_FMT "%4s|"
-#else
-#define TXQ_VIF_PREF "AC|"
-#define TXQ_VIF_PREF_FMT "%2s|"
-#endif /* CONFIG_RWNX_FULLMAC */
-
-#define TXQ_HDR "idx|  status|credit|ready|retry|pushed"
-#define TXQ_HDR_FMT "%3d|%s%s%s%s%s%s%s%s|%6d|%5d|%5d|%6d"
-
-#ifdef CONFIG_RWNX_AMSDUS_TX
-#ifdef CONFIG_RWNX_FULLMAC
-#define TXQ_HDR_SUFF "|amsdu"
-#define TXQ_HDR_SUFF_FMT "|%5d"
-#else
-#define TXQ_HDR_SUFF "|amsdu-ht|amdsu-vht"
-#define TXQ_HDR_SUFF_FMT "|%8d|%9d"
-#endif /* CONFIG_RWNX_FULLMAC */
-#else
-#define TXQ_HDR_SUFF ""
-#define TXQ_HDR_SUF_FMT ""
-#endif /* CONFIG_RWNX_AMSDUS_TX */
-
-#define TXQ_HDR_MAX_LEN (sizeof(TXQ_STA_PREF) + sizeof(TXQ_HDR) + sizeof(TXQ_HDR_SUFF) + 1)
-
-#ifdef CONFIG_RWNX_FULLMAC
-#define PS_HDR  "Legacy PS: ready=%d, sp=%d / UAPSD: ready=%d, sp=%d"
-#define PS_HDR_LEGACY "Legacy PS: ready=%d, sp=%d"
-#define PS_HDR_UAPSD  "UAPSD: ready=%d, sp=%d"
-#define PS_HDR_MAX_LEN  sizeof("Legacy PS: ready=xxx, sp=xxx / UAPSD: ready=xxx, sp=xxx\n")
-#else
-#define PS_HDR ""
-#define PS_HDR_MAX_LEN 0
-#endif /* CONFIG_RWNX_FULLMAC */
-
-#define STA_HDR "** STA %d (%pM)\n"
-#define STA_HDR_MAX_LEN sizeof("- STA xx (xx:xx:xx:xx:xx:xx)\n") + PS_HDR_MAX_LEN
-
-#ifdef CONFIG_RWNX_FULLMAC
-#define VIF_HDR "* VIF [%d] %s\n"
-#define VIF_HDR_MAX_LEN sizeof(VIF_HDR) + IFNAMSIZ
-#else
-#define VIF_HDR "* VIF [%d]\n"
-#define VIF_HDR_MAX_LEN sizeof(VIF_HDR)
-#endif
-
-
-#ifdef CONFIG_RWNX_AMSDUS_TX
-
-#ifdef CONFIG_RWNX_FULLMAC
-#define VIF_SEP "---------------------------------------\n"
-#else
-#define VIF_SEP "----------------------------------------------------\n"
-#endif /* CONFIG_RWNX_FULLMAC */
-
-#else /* ! CONFIG_RWNX_AMSDUS_TX */
-#define VIF_SEP "---------------------------------\n"
-#endif /* CONFIG_RWNX_AMSDUS_TX*/
-
-#define VIF_SEP_LEN sizeof(VIF_SEP)
-
-#define CAPTION "status: L=in hwq list, F=stop full, P=stop sta PS, V=stop vif PS,\
- C=stop channel, S=stop CSA, M=stop MU, N=Ndev queue stopped"
-#define CAPTION_LEN sizeof(CAPTION)
-
-#define STA_TXQ 0
-#define VIF_TXQ 1
-
-static int rwnx_dbgfs_txq(char *buf, size_t size, struct rwnx_txq *txq, int type, int tid, char *name)
+int rwnx_dbgfs_txq(char *buf, size_t size, struct rwnx_txq *txq, int type, int tid, char *name)
 {
     int res, idx = 0;
     int i, pushed = 0;
@@ -401,7 +329,7 @@ static int rwnx_dbgfs_txq(char *buf, size_t size, struct rwnx_txq *txq, int type
     return idx;
 }
 
-static int rwnx_dbgfs_txq_sta(char *buf, size_t size, struct rwnx_sta *rwnx_sta,
+int rwnx_dbgfs_txq_sta(char *buf, size_t size, struct rwnx_sta *rwnx_sta,
                               struct rwnx_hw *rwnx_hw)
 {
     int tid, res, idx = 0;
@@ -462,7 +390,7 @@ static int rwnx_dbgfs_txq_sta(char *buf, size_t size, struct rwnx_sta *rwnx_sta,
     return idx;
 }
 
-static int rwnx_dbgfs_txq_vif(char *buf, size_t size, struct rwnx_vif *rwnx_vif,
+int rwnx_dbgfs_txq_vif(char *buf, size_t size, struct rwnx_vif *rwnx_vif,
                               struct rwnx_hw *rwnx_hw)
 {
     int res, idx = 0;
@@ -1386,14 +1314,7 @@ DEBUGFS_READ_WRITE_FILE_OPS(set);
 
 #ifdef CONFIG_RWNX_FULLMAC
 
-#define LINE_MAX_SZ 150
-
-struct st {
-    char line[LINE_MAX_SZ + 1];
-    unsigned int r_idx;
-};
-
-static int compare_idx(const void *st1, const void *st2)
+int compare_idx(const void *st1, const void *st2)
 {
     int index1 = ((struct st *)st1)->r_idx;
     int index2 = ((struct st *)st2)->r_idx;
@@ -1420,7 +1341,7 @@ static const int ru_size_he_mu[] =
     996
 };
 
-static int print_rate(char *buf, int size, int format, int nss, int mcs, int bw,
+int print_rate(char *buf, int size, int format, int nss, int mcs, int bw,
                       int sgi, int pre, int dcm, int *r_idx)
 {
     int res = 0;
@@ -1495,7 +1416,7 @@ static int print_rate(char *buf, int size, int format, int nss, int mcs, int bw,
     return res;
 }
 
-static int print_rate_from_cfg(char *buf, int size, u32 rate_config, int *r_idx, int ru_size)
+int print_rate_from_cfg(char *buf, int size, u32 rate_config, int *r_idx, int ru_size)
 {
     union rwnx_rate_ctrl_info *r_cfg = (union rwnx_rate_ctrl_info *)&rate_config;
     union rwnx_mcs_index *mcs_index = (union rwnx_mcs_index *)&rate_config;
@@ -2434,6 +2355,37 @@ void rwnx_dbgfs_register_sta(struct rwnx_hw *rwnx_hw,
     _rwnx_dbgfs_sta_write(&rwnx_hw->debugfs, sta->sta_idx);
 }
 #endif /* CONFIG_RWNX_FULLMAC */
+
+#ifdef CONFIG_RWNX_TCP_KEEPALIVE_OFFLOAD_DEBUGFS
+static ssize_t rwnx_dbgfs_tko_config_write(struct file *file,
+                    const char __user *user_buf,
+                    size_t count, loff_t *ppos)
+{
+    struct rwnx_hw *rw_hw = file->private_data;
+    struct rwnx_vif *rw_vif;
+    char buf[64];
+    size_t len = min_t(size_t, count, sizeof(buf) - 1);
+    int interval, retry_interval, retry_count;
+
+    if (copy_from_user(buf, user_buf, len))
+        return -EFAULT;
+    buf[len] = '\0';
+
+    if (sscanf(buf, "interval=%d retry_interval=%d retry_count=%d",
+                &interval, &retry_interval, &retry_count) > 0) {
+        list_for_each_entry(rw_vif, &rw_hw->vifs, list) {
+            if (RWNX_VIF_TYPE(rw_vif) == NL80211_IFTYPE_STATION) {
+
+                rwnx_tko_config_req(rw_hw, rw_vif, interval,
+                        retry_interval, retry_count);
+                break;
+            }
+        }
+    }
+    return count;
+}
+DEBUGFS_WRITE_FILE_OPS(tko_config);
+#endif
 
 int rwnx_dbgfs_register(struct rwnx_hw *rwnx_hw, const char *name)
 {

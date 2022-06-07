@@ -13,8 +13,9 @@
 #include <linux/skbuff.h>
 
 #include "lmac_msg.h"
+#include "rwnx_prealloc.h"
 
-#ifdef CONFIG_RWNX_DBG
+#ifndef CONFIG_RWNX_DBG
 /*  #define RWNX_DBG(format, arg...) pr_warn(format, ## arg) */
 #define RWNX_DBG printk
 #else
@@ -22,6 +23,10 @@
 #endif
 
 #define RWNX_FN_ENTRY_STR ">>> %s()\n", __func__
+
+#define RWNX_INFO(fmt, ...) do { \
+    printk("[%-20.20s %4d] "fmt, __func__, __LINE__, ##__VA_ARGS__); \
+} while (0);
 
 enum rwnx_dev_flag {
     RWNX_DEV_RESTARTING,
@@ -74,6 +79,11 @@ struct rwnx_ipc_dbgdump {
     struct rwnx_ipc_buf buf;
 };
 
+struct rwnx_tx_list {
+    struct list_head list;
+    struct rwnx_sw_txhdr *sw_txhdr;
+};
+
 static const u32 rwnx_tx_pattern = 0xCAFEFADE;
 
 /*
@@ -91,6 +101,8 @@ static const u32 rwnx_tx_pattern = 0xCAFEFADE;
  */
 #define UNSUP_RX_VEC_DATA_LEN       2
 
+/// Number of radar event structures
+#define RADAR_EVENT_MAX   10
 
 /**
  * IPC environment control
@@ -121,6 +133,28 @@ static inline int rwnx_ipc_buf_e2a_alloc(struct rwnx_hw *rwnx_hw,
     return rwnx_ipc_buf_alloc(rwnx_hw, buf, buf_size, DMA_FROM_DEVICE, NULL);
 }
 
+#ifdef CONFIG_RWNX_USE_PREALLOC_BUF
+int rwnx_ipc_buf_prealloc(struct rwnx_hw *rwnx_hw, struct rwnx_ipc_buf *buf, size_t buf_size,
+                          int buf_type, enum dma_data_direction dir, const void *init);
+#endif
+
+/**
+ * rwnx_ipc_buf_e2a_prealloc() - Requesting prealloc an Embedded To Application Input IPC buffer
+ *
+ * @rwnx_hw: Main driver data
+ * @buf: IPC buffer structure to store IPC buffer information
+ * @buf_size: Size of the Buffer to allocate
+ * @buf_type: Type of the Buffer to allocate
+ * @return: 0 on success and != 0 otherwise
+ */
+#ifdef CONFIG_RWNX_USE_PREALLOC_BUF
+static inline int rwnx_ipc_buf_e2a_prealloc(struct rwnx_hw *rwnx_hw,
+                                         struct rwnx_ipc_buf *buf,
+                                         size_t buf_size, int buf_type)
+{
+    return rwnx_ipc_buf_prealloc(rwnx_hw, buf, buf_size, buf_type, DMA_FROM_DEVICE, NULL);
+}
+#endif
 /**
  * rwnx_ipc_buf_a2e_alloc() - Allocate an Application to Embedded Output IPC buffer
  *
@@ -208,7 +242,6 @@ void rwnx_ipc_txdesc_push(struct rwnx_hw *rwnx_hw, struct rwnx_sw_txhdr *sw_txhd
                           struct sk_buff *hostid, int hw_queue);
 struct sk_buff *rwnx_ipc_get_skb_from_cfm(struct rwnx_hw *rwnx_hw,
                                           struct rwnx_ipc_buf *buf);
-void rwnx_ipc_sta_buffer_init(struct rwnx_hw *rwnx_hw, int sta_idx);
 void rwnx_ipc_sta_buffer(struct rwnx_hw *rwnx_hw, struct rwnx_sta *sta, int tid, int size);
 void rwnx_ipc_tx_drain(struct rwnx_hw *rwnx_hw);
 bool rwnx_ipc_tx_pending(struct rwnx_hw *rwnx_hw);

@@ -331,7 +331,7 @@ typedef union RG_BT_PMU_A21_FIELD
 
 #define RG_BT_PMU_A22                             (CHIP_BT_PMU_REG_BASE + 0x58)
 // Bit 15  :0      rg_dev_reset_sw                U     RW        default = 'h4
-// Bit 31  :16      rg_dev_reset_hw                U     RW        default = 'hff
+// Bit 31  :16     rg_dev_reset_hw                U     RW        default = 'hff
 typedef union RG_BT_PMU_A22_FIELD
 {
   unsigned int data;

@@ -11,6 +11,10 @@
 #ifndef _RWNX_CFGFILE_H_
 #define _RWNX_CFGFILE_H_
 
+/* mac addr string len and offset */
+#define FILE_DATA_LEN 27
+#define PARSE_DIGIT_BASE 9
+
 /*
  * Structure used to retrieve information from the Config file used at Initialization time
  */
@@ -32,5 +36,4 @@ int rwnx_parse_configfile(struct rwnx_hw *rwnx_hw, const char *filename,
 
 int rwnx_parse_phy_configfile(struct rwnx_hw *rwnx_hw, const char *filename,
                               struct rwnx_phy_conf_file *config, int path);
-
 #endif /* _RWNX_CFGFILE_H_ */

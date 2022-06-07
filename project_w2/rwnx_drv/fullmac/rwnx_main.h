@@ -21,6 +21,7 @@ int rwnx_cfg80211_change_iface(struct wiphy *wiphy,
                                       struct vif_params *params);
 
 void rwnx_get_version(void);
-
+void rwnx_cfg80211_sched_scan_results(struct wiphy *wiphy, uint64_t reqid);
+int rwnx_cancel_scan(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif);
 
 #endif /* _RWNX_MAIN_H_ */

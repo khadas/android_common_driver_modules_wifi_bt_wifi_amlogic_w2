@@ -1,5 +1,5 @@
 
-#ifdef CONFIG_SDIO_IF
+#if (defined(CONFIG_SDIO_IF) || defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
 /*
  *****************************************************************************************
  *
@@ -1060,6 +1060,7 @@ typedef struct RekeyDataCmd
 #define WOW_FILTER_OPTION_4WAYHS BIT(4)
 #define WOW_FILTER_OPTION_DISCONNECT BIT(5)
 #define WOW_FILTER_OPTION_GTK_ERROR BIT(6)
+
 #endif// _FI_AHB_H
 #endif// #ifdef CONFIG_SDIO_IF
 

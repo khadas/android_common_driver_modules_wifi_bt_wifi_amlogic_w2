@@ -17,7 +17,7 @@ typedef union RG_AON_A0_FIELD
 } RG_AON_A0_FIELD_T;
 
 #define RG_AON_A1                                 (CHIP_INTF_REG_BASE + 0x4)
-// Bit 31  :0      rg_pin_mux1                    U     RW        default = 'hffbf2f0
+// Bit 31  :0      rg_pin_mux1                    U     RW        default = 'hfffffff0
 typedef union RG_AON_A1_FIELD
 {
   unsigned int data;
@@ -28,7 +28,7 @@ typedef union RG_AON_A1_FIELD
 } RG_AON_A1_FIELD_T;
 
 #define RG_AON_A2                                 (CHIP_INTF_REG_BASE + 0x8)
-// Bit 31  :0      rg_pin_mux2                    U     RW        default = 'h40d0f
+// Bit 31  :0      rg_pin_mux2                    U     RW        default = 'hf
 typedef union RG_AON_A2_FIELD
 {
   unsigned int data;
@@ -83,13 +83,13 @@ typedef union RG_AON_A6_FIELD
 } RG_AON_A6_FIELD_T;
 
 #define RG_AON_A7                                 (CHIP_INTF_REG_BASE + 0x1c)
-// Bit 31  :0      rg_pin_mux7                    U     RW        default = 'h0
+// Bit 31  :0      rg_pad_gpioa_pull_up           U     RW        default = 'hffffffff
 typedef union RG_AON_A7_FIELD
 {
   unsigned int data;
   struct
   {
-    unsigned int rg_pin_mux7 : 32;
+    unsigned int rg_pad_gpioA_pull_up : 32;
   } b;
 } RG_AON_A7_FIELD_T;
 
@@ -106,62 +106,57 @@ typedef union RG_AON_A8_FIELD
 } RG_AON_A8_FIELD_T;
 
 #define RG_AON_A9                                 (CHIP_INTF_REG_BASE + 0x24)
-// Bit 18  :0      rg_pad_gpioa_pull_up           U     RW        default = 'h18000
+// Bit 31  :0      rg_pad_gpioa_pull_up_en        U     RW        default = 'h158000
 typedef union RG_AON_A9_FIELD
 {
   unsigned int data;
   struct
   {
-    unsigned int rg_pad_gpioA_pull_up : 19;
-    unsigned int rsvd_0 : 13;
+    unsigned int rg_pad_gpioA_pull_up_en : 32;
   } b;
 } RG_AON_A9_FIELD_T;
 
 #define RG_AON_A10                                (CHIP_INTF_REG_BASE + 0x28)
-// Bit 18  :0      rg_pad_gpioa_o                 U     RW        default = 'h7ffff
+// Bit 31  :0      rg_pad_gpioa_o                 U     RW        default = 'h7ffff
 typedef union RG_AON_A10_FIELD
 {
   unsigned int data;
   struct
   {
-    unsigned int rg_pad_gpioA_o : 19;
-    unsigned int rsvd_0 : 13;
+    unsigned int rg_pad_gpioA_o : 32;
   } b;
 } RG_AON_A10_FIELD_T;
 
 #define RG_AON_A11                                (CHIP_INTF_REG_BASE + 0x2c)
-// Bit 18  :0      rg_pad_gpioa_en_n              U     RW        default = 'h7ffff
+// Bit 31  :0      rg_pad_gpioa_en_n              U     RW        default = 'h7ffff
 typedef union RG_AON_A11_FIELD
 {
   unsigned int data;
   struct
   {
-    unsigned int rg_pad_gpioA_en_n : 19;
-    unsigned int rsvd_0 : 13;
+    unsigned int rg_pad_gpioA_en_n : 32;
   } b;
 } RG_AON_A11_FIELD_T;
 
 #define RG_AON_A12                                (CHIP_INTF_REG_BASE + 0x30)
-// Bit 18  :0      ro_pad_gpioa_i                 U     RO        default = 'h0
+// Bit 31  :0      ro_pad_gpioa_i                 U     RO        default = 'h0
 typedef union RG_AON_A12_FIELD
 {
   unsigned int data;
   struct
   {
-    unsigned int ro_pad_gpioA_i : 19;
-    unsigned int rsvd_0 : 13;
+    unsigned int ro_pad_gpioA_i : 32;
   } b;
 } RG_AON_A12_FIELD_T;
 
 #define RG_AON_A13                                (CHIP_INTF_REG_BASE + 0x34)
-// Bit 18  :0      ro_pad_gpioa_pull_up           U     RO        default = 'h0
+// Bit 31  :0      ro_pad_gpioa_pull_up           U     RO        default = 'h0
 typedef union RG_AON_A13_FIELD
 {
   unsigned int data;
   struct
   {
-    unsigned int ro_pad_gpioA_pull_up : 19;
-    unsigned int rsvd_0 : 13;
+    unsigned int ro_pad_gpioA_pull_up : 32;
   } b;
 } RG_AON_A13_FIELD_T;
 
@@ -177,7 +172,7 @@ typedef union RG_AON_A14_FIELD
 } RG_AON_A14_FIELD_T;
 
 #define RG_AON_A15                                (CHIP_INTF_REG_BASE + 0x3c)
-// Bit 31  :0      rg_aon_bt_cfg                  U     RW        default = 'h0
+// Bit 31  :0      rg_aon_bt_cfg                  U     RW        default = 'h80000000
 typedef union RG_AON_A15_FIELD
 {
   unsigned int data;
@@ -541,7 +536,7 @@ typedef union RG_AON_A51_FIELD
 } RG_AON_A51_FIELD_T;
 
 #define RG_AON_A52                                (CHIP_INTF_REG_BASE + 0xd0)
-// Bit 31  :0      rg_for_debug0                  U     RW        default = 'hffff
+// Bit 31  :0      rg_for_debug0                  U     RW        default = 'h0
 typedef union RG_AON_A52_FIELD
 {
   unsigned int data;
@@ -552,7 +547,7 @@ typedef union RG_AON_A52_FIELD
 } RG_AON_A52_FIELD_T;
 
 #define RG_AON_A53                                (CHIP_INTF_REG_BASE + 0xd4)
-// Bit 31  :0      rg_for_debug1                  U     RW        default = 'hffff
+// Bit 31  :0      rg_for_debug1                  U     RW        default = 'h0
 typedef union RG_AON_A53_FIELD
 {
   unsigned int data;
@@ -563,7 +558,7 @@ typedef union RG_AON_A53_FIELD
 } RG_AON_A53_FIELD_T;
 
 #define RG_AON_A54                                (CHIP_INTF_REG_BASE + 0xd8)
-// Bit 31  :0      rg_for_debug2                  U     RW        default = 'hffff
+// Bit 31  :0      rg_for_debug2                  U     RW        default = 'h0
 typedef union RG_AON_A54_FIELD
 {
   unsigned int data;
@@ -722,6 +717,143 @@ typedef union RG_AON_A67_FIELD
     unsigned int rsvd_1 : 27;
   } b;
 } RG_AON_A67_FIELD_T;
+
+#define RG_AON_A68                                (CHIP_INTF_REG_BASE + 0x110)
+// Bit 13  :0      rg_pcie_soft_rst_cfg           U     RW        default = 'h0
+// Bit 18  :16     rg_pcie_clock_enable           U     RW        default = 'h0
+// Bit 26  :24     rg_pcie_clock_gate             U     RW        default = 'h0
+// Bit 31          rg_m31phy_pcie_rxodt_pmen_l0     U     RW        default = 'h0
+typedef union RG_AON_A68_FIELD
+{
+  unsigned int data;
+  struct
+  {
+    unsigned int rg_pcie_soft_rst_cfg : 14;
+    unsigned int rsvd_0 : 2;
+    unsigned int rg_pcie_clock_enable : 3;
+    unsigned int rsvd_1 : 5;
+    unsigned int rg_pcie_clock_gate : 3;
+    unsigned int rsvd_2 : 4;
+    unsigned int rg_m31phy_pcie_RXODT_PMEN_L0 : 1;
+  } b;
+} RG_AON_A68_FIELD_T;
+
+#define RG_AON_A69                                (CHIP_INTF_REG_BASE + 0x114)
+// Bit 6   :0      reg_sdio_ema_cfg               U     RW        default = 'h77
+// Bit 14  :8      reg_usb_ema_cfg                U     RW        default = 'h77
+// Bit 22  :16     reg_pcie_ema_cfg               U     RW        default = 'h77
+// Bit 29  :24     reg_shareram_ema_cfg           U     RW        default = 'h1a
+typedef union RG_AON_A69_FIELD
+{
+  unsigned int data;
+  struct
+  {
+    unsigned int reg_sdio_ema_cfg : 7;
+    unsigned int rsvd_0 : 1;
+    unsigned int reg_usb_ema_cfg : 7;
+    unsigned int rsvd_1 : 1;
+    unsigned int reg_pcie_ema_cfg : 7;
+    unsigned int rsvd_2 : 1;
+    unsigned int reg_shareram_ema_cfg : 6;
+    unsigned int rsvd_3 : 2;
+  } b;
+} RG_AON_A69_FIELD_T;
+
+#define RG_AON_A70                                (CHIP_INTF_REG_BASE + 0x118)
+// Bit 0           rg_clk32k_mes_en               U     RW        default = 'h0
+// Bit 11  :4      rg_clk32k_mes_bnd              U     RW        default = 'h1
+// Bit 31          ro_clk32k_mes_end_flag         U     RO        default = 'h0
+typedef union RG_AON_A70_FIELD
+{
+  unsigned int data;
+  struct
+  {
+    unsigned int rg_clk32k_mes_en : 1;
+    unsigned int rsvd_0 : 3;
+    unsigned int rg_clk32k_mes_bnd : 8;
+    unsigned int rsvd_1 : 19;
+    unsigned int ro_clk32k_mes_end_flag : 1;
+  } b;
+} RG_AON_A70_FIELD_T;
+
+#define RG_AON_A71                                (CHIP_INTF_REG_BASE + 0x11c)
+// Bit 31  :0      ro_clk32k_mes_cnt_pos          U     RO        default = 'h0
+typedef union RG_AON_A71_FIELD
+{
+  unsigned int data;
+  struct
+  {
+    unsigned int ro_clk32k_mes_cnt_pos : 32;
+  } b;
+} RG_AON_A71_FIELD_T;
+
+#define RG_AON_A72                                (CHIP_INTF_REG_BASE + 0x120)
+// Bit 31  :0      ro_clk32k_mes_cnt_neg          U     RO        default = 'h0
+typedef union RG_AON_A72_FIELD
+{
+  unsigned int data;
+  struct
+  {
+    unsigned int ro_clk32k_mes_cnt_neg : 32;
+  } b;
+} RG_AON_A72_FIELD_T;
+
+#define RG_AON_A73                                (CHIP_INTF_REG_BASE + 0x124)
+// Bit 10  :0      rg_cpu_osc_clk_div             U     RW        default = 'h4e1
+typedef union RG_AON_A73_FIELD
+{
+  unsigned int data;
+  struct
+  {
+    unsigned int rg_cpu_osc_clk_div : 11;
+    unsigned int rsvd_0 : 21;
+  } b;
+} RG_AON_A73_FIELD_T;
+
+#define RG_AON_A74                                (CHIP_INTF_REG_BASE + 0x128)
+// Bit 0           rg_cpu_osc_clk_en              U     RW        default = 'h0
+typedef union RG_AON_A74_FIELD
+{
+  unsigned int data;
+  struct
+  {
+    unsigned int rg_cpu_osc_clk_en : 1;
+    unsigned int rsvd_0 : 31;
+  } b;
+} RG_AON_A74_FIELD_T;
+
+#define RG_AON_A75                                (CHIP_INTF_REG_BASE + 0x12c)
+// Bit 0           rg_sclk_32k_s                  U     RW        default = 'h0
+// Bit 13  :8      reg_iccm_ema_cfg               U     RW        default = 'h1a
+typedef union RG_AON_A75_FIELD
+{
+  unsigned int data;
+  struct
+  {
+    unsigned int rg_sclk_32k_s : 1;
+    unsigned int rsvd_0 : 7;
+    unsigned int reg_iccm_ema_cfg : 6;
+    unsigned int rsvd_1 : 18;
+  } b;
+} RG_AON_A75_FIELD_T;
+
+#define RG_AON_A76                                (CHIP_INTF_REG_BASE + 0x130)
+// Bit 1   :0      ro_usb_linestate               U     RO        default = 'h0
+// Bit 4           ro_pcie_pl_rxelecidle          U     RO        default = 'h0
+// Bit 8           ro_pcie_pl_l2_exit_n           U     RO        default = 'h0
+typedef union RG_AON_A76_FIELD
+{
+  unsigned int data;
+  struct
+  {
+    unsigned int ro_usb_linestate : 2;
+    unsigned int rsvd_0 : 2;
+    unsigned int ro_pcie_pl_rxelecidle : 1;
+    unsigned int rsvd_1 : 3;
+    unsigned int ro_pcie_pl_l2_exit_n : 1;
+    unsigned int rsvd_2 : 23;
+  } b;
+} RG_AON_A76_FIELD_T;
 
 #endif
 

@@ -187,14 +187,40 @@ int rwnx_send_dbg_set_sev_filter_req(struct rwnx_hw *rwnx_hw, u32 filter);
 int rwnx_send_dbg_get_sys_stat_req(struct rwnx_hw *rwnx_hw,
                                    struct dbg_get_sys_stat_cfm *cfm);
 int rwnx_send_cfg_rssi_req(struct rwnx_hw *rwnx_hw, u8 vif_index, int rssi_thold, u32 rssi_hyst);
+#ifdef TEST_MODE
+int aml_pcie_prssr_test(struct net_device *dev, int start_addr, int len, u32_l payload);
+int aml_pcie_dl_malloc_test(struct rwnx_hw *rwnx_hw, int start_addr, int len, u32_l payload);
+int aml_pcie_ul_malloc_test(struct rwnx_hw *rwnx_hw, int start_addr, int len, u32_l payload);
+#endif
 int aml_rf_reg_write(struct net_device *dev, int addr, int value);
 int aml_rf_reg_read(struct net_device *dev, int addr);
-int aml_scan_hang(struct net_device *dev, int scan_hang);
+int aml_scan_hang(struct rwnx_vif *rwnx_vif, int scan_hang);
 int rwnx_send_suspend_req(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif, enum wifi_suspend_state state);
 int rwnx_send_wow_pattern (struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif,
                         struct cfg80211_pkt_pattern *param, int id);
 int rwnx_send_scanu_cancel_req(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif, struct scanu_cancel_cfm *cfm);
 int rwnx_send_arp_agent_req(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif, u8 enable, u32 ipv4, u8 *ipv6);
 int rwnx_set_rekey_data(struct rwnx_vif *rwnx_vif, const u8 *kek, const u8 *kck, const u8 *replay_ctr);
+int rwnx_tko_config_req(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif,
+                        u16 interval, u16 retry_interval, u16 retry_count);
+int rwnx_tko_activate_req(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif, u8 active);
+int rwnx_set_cali_param_req(struct rwnx_hw *rwnx_hw, struct Cali_Param *cali_param);
+int rwnx_get_efuse(struct rwnx_vif *rwnx_vif, u32 addr);
+int rwnx_set_efuse(struct rwnx_vif *rwnx_vif, u32 addr, u32 value);
+int rwnx_recovery(struct rwnx_vif *rwnx_vif);
+int rwnx_set_macbypass(struct rwnx_vif *rwnx_vif, int format_type, int bandwidth, int rate, int siso_or_mimo);
+int rwnx_set_stop_macbypass(struct rwnx_vif *rwnx_vif);
+
+int rwnx_send_sched_scan_req(struct rwnx_vif *rwnx_vif,
+    struct cfg80211_sched_scan_request *request);
+int rwnx_send_sched_scan_stop_req(struct rwnx_vif *rwnx_vif, u64 reqid);
+int rwnx_set_amsdu_tx(struct rwnx_hw *rwnx_hw, u8 amsdu_tx);
+int rwnx_set_tx_lft(struct rwnx_hw *rwnx_hw, u32 tx_lft);
+int rwnx_set_ldpc_tx(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif);
+int rwnx_set_stbc(struct rwnx_hw *rwnx_hw, u8 vif_idx, u8 stbc_on);
+int aml_coex_cmd(struct net_device *dev, u32_l coex_cmd, u32_l cmd_ctxt_1, u32_l cmd_ctxt_2);
+int rwnx_tko_activate(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif, u8 active);
+int rwnx_set_pt_calibration(struct rwnx_vif *rwnx_vif, int pt_cali_val);
+int rwnx_send_notify_ip(struct rwnx_vif *rwnx_vif,u8_l ip_ver,u8_l*ip_addr);
 
 #endif /* _RWNX_MSG_TX_H_ */

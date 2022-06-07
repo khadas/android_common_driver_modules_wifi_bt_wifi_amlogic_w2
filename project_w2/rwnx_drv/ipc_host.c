@@ -77,7 +77,6 @@ static void ipc_host_rxdesc_handler(struct ipc_host_env_tag *env)
         if (env->cb.recv_data_ind(env->pthis, env->rxbuf[env->rxbuf_idx]) != 0)
         #endif //(CONFIG_RWNX_FULLMAC)
             break;
-
     }
 
     // For profiling
@@ -125,10 +124,45 @@ static void ipc_host_unsup_rx_vec_handler(struct ipc_host_env_tag *env)
  */
 static void ipc_host_msg_handler(struct ipc_host_env_tag *env)
 {
+#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
+    env->cb.recv_msg_ind(env->pthis, env->msgbuf[env->msgbuf_idx]);
+#else
     while (env->cb.recv_msg_ind(env->pthis, env->msgbuf[env->msgbuf_idx]) == 0)
         ;
+#endif
 }
+#if defined(CONFIG_RWNX_USB_MODE)
+static void ipc_host_msgack_handler(struct ipc_host_env_tag *env)
+{
+    void *hostid = env->msga2e_hostid;
+    struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)env->pthis;
+    volatile struct ipc_a2e_msg msg_a2e_buf = {0};
 
+    rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)&msg_a2e_buf, (unsigned char *)&env->shared->msg_a2e_buf, sizeof(struct ipc_a2e_msg), USB_EP4);
+
+    ASSERT_ERR(hostid);
+    ASSERT_ERR(env->msga2e_cnt == (((struct lmac_msg *)(&msg_a2e_buf.msg))->src_id & 0xFF));
+
+    env->msga2e_hostid = NULL;
+    env->msga2e_cnt++;
+    env->cb.recv_msgack_ind(env->pthis, hostid);
+}
+#elif defined(CONFIG_RWNX_SDIO_MODE)
+static void ipc_host_msgack_handler(struct ipc_host_env_tag *env)
+{
+    void *hostid = env->msga2e_hostid;
+    struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)env->pthis;
+    volatile struct ipc_a2e_msg msg_a2e_buf = {0};
+    rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)&msg_a2e_buf, (unsigned char *)&env->shared->msg_a2e_buf, sizeof(struct ipc_a2e_msg));
+    ASSERT_ERR(hostid);
+    ASSERT_ERR(env->msga2e_cnt == (((struct lmac_msg *)(&msg_a2e_buf.msg))->src_id & 0xFF));
+
+    printk("%s %p\n", __func__, hostid);
+    env->msga2e_hostid = NULL;
+    env->msga2e_cnt++;
+    env->cb.recv_msgack_ind(env->pthis, hostid);
+}
+#else
 /**
  * ipc_host_msgack_handler() - Handle the reception of message acknowledgement
  *
@@ -140,14 +174,18 @@ static void ipc_host_msgack_handler(struct ipc_host_env_tag *env)
 {
     void *hostid = env->msga2e_hostid;
 
-    ASSERT_ERR(hostid);
-    ASSERT_ERR(env->msga2e_cnt == (((struct lmac_msg *)(&env->shared->msg_a2e_buf.msg))->src_id & 0xFF));
+    RWNX_INFO("a2e msg hostid=0x%lx count=%d\n",
+            env->msga2e_hostid, env->msga2e_cnt);
+    if (!hostid) {
+        RWNX_INFO("error: a2e msg hostid is null\n");
+        return;
+    }
 
     env->msga2e_hostid = NULL;
     env->msga2e_cnt++;
     env->cb.recv_msgack_ind(env->pthis, hostid);
 }
-
+#endif
 /**
  * ipc_host_dbg_handler() - Handle the reception of Debug event
  *
@@ -157,9 +195,12 @@ static void ipc_host_msgack_handler(struct ipc_host_env_tag *env)
  */
 static void ipc_host_dbg_handler(struct ipc_host_env_tag *env)
 {
+#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
+    env->cb.recv_dbg_ind(env->pthis, env->dbgbuf[env->dbgbuf_idx]);
+#else
     while(env->cb.recv_dbg_ind(env->pthis,
-                               env->dbgbuf[env->dbgbuf_idx]) == 0)
-        ;
+        env->dbgbuf[env->dbgbuf_idx]) == 0);
+#endif
 }
 
 /**
@@ -177,16 +218,20 @@ static void ipc_host_dbg_handler(struct ipc_host_env_tag *env)
 static void ipc_host_tx_cfm_handler(struct ipc_host_env_tag *env,
                                     const int queue_idx, const int user_pos)
 {
+#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
+    env->cb.send_data_cfm(env->pthis, NULL);
+
+#else
     while (!list_empty(&env->tx_hostid_pushed))
     {
-        if (env->cb.send_data_cfm(env->pthis,
-                                  env->txcfm[env->txcfm_idx]))
+        if (env->cb.send_data_cfm(env->pthis, env->txcfm[env->txcfm_idx]))
             break;
 
         env->txcfm_idx++;
         if (env->txcfm_idx == IPC_TXCFM_CNT)
             env->txcfm_idx = 0;
     }
+#endif
 }
 
 /**
@@ -223,23 +268,24 @@ void ipc_host_init(struct ipc_host_env_tag *env,
                   void *pthis)
 {
     unsigned int i;
-    unsigned int size;
-    unsigned int *dst;
     struct ipc_hostid *tx_hostid;
 
     // Reset the environments
-    // Reset the IPC Shared memory
 #if 0
     /* check potential platform bug on multiple stores */
     memset(shared_env_ptr, 0, sizeof(struct ipc_shared_env_tag));
 #else
-    dst = (unsigned int *)shared_env_ptr;
-    size = (unsigned int)sizeof(struct ipc_shared_env_tag);
-    for (i=0; i < size; i+=4)
-    {
-        *dst++ = 0;
+    // Reset the IPC Shared memory
+#if (!defined(CONFIG_RWNX_USB_MODE) && !defined(CONFIG_RWNX_SDIO_MODE))
+    unsigned int size = (unsigned int)sizeof(struct ipc_shared_env_tag);
+    unsigned int *dst = (unsigned int *)shared_env_ptr;
+
+    for (i=0; i < size; i+=4) {
+        writel(0, dst++);
     }
 #endif
+#endif
+
     // Reset the IPC Host environment
     memset(env, 0, sizeof(struct ipc_host_env_tag));
 
@@ -286,17 +332,40 @@ void ipc_host_pattern_push(struct ipc_host_env_tag *env, struct rwnx_ipc_buf *bu
 int ipc_host_rxbuf_push(struct ipc_host_env_tag *env, struct rwnx_ipc_buf *buf)
 {
     struct ipc_shared_env_tag *shared_env = env->shared;
+#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
+    struct rwnx_plat *rwnx_plat = (((struct rwnx_hw *)env->pthis)->plat);
+#endif
 
 #ifdef CONFIG_RWNX_FULLMAC
+#if defined(CONFIG_RWNX_USB_MODE)
+    rwnx_plat->hif_ops->hi_write_word((unsigned int)&shared_env->host_rxbuf[env->rxbuf_idx].hostid, (unsigned long)RWNX_RXBUFF_HOSTID_GET(buf), USB_EP4);
+    rwnx_plat->hif_ops->hi_write_word((unsigned int)&shared_env->host_rxbuf[env->rxbuf_idx].dma_addr, (unsigned long)buf->dma_addr, USB_EP4);
+
+#elif defined(CONFIG_RWNX_SDIO_MODE)
+    rwnx_plat->hif_ops->hi_write_ipc_word((unsigned int)&shared_env->host_rxbuf[env->rxbuf_idx].hostid, (unsigned long)RWNX_RXBUFF_HOSTID_GET(buf));
+    rwnx_plat->hif_ops->hi_write_ipc_word((unsigned int)&shared_env->host_rxbuf[env->rxbuf_idx].dma_addr, (unsigned long)buf->dma_addr);
+
+#else
     shared_env->host_rxbuf[env->rxbuf_idx].hostid = RWNX_RXBUFF_HOSTID_GET(buf);
     shared_env->host_rxbuf[env->rxbuf_idx].dma_addr = buf->dma_addr;
+#endif
+
 #else
-    env->rxbuf[env->rxbuf_idx] = buf;
+#if defined(CONFIG_RWNX_USB_MODE)
+    rwnx_plat->hif_ops->hi_write_word((unsigned int)&shared_env->host_rxbuf[env->rxbuf_idx], (unsigned long)buf->dma_addr, USB_EP4);
+
+#elif defined(CONFIG_RWNX_SDIO_MODE)
+    rwnx_plat->hif_ops->hi_write_ipc_word((unsigned int)&shared_env->host_rxbuf[env->rxbuf_idx], (unsigned long)buf->dma_addr);
+
+#else
     shared_env->host_rxbuf[env->rxbuf_idx] = buf->dma_addr;
+
+#endif
+    env->rxbuf[env->rxbuf_idx] = buf;
 #endif // CONFIG_RWNX_FULLMAC
 
     // Signal to the embedded CPU that at least one buffer is available
-    ipc_app2emb_trigger_set(shared_env, IPC_IRQ_A2E_RXBUF_BACK);
+    ipc_app2emb_trigger_set(env->pthis, IPC_IRQ_A2E_RXBUF_BACK);
 
     // Increment the array index
     env->rxbuf_idx = (env->rxbuf_idx + 1) % IPC_RXBUF_CNT;
@@ -312,11 +381,12 @@ int ipc_host_rxdesc_push(struct ipc_host_env_tag *env, struct rwnx_ipc_buf *buf)
 {
     struct ipc_shared_env_tag *shared_env = env->shared;
 
-    env->rxdesc[env->rxdesc_idx] = buf;
     shared_env->host_rxdesc[env->rxdesc_idx].dma_addr = buf->dma_addr;
 
+    env->rxdesc[env->rxdesc_idx] = buf;
+
     // Signal to the embedded CPU that at least one descriptor is available
-    ipc_app2emb_trigger_set(shared_env, IPC_IRQ_A2E_RXDESC_BACK);
+    ipc_app2emb_trigger_set(env->pthis, IPC_IRQ_A2E_RXDESC_BACK);
 
     env->rxdesc_idx = (env->rxdesc_idx + 1) % IPC_RXDESC_CNT;
 
@@ -331,11 +401,11 @@ int ipc_host_radar_push(struct ipc_host_env_tag *env, struct rwnx_ipc_buf *buf)
 {
     struct ipc_shared_env_tag *shared_env = env->shared;
 
-    // Save Ipc buffer in host env
-    env->radar[env->radar_idx] = buf;
-
     // Copy the DMA address in the ipc shared memory
     shared_env->radarbuf_hostbuf[env->radar_idx] = buf->dma_addr;
+
+    // Save Ipc buffer in host env
+    env->radar[env->radar_idx] = buf;
 
     // Increment the array index
     env->radar_idx = (env->radar_idx + 1) % IPC_RADARBUF_CNT;
@@ -350,8 +420,9 @@ int ipc_host_unsuprxvec_push(struct ipc_host_env_tag *env, struct rwnx_ipc_buf *
 {
     struct ipc_shared_env_tag *shared_env_ptr = env->shared;
 
-    env->unsuprxvec[env->unsuprxvec_idx] = buf;
     shared_env_ptr->unsuprxvecbuf_hostbuf[env->unsuprxvec_idx] = buf->dma_addr;
+
+    env->unsuprxvec[env->unsuprxvec_idx] = buf;
 
     env->unsuprxvec_idx = (env->unsuprxvec_idx + 1) % IPC_UNSUPRXVECBUF_CNT;
 
@@ -365,9 +436,8 @@ int ipc_host_msgbuf_push(struct ipc_host_env_tag *env, struct rwnx_ipc_buf *buf)
 {
     struct ipc_shared_env_tag *shared_env = env->shared;
 
-    env->msgbuf[env->msgbuf_idx] = buf;
     shared_env->msg_e2a_hostbuf_addr[env->msgbuf_idx] = buf->dma_addr;
-
+    env->msgbuf[env->msgbuf_idx] = buf;
     env->msgbuf_idx = (env->msgbuf_idx + 1) % IPC_MSGE2A_BUF_CNT;
 
     return 0;
@@ -380,8 +450,9 @@ int ipc_host_dbgbuf_push(struct ipc_host_env_tag *env, struct rwnx_ipc_buf *buf)
 {
     struct ipc_shared_env_tag *shared_env = env->shared;
 
-    env->dbgbuf[env->dbgbuf_idx] = buf;
     shared_env->dbg_hostbuf_addr[env->dbgbuf_idx] = buf->dma_addr;
+
+    env->dbgbuf[env->dbgbuf_idx] = buf;
 
     env->dbgbuf_idx = (env->dbgbuf_idx + 1) % IPC_DBGBUF_CNT;
 
@@ -395,8 +466,8 @@ int ipc_host_txcfm_push(struct ipc_host_env_tag *env, struct rwnx_ipc_buf *buf)
 {
     struct ipc_shared_env_tag *shared_env = env->shared;
 
-    env->txcfm[env->txcfm_idx] = buf;
     shared_env->txcfm_hostbuf_addr[env->txcfm_idx] = buf->dma_addr;
+    env->txcfm[env->txcfm_idx] = buf;
 
     env->txcfm_idx++;
     if (env->txcfm_idx == IPC_TXCFM_CNT)
@@ -420,6 +491,32 @@ void ipc_host_dbginfo_push(struct ipc_host_env_tag *env, struct rwnx_ipc_buf *bu
  */
 void ipc_host_txdesc_push(struct ipc_host_env_tag *env, struct rwnx_ipc_buf *buf)
 {
+
+#if defined(CONFIG_RWNX_USB_MODE)
+    u32_l fdh_val = 0;
+    struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)env->pthis;
+
+    // Trigger the irq to send the message to EMB
+    //mutex_lock(&rwnx_hw->plat->a2e_mutex_lock);
+    fdh_val = rwnx_hw->plat->hif_ops->hi_read_word((unsigned int)CMD_DOWN_FIFO_FDN_ADDR, USB_EP4);
+    fdh_val |= 0x2;
+    rwnx_hw->plat->hif_ops->hi_write_word((unsigned int)CMD_DOWN_FIFO_FDN_ADDR, fdh_val, USB_EP4); //msg->1, tx->2
+    rwnx_hw->plat->hif_ops->hi_write_word((unsigned int)CMD_DOWN_FIFO_FDH_ADDR, 1, USB_EP4);
+    //mutex_unlock(&rwnx_hw->plat->a2e_mutex_lock);
+
+#elif defined(CONFIG_RWNX_SDIO_MODE)
+    u32_l fdh_val = 0;
+    struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)env->pthis;
+
+    // Trigger the irq to send the message to EMB
+    //mutex_lock(&rwnx_hw->plat->a2e_mutex_lock);
+    fdh_val = rwnx_hw->plat->hif_ops->hi_read_ipc_word((unsigned int)CMD_DOWN_FIFO_FDN_ADDR);
+    fdh_val |= 0x2;
+    rwnx_hw->plat->hif_ops->hi_write_ipc_word((unsigned int)CMD_DOWN_FIFO_FDN_ADDR, fdh_val); //msg->1, tx->2
+    rwnx_hw->plat->hif_ops->hi_write_ipc_word((unsigned int)CMD_DOWN_FIFO_FDH_ADDR, 1);
+    //mutex_unlock(&rwnx_hw->plat->a2e_mutex_lock);
+
+#else
     uint32_t dma_idx = env->txdmadesc_idx;
     volatile struct dma_desc *dmadesc_pushed;
 
@@ -436,7 +533,8 @@ void ipc_host_txdesc_push(struct ipc_host_env_tag *env, struct rwnx_ipc_buf *buf
         env->txdmadesc_idx = dma_idx;
 
     // trigger interrupt to firmware
-    ipc_app2emb_trigger_setf(env->shared, IPC_IRQ_A2E_TXDESC);
+    ipc_app2emb_trigger_setf(env->pthis, IPC_IRQ_A2E_TXDESC);
+#endif
 }
 
 /**
@@ -497,10 +595,11 @@ void *ipc_host_tx_host_id_to_ptr(struct ipc_host_env_tag *env, uint32_t hostid)
 void ipc_host_irq(struct ipc_host_env_tag *env, uint32_t status)
 {
     // Acknowledge the pending interrupts
-    ipc_emb2app_ack_clear(env->shared, status);
+    ipc_emb2app_ack_clear(env->pthis, status);
+
     // And re-read the status, just to be sure that the acknowledgment is
     // effective when we start the interrupt handling
-    ipc_emb2app_status_get(env->shared);
+    ipc_emb2app_status_get(env->pthis);
 
     // Optimized for only one IRQ at a time
     if (status & IPC_IRQ_E2A_RXDESC)
@@ -557,6 +656,73 @@ void ipc_host_irq(struct ipc_host_env_tag *env, uint32_t status)
     }
 }
 
+#if defined(CONFIG_RWNX_USB_MODE)
+int ipc_host_msg_push(struct ipc_host_env_tag *env, void *msg_buf, uint16_t len)
+{
+    unsigned char *src;
+    struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)env->pthis;
+    u32_l fdh_val = 0;
+
+    REG_SW_SET_PROFILING(env->pthis, SW_PROF_IPC_MSGPUSH);
+
+    ASSERT_ERR(!env->msga2e_hostid);
+    ASSERT_ERR(round_up(len, 4) <= sizeof(env->shared->msg_a2e_buf.msg));
+
+    // Copy the message into the IPC MSG buffer
+    src = (unsigned char *)((struct rwnx_cmd *)msg_buf)->a2e_msg;
+
+    rwnx_hw->plat->hif_ops->hi_write_sram(src, (unsigned char *)&(env->shared->msg_a2e_buf.msg), len, USB_EP4);
+
+    env->msga2e_hostid = msg_buf;
+
+    // Trigger the irq to send the message to EMB
+    //mutex_lock(&rwnx_hw->plat->a2e_mutex_lock);
+    fdh_val = rwnx_hw->plat->hif_ops->hi_read_word((unsigned int)CMD_DOWN_FIFO_FDN_ADDR, USB_EP4);
+    fdh_val |= 0x1;
+    rwnx_hw->plat->hif_ops->hi_write_word((unsigned int)CMD_DOWN_FIFO_FDN_ADDR, fdh_val, USB_EP4); //msg->1, tx->2
+    rwnx_hw->plat->hif_ops->hi_write_word((unsigned int)CMD_DOWN_FIFO_FDH_ADDR, 1, USB_EP4);
+    //mutex_unlock(&rwnx_hw->plat->a2e_mutex_lock);
+
+    REG_SW_CLEAR_PROFILING(env->pthis, SW_PROF_IPC_MSGPUSH);
+
+    return (0);
+
+}
+
+#elif defined(CONFIG_RWNX_SDIO_MODE)
+int ipc_host_msg_push(struct ipc_host_env_tag *env, void *msg_buf, uint16_t len)
+{
+    unsigned char *src;
+    struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)env->pthis;
+    u32_l fdh_val = 0;
+
+    REG_SW_SET_PROFILING(env->pthis, SW_PROF_IPC_MSGPUSH);
+    printk("%s\n", __func__);
+
+    ASSERT_ERR(!env->msga2e_hostid);
+    ASSERT_ERR(round_up(len, 4) <= sizeof(env->shared->msg_a2e_buf.msg));
+
+    // Copy the message into the IPC MSG buffer
+    src = (unsigned char *)((struct rwnx_cmd *)msg_buf)->a2e_msg;
+
+    rwnx_hw->plat->hif_ops->hi_write_ipc_sram(src, (unsigned char *)&(env->shared->msg_a2e_buf.msg), len);
+
+    env->msga2e_hostid = msg_buf;
+
+    // Trigger the irq to send the message to EMB
+    //mutex_lock(&rwnx_hw->plat->a2e_mutex_lock);
+    fdh_val = rwnx_hw->plat->hif_ops->hi_read_ipc_word((unsigned int)CMD_DOWN_FIFO_FDN_ADDR);
+    fdh_val |= 0x1;
+    rwnx_hw->plat->hif_ops->hi_write_ipc_word((unsigned int)CMD_DOWN_FIFO_FDN_ADDR, fdh_val); //msg->1, tx->2
+    rwnx_hw->plat->hif_ops->hi_write_ipc_word((unsigned int)CMD_DOWN_FIFO_FDH_ADDR, 1);
+    //mutex_unlock(&rwnx_hw->plat->a2e_mutex_lock);
+
+    REG_SW_CLEAR_PROFILING(env->pthis, SW_PROF_IPC_MSGPUSH);
+
+    return (0);
+}
+
+#else
 /**
  ******************************************************************************
  */
@@ -580,23 +746,24 @@ int ipc_host_msg_push(struct ipc_host_env_tag *env, void *msg_buf, uint16_t len)
         *dst++ = *src++;
     }
 
+    RWNX_INFO("a2e msg hostid=0x%lx\n", msg_buf);
     env->msga2e_hostid = msg_buf;
 
     // Trigger the irq to send the message to EMB
-    ipc_app2emb_trigger_set(env->shared, IPC_IRQ_A2E_MSG);
+    ipc_app2emb_trigger_set(env->pthis, IPC_IRQ_A2E_MSG);
 
     REG_SW_CLEAR_PROFILING(env->pthis, SW_PROF_IPC_MSGPUSH);
 
     return (0);
 }
-
+#endif
 /**
  ******************************************************************************
  */
 void ipc_host_enable_irq(struct ipc_host_env_tag *env, uint32_t value)
 {
     // Enable the handled interrupts
-    ipc_emb2app_unmask_set(env->shared, value);
+    ipc_emb2app_unmask_set(env->pthis, value);
 }
 
 /**
@@ -605,7 +772,7 @@ void ipc_host_enable_irq(struct ipc_host_env_tag *env, uint32_t value)
 void ipc_host_disable_irq(struct ipc_host_env_tag *env, uint32_t value)
 {
     // Enable the handled interrupts
-    ipc_emb2app_unmask_clear(env->shared, value);
+    ipc_emb2app_unmask_clear(env->pthis, value);
 }
 
 /**
@@ -615,8 +782,7 @@ uint32_t ipc_host_get_status(struct ipc_host_env_tag *env)
 {
     volatile uint32_t status;
 
-    status = ipc_emb2app_status_get(env->shared);
-
+    status = ipc_emb2app_status_get(env->pthis);
     return status;
 }
 
@@ -627,7 +793,7 @@ uint32_t ipc_host_get_rawstatus(struct ipc_host_env_tag *env)
 {
     volatile uint32_t rawstatus;
 
-    rawstatus = ipc_emb2app_rawstatus_get(env->shared);
+    rawstatus = ipc_emb2app_rawstatus_get(env->pthis);
 
     return rawstatus;
 }

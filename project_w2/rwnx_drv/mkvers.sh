@@ -58,6 +58,16 @@ then
     else
 	svnrev="$git_sha1 ($git_branch)"
     fi
+    drv_hash=$(git log -1 | awk 'NR==1{print}' | awk -F" " '{print $2}')
+    fw_hash=$(git log -1 ../firmware | awk 'NR==1{print}' | awk -F" " '{print $2}')
+    common_hash=$(git log -1 ../common | awk 'NR==1{print}' | awk -F" " '{print $2}')
+
+    fw_date=$(stat ../firmware/wifi_w2_fw.bin | grep -w "Modify" | awk '{print $2 " " $3}' | cut -d . -f 1)
+    fw_size=$(stat ../firmware/wifi_w2_fw.bin | grep -w "Size" | awk '{print $2}')
+    common_date_year=$(git log -1 ../common | awk 'NR==3{print}' | awk -F" " '{print $6}')
+    common_date_mon=$(git log -1 ../common | awk 'NR==3{print}' | awk -F" " '{print $3}')
+    common_date_day=$(git log -1 ../common | awk 'NR==3{print}' | awk -F" " '{print $4}')
+    common_date_time=$(git log -1 ../common | awk 'NR==3{print}' | awk -F" " '{print $5}')
 else
     svnrev="Unknown Revision"
 fi
@@ -73,6 +83,9 @@ define() { echo "#define $1 \"$2\""; }
 	define "RWNX_VERS_REV"    "$RWNX_VERS_REV"
 	define "RWNX_VERS_MOD"    "$RWNX_VERS_MOD"
 	define "RWNX_VERS_BANNER" "$banner"
+        define "RWNX_DRIVER_COMPILE_INFO" "driver compile date: $date,driver hash: $drv_hash"
+        define "FIRMWARE_INFO" "fw compile date: $fw_date,fw hash: $fw_hash,fw size: $fw_size"
+        define "COMMON_INFO" "common: last commit: $common_date_year/$common_date_mon/$common_date_day $common_date_time  hash: $common_hash"
 } > $tmpout
 
 

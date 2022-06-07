@@ -15,7 +15,7 @@ CONFIG_RWNX_MUMIMO_TX = n
 endif
 
 # Enable suspend mode
-CONFIG_RWNX_SUSPEND ?= n
+CONFIG_RWNX_SUSPEND ?= y
 
 # Enable handling of radar event
 CONFIG_RWNX_RADAR ?= y
@@ -29,9 +29,6 @@ CONFIG_RWNX_MON_DATA ?= n
 # extra DEBUG config
 CONFIG_RWNX_SW_PROFILING ?= n
 CONFIG_RWNX_DBG ?= n
-
-#USB interface
-CONFIG_RWNX_USB_MODE ?= n
 
 obj-m := w2.o
 w2-y := rwnx_msg_tx.o          \
@@ -52,14 +49,23 @@ w2-y := rwnx_msg_tx.o          \
                ipc_host.o             \
                rwnx_tdls.o            \
                hal_desc.o             \
+               rwnx_prealloc.o        \
+               rwnx_regdom.o          \
                rwnx_iwpriv_cmds.o
 
-obj-m += w2_usb.o
-w2_usb-objs += usb_common.o
-
-obj-m += w2_pci.o
-w2_pci-objs := rwnx_pci.o \
-                rwnx_v7.o
+ifeq ($(INTERFACE_TYPE), usb)
+  obj-m += w2_usb.o
+  w2_usb-objs += usb_common.o
+  CONFIG_RWNX_USB_MODE := y
+else ifeq ($(INTERFACE_TYPE), sdio)
+  obj-m += w2_sdio.o
+  w2_sdio-objs += sdio_common.o
+  CONFIG_RWNX_SDIO_MODE := y
+else
+  obj-m += w2_pci.o
+  w2_pci-objs := rwnx_pci.o rwnx_v7.o
+  CONFIG_RWNX_PCIE_MODE := y
+endif
 
 w2-$(CONFIG_RWNX_RADAR)       += rwnx_radar.o
 w2-$(CONFIG_DEBUG_FS)         += rwnx_debugfs.o
@@ -101,6 +107,8 @@ ccflags-y += -DNX_TXQ_CNT=4
 endif
 
 ccflags-$(CONFIG_RWNX_USB_MODE) += -DCONFIG_RWNX_USB_MODE
+ccflags-$(CONFIG_RWNX_SDIO_MODE) += -DCONFIG_RWNX_SDIO_MODE
+ccflags-$(CONFIG_RWNX_PCIE_MODE) += -DCONFIG_RWNX_PCIE_MODE
 
 # For old kernel (<=3.19)
 ifeq ($(shell test $(VERSION) -lt 4 -a "$(CONFIG_VENDOR_RWNX)" = y ; echo $$?),0)
@@ -118,7 +126,8 @@ $(obj)/rwnx_main.o: $(obj)/rwnx_version_gen.h
 # dependency, so instead add dependency only on rwnx_main.c. This will fail to
 # regenerate rwnx_version_gen.h if dependency of only rwnx_main.c is changed.
 # This is OK as, currently, the only such dependency is rwnx_version.h
-$(obj)/rwnx_version_gen.h: $(addprefix $(obj)/,$(filter-out rwnx_main.o, $(w2-y))) $(src)/rwnx_main.c
+$(obj)/rwnx_version_gen.h: $(addprefix $(obj)/,$(filter-out rwnx_main.o, $(rwnx_fdrv-y))) $(src)/rwnx_main.c
+	@echo "    interface type:$(INTERFACE_TYPE)"
 	$(call cmd,genvers)
 
 clean-files := rwnx_version_gen.h

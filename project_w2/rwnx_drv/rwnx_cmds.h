@@ -11,9 +11,12 @@
 #ifndef _RWNX_CMDS_H_
 #define _RWNX_CMDS_H_
 
+#include <linux/skbuff.h>
 #include <linux/spinlock.h>
 #include <linux/completion.h>
 #include "lmac_msg.h"
+#include "usb_common.h"
+#include "sdio_common.h"
 
 #ifdef CONFIG_RWNX_SDM
 #define RWNX_80211_CMD_TIMEOUT_MS    (20 * 300)
@@ -30,6 +33,7 @@
 #define RWNX_CMD_FLAG_WAIT_ACK      BIT(3)
 #define RWNX_CMD_FLAG_WAIT_CFM      BIT(4)
 #define RWNX_CMD_FLAG_DONE          BIT(5)
+#define RWNX_CMD_FLAG_CALL_THREAD   BIT(6)
 /* ATM IPC design makes it possible to get the CFM before the ACK,
  * otherwise this could have simply been a state enum */
 #define RWNX_CMD_WAIT_COMPLETE(flags) \
@@ -99,5 +103,6 @@ struct rwnx_cmd_mgr {
 
 void rwnx_cmd_mgr_init(struct rwnx_cmd_mgr *cmd_mgr);
 void rwnx_cmd_mgr_deinit(struct rwnx_cmd_mgr *cmd_mgr);
+int hal_host_init(void);
 
 #endif /* _RWNX_CMDS_H_ */

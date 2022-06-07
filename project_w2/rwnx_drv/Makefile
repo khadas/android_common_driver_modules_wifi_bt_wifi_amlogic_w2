@@ -1,4 +1,4 @@
-RWNX_VERS_NUM=v1.0.0_20220318-b driver:7cead3c2034d82dd9b970c64a6f87adca8952724
+RWNX_VERS_NUM=v1.0.0_20220607-b driver:81166e6b92199b91ef1e134e148764d2ac58caa7
 #KERNELDIR=/usr/lib/modules/5.8.0-63-generic/build
 PWD=$(shell pwd)
 ifeq ($(ARCH),)
@@ -77,13 +77,24 @@ CONFIG_RWNX_OLD_IPC ?= n
 # Support of P2P DebugFS for enabling/disabling NoA and OppPS
 CONFIG_RWNX_P2P_DEBUGFS ?= y
 
-#
+# Need open it when use FPGA pcie version
+CONFIG_RWNX_FPGA_PCIE ?= n
+
+# Need close it when the vendor/device id is written to efuse
+CONFIG_RWNX_PLATFORM_AH212 ?= y
+
+# Support to use preallocing buffer space for wlan driver
+CONFIG_RWNX_USE_PREALLOC_BUF ?= y
+
 # } // WAITING FOR KCONFIG
 #
 
 subdir-ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_RWNX_DEBUGFS
 subdir-ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_RWNX_UM_HELPER_DFLT=\"$(CONFIG_RWNX_UM_HELPER_DFLT)\"
 subdir-ccflags-$(CONFIG_RWNX_P2P_DEBUGFS) += -DCONFIG_RWNX_P2P_DEBUGFS
+subdir-ccflags-$(CONFIG_RWNX_FPGA_PCIE) += -DCONFIG_RWNX_FPGA_PCIE
+subdir-ccflags-$(CONFIG_RWNX_PLATFORM_AH212) += -DCONFIG_RWNX_PLATFORM_AH212
+subdir-ccflags-$(CONFIG_RWNX_USE_PREALLOC_BUF) += -DCONFIG_RWNX_USE_PREALLOC_BUF
 
 # FW VARS
 subdir-ccflags-y += -DNX_VIRT_DEV_MAX=4
@@ -103,7 +114,7 @@ all: modules
 
 modules clean:
 	@$(PWD)/mklink.sh
-	$(MAKE)  CUR_DIR=$(CUR_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) -C $(KERNEL_SRC) M=$(M) $@
+	$(MAKE)  CUR_DIR=$(CUR_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) -C $(KERNEL_SRC) M=$(M) INTERFACE_TYPE=$(MAKECMDGOALS) $@
 	@$(PWD)/mklink.sh clean
 #ifneq (${OUT_DIR},)
 #	$(CROSS_COMPILE)strip --strip-unneeded ${OUT_DIR}/$(M)/$(TARGET).ko

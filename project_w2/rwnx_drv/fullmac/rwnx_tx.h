@@ -130,6 +130,22 @@ struct rwnx_txhdr {
     struct rwnx_sw_txhdr *sw_hdr;
 };
 
+struct rwnx_eap_hdr {
+    u8 version;
+#define EAP_PACKET_TYPE     (0)
+    u8 type;
+    u16 len;
+#define EAP_FAILURE_CODE    (4)
+    u8 code;
+    u8 id;
+    u16 auth_proc_len;
+    u8 auth_proc_type;
+    u64 ex_id:24;
+    u64 ex_type:32;
+#define EAP_WSC_DONE        (5)
+    u64 opcode:8;
+};
+
 /**
  * RWNX_TX_HEADROOM - Headroom to use to store struct rwnx_txhdr
  */
@@ -153,6 +169,8 @@ struct rwnx_txhdr {
  * To be called with skb BEFORE reserving headroom to store struct rwnx_txhdr.
  */
 #define RWNX_TX_DMA_MAP_LEN(skb) (skb->len - sizeof(struct ethhdr))
+
+#define WAPI_TYPE                 0x88B4
 
 /**
  * SKB buffer format before it is pushed to MACSW

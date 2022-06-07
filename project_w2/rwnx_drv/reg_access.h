@@ -12,6 +12,7 @@
 
 #ifndef REG_ACCESS_H_
 #define REG_ACCESS_H_
+#include "rwnx_defs.h"
 
 /*****************************************************************************
  * Addresses within RWNX_ADDR_CPU
@@ -22,7 +23,17 @@
  * Addresses within RWNX_ADDR_SYSTEM
  *****************************************************************************/
 /* Shard RAM */
+#if defined(CONFIG_RWNX_USB_MODE)
+#define SHARED_RAM_START_ADDR          0x60000000
+#define IPC_BASIC_ADDRESS              0x60800000
+
+#elif defined(CONFIG_RWNX_SDIO_MODE)
+#define SHARED_RAM_START_ADDR          0x60000000
+#define IPC_BASIC_ADDRESS              0x60800000
+
+#else
 #define SHARED_RAM_START_ADDR          0x00000000
+#endif
 
 /* IPC registers */
 #define IPC_REG_BASE_ADDR              0x00800000
@@ -177,6 +188,32 @@
 #define RF_v7_PHYDIAG_CONF1_ADDR       0x00830018
 
 #endif
+
+
+#if defined(CONFIG_RWNX_USB_MODE)
+extern u8 * ipc_basic_address;
+#define REG_IPC_APP_RD(env, INDEX)        \
+    (((struct rwnx_hw *)env)->plat->hif_ops->hi_read_word((unsigned int)ipc_basic_address + 4 * (INDEX), USB_EP4))
+
+#define REG_IPC_APP_WR(env, INDEX, value)        \
+    (((struct rwnx_hw *)env)->plat->hif_ops->hi_write_word((unsigned int)ipc_basic_address + 4 * (INDEX), value, USB_EP4))
+
+#elif defined(CONFIG_RWNX_SDIO_MODE)
+extern u8 * ipc_basic_address;
+__INLINE u32 REG_IPC_APP_RD (void *env, unsigned int INDEX)
+{
+    struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)env;
+    rwnx_hw->plat->hif_ops->hi_write_reg32(RG_SCFG_SRAM_FUNC, (unsigned long)((IPC_BASIC_ADDRESS + 4 * INDEX)&0xfffe0000));
+    return rwnx_hw->plat->hif_ops->hi_read_word((unsigned int)((IPC_BASIC_ADDRESS + 4 * INDEX)&0x0001ffff));
+}
+
+__INLINE void REG_IPC_APP_WR (void *env, unsigned int INDEX, u32 value)
+{
+    struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)env;
+    rwnx_hw->plat->hif_ops->hi_write_reg32(RG_SCFG_SRAM_FUNC, (unsigned long)((IPC_BASIC_ADDRESS + 4*INDEX)&0xfffe0000));
+    rwnx_hw->plat->hif_ops->hi_write_word((unsigned int)((IPC_BASIC_ADDRESS + 4*INDEX)&0x0001ffff), value);
+}
+#else
 /*****************************************************************************
  * Macros for generated register files
  *****************************************************************************/
@@ -197,6 +234,6 @@ extern u8* ipc_basic_address;
 #define REG_IPC_APP_WR(env, INDEX, value)                               \
     (*(volatile u32*)(ipc_basic_address + 4*(INDEX)) = value)
 #endif
-
+#endif
 
 #endif /* REG_ACCESS_H_ */

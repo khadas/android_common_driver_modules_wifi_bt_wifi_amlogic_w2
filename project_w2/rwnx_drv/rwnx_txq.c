@@ -415,7 +415,6 @@ void rwnx_txq_sta_init(struct rwnx_hw *rwnx_hw, struct rwnx_sta *rwnx_sta,
     }
 
 #endif /* CONFIG_RWNX_SOFTMAC*/
-    rwnx_ipc_sta_buffer_init(rwnx_hw, rwnx_sta->sta_idx);
 }
 
 /**
@@ -1197,7 +1196,6 @@ int rwnx_txq_queue_skb(struct sk_buff *skb, struct rwnx_txq *txq,
                        struct rwnx_hw *rwnx_hw,  bool retry,
                        struct sk_buff *skb_prev)
 {
-
 #ifdef CONFIG_RWNX_FULLMAC
     if (unlikely(txq->sta && txq->sta->ps.active)) {
         txq->sta->ps.pkt_ready[txq->ps_id]++;
@@ -1222,8 +1220,10 @@ int rwnx_txq_queue_skb(struct sk_buff *skb, struct rwnx_txq *txq,
 
 #ifdef CONFIG_RWNX_FULLMAC
         // to update for SOFTMAC
+#if (defined(CONFIG_RWNX_PCIE_MODE))
         rwnx_ipc_sta_buffer(rwnx_hw, txq->sta, txq->tid,
-                            ((struct rwnx_txhdr *)skb->data)->sw_hdr->frame_len);
+            ((struct rwnx_txhdr *)skb->data)->sw_hdr->frame_len);
+#endif
         rwnx_txq_start_cleanup_timer(rwnx_hw, txq->sta);
 #endif
     } else {
@@ -1750,4 +1750,22 @@ void rwnx_hwq_init(struct rwnx_hw *rwnx_hw)
         hwq->len_start = hwq->len_stop / 4;
 #endif
     }
+}
+
+int rwnx_txq_is_empty(struct rwnx_hw *rwnx_hw, struct rwnx_sta * rwnx_sta)
+{
+    struct rwnx_txq *txq;
+    int tid;
+    int i;
+
+    foreach_sta_txq(rwnx_sta, txq, tid, rwnx_hw) {
+        for (i = 0; i < CONFIG_USER_MAX ; i++) {
+            if (txq->pkt_pushed[i]) {
+                return 0;
+            }
+        }
+
+    }
+
+    return 1;
 }

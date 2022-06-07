@@ -3,7 +3,24 @@
 
 #include "fi_sdio.h"
 
-#ifdef CONFIG_SDIO_IF
+#define TSSI_5G_CAL_NUM 4
+
+typedef struct Cali_Param
+{
+    unsigned char Cmd;
+    unsigned char version;
+    unsigned short cali_config;
+    unsigned char freq_offset;
+    unsigned char htemp_freq_offset;
+    unsigned char tssi_2g_offset;
+    unsigned char tssi_5g_offset[TSSI_5G_CAL_NUM];
+    unsigned char wf2g_spur_rmen;
+    unsigned short spur_freq;
+    unsigned char rf_num;
+} Cali_Param;
+
+
+#if (defined(CONFIG_SDIO_IF) || defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
 
 //================cmd=========================================
 
@@ -496,21 +513,6 @@ typedef struct tx_error_event
     unsigned int error_type;
     unsigned int frame_type;
 } tx_error_event;
-
-#define TSSI_5G_CAL_NUM 4
-typedef struct Cali_Param
-{
-    unsigned char Cmd;
-    unsigned char version;
-    unsigned short cali_config;
-    unsigned char freq_offset;
-    unsigned char htemp_freq_offset;
-    unsigned char tssi_2g_offset;
-    unsigned char tssi_5g_offset[TSSI_5G_CAL_NUM];
-    unsigned char wf2g_spur_rmen;
-    unsigned short spur_freq;
-    unsigned char rf_num;
-} Cali_Param;
 
 typedef struct Phy_Interface_Param
 {

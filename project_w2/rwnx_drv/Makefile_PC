@@ -1,5 +1,5 @@
 RWNX_VERS_NUM=6.10.0.0
-KERNELDIR=/usr/lib/modules/5.8.0-63-generic/build
+KERNELDIR=/usr/lib/modules/$(shell uname -r)/build
 PWD=$(shell pwd)
 #
 # WAITING FOR KCONFIG {
@@ -23,6 +23,9 @@ CONFIG_RWNX_OLD_IPC ?= n
 # Support of P2P DebugFS for enabling/disabling NoA and OppPS
 CONFIG_RWNX_P2P_DEBUGFS ?= y
 
+# Need open it when use FPGA pcie version
+CONFIG_RWNX_FPGA_PCIE ?= n
+
 #
 # } // WAITING FOR KCONFIG
 #
@@ -30,6 +33,7 @@ CONFIG_RWNX_P2P_DEBUGFS ?= y
 subdir-ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_RWNX_DEBUGFS
 subdir-ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_RWNX_UM_HELPER_DFLT=\"$(CONFIG_RWNX_UM_HELPER_DFLT)\"
 subdir-ccflags-$(CONFIG_RWNX_P2P_DEBUGFS) += -DCONFIG_RWNX_P2P_DEBUGFS
+subdir-ccflags-$(CONFIG_RWNX_FPGA_PCIE) += -DCONFIG_RWNX_FPGA_PCIE
 
 # FW VARS
 subdir-ccflags-y += -DNX_VIRT_DEV_MAX=4
@@ -54,9 +58,8 @@ modules clean:
 	$(MAKE) -C $(KERNELDIR) O=$(KBUILDDIR) M=$(PWD) $@
 	@$(PWD)/mklink.sh clean
 
-current_absolute_path :=  $(shell pwd)
 coverity: clean
 	rm -rf ./build_dir/*
 	cov-build -dir ./build_dir/output_dir/ make
-	cov-analyze -dir ./build_dir/output_dir/ --strip-path $(current_absolute_path) --all --aggressiveness-level high
-	cov-format-errors --dir ./build_dir/output_dir/ --html-output ./build_dir/html-result --filesort --strip-path $(current_absolute_path) -x
+	cov-analyze -dir ./build_dir/output_dir/ --strip-path $(PWD) --all --aggressiveness-level high --disable-parse-warnings --disable USELESS_CALL --disable ARRAY_VS_SINGLETON
+	cov-format-errors --dir ./build_dir/output_dir/ --html-output ./build_dir/html-result --filesort --strip-path $(PWD) -x

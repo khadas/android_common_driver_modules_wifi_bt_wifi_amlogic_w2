@@ -748,7 +748,7 @@ static void rwnx_set_softmac_flags(struct rwnx_hw *rwnx_hw)
 }
 #endif // CONFIG_RWNX_SOFTMAC
 
-static void rwnx_set_vht_capa(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
+void rwnx_set_vht_capa(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
 {
     struct ieee80211_supported_band *band_5GHz = wiphy->bands[NL80211_BAND_5GHZ];
     int i;
@@ -765,8 +765,11 @@ static void rwnx_set_vht_capa(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
     band_5GHz->vht_cap.vht_supported = true;
     if (rwnx_hw->mod_params->sgi80)
         band_5GHz->vht_cap.cap |= IEEE80211_VHT_CAP_SHORT_GI_80;
-    if (rwnx_hw->mod_params->stbc_on)
+    if (rwnx_hw->mod_params->stbc_on) {
         band_5GHz->vht_cap.cap |= IEEE80211_VHT_CAP_RXSTBC_1;
+    } else {
+        band_5GHz->vht_cap.cap &= ~IEEE80211_VHT_CAP_RXSTBC_1;
+    }
     if (rwnx_hw->mod_params->ldpc_on)
         band_5GHz->vht_cap.cap |= IEEE80211_VHT_CAP_RXLDPC;
     if (rwnx_hw->mod_params->bfmee) {
@@ -847,7 +850,7 @@ static void rwnx_set_vht_capa(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
     }
 }
 
-static void rwnx_set_ht_capa(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
+void rwnx_set_ht_capa(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
 {
     struct ieee80211_supported_band *band_5GHz = wiphy->bands[NL80211_BAND_5GHZ];
     struct ieee80211_supported_band *band_2GHz = wiphy->bands[NL80211_BAND_2GHZ];
@@ -860,8 +863,11 @@ static void rwnx_set_ht_capa(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
         return;
     }
 
-    if (rwnx_hw->mod_params->stbc_on)
+    if (rwnx_hw->mod_params->stbc_on) {
         band_2GHz->ht_cap.cap |= 1 << IEEE80211_HT_CAP_RX_STBC_SHIFT;
+    } else {
+        band_2GHz->ht_cap.cap &= ~(1 << IEEE80211_HT_CAP_RX_STBC_SHIFT);
+    }
     if (rwnx_hw->mod_params->ldpc_on)
         band_2GHz->ht_cap.cap |= IEEE80211_HT_CAP_LDPC_CODING;
     if (rwnx_hw->mod_params->use_2040) {
@@ -896,7 +902,7 @@ static void rwnx_set_ht_capa(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
     band_5GHz->ht_cap = band_2GHz->ht_cap;
 }
 
-static void rwnx_set_he_capa(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
+void rwnx_set_he_capa(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
 {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
     struct ieee80211_supported_band *band_5GHz = wiphy->bands[NL80211_BAND_5GHZ];
@@ -937,7 +943,7 @@ static void rwnx_set_he_capa(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
     if (rwnx_hw->mod_params->use_80) {
         he_cap->he_cap_elem.phy_cap_info[0] |=
                         IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_40MHZ_80MHZ_IN_5G;
-        mcs_map_max_2ss = IEEE80211_HE_MCS_SUPPORT_0_7;
+        mcs_map_max_2ss = IEEE80211_HE_MCS_SUPPORT_0_11;
         dcm_max_ru = IEEE80211_HE_PHY_CAP8_DCM_MAX_RU_996;
     }
     if (rwnx_hw->mod_params->ldpc_on) {
@@ -953,8 +959,11 @@ static void rwnx_set_he_capa(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
     he_cap->he_cap_elem.phy_cap_info[2] |= IEEE80211_HE_PHY_CAP2_MIDAMBLE_RX_TX_MAX_NSTS |
                                            IEEE80211_HE_PHY_CAP2_NDP_4x_LTF_AND_3_2US |
                                            IEEE80211_HE_PHY_CAP2_DOPPLER_RX;
-    if (rwnx_hw->mod_params->stbc_on)
+    if (rwnx_hw->mod_params->stbc_on) {
         he_cap->he_cap_elem.phy_cap_info[2] |= IEEE80211_HE_PHY_CAP2_STBC_RX_UNDER_80MHZ;
+    } else {
+        he_cap->he_cap_elem.phy_cap_info[2] &= ~IEEE80211_HE_PHY_CAP2_STBC_RX_UNDER_80MHZ;
+    }
     he_cap->he_cap_elem.phy_cap_info[3] |= IEEE80211_HE_PHY_CAP3_DCM_MAX_CONST_RX_16_QAM |
                                            IEEE80211_HE_PHY_CAP3_RX_HE_MU_PPDU_FROM_NON_AP_STA;
     if (nss > 0) {

@@ -3349,7 +3349,6 @@ typedef union RG_RX_A131_FIELD
   } b;
 } RG_RX_A131_FIELD_T;
 
-#endif
 
 #define RG_BT_RX_A8                                  (RF_D_BT_RX_REG_BASE + 0x20)
 // Bit 0           rg_m1_bt_trx_hf_ldo_en         U     RW        default = 'h1
@@ -3416,3 +3415,4 @@ typedef union RG_BT_RX_A8_FIELD
   } b;
 } RG_BT_RX_A8_FIELD_T;
 
+#endif

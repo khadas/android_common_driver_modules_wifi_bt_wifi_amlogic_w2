@@ -511,5 +511,6 @@ void rwnx_txq_drop_skb(struct rwnx_txq *txq,  struct sk_buff *skb, struct rwnx_h
 void rwnx_hwq_init(struct rwnx_hw *rwnx_hw);
 void rwnx_hwq_process(struct rwnx_hw *rwnx_hw, struct rwnx_hwq *hwq);
 void rwnx_hwq_process_all(struct rwnx_hw *rwnx_hw);
+int rwnx_txq_is_empty(struct rwnx_hw *rwnx_hw, struct rwnx_sta * rwnx_sta);
 
 #endif /* _RWNX_TXQ_H_ */

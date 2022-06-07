@@ -22,6 +22,7 @@
 #endif /* CONFIG_RWNX_FULLMAC */
 #include "rwnx_events.h"
 #include "rwnx_compat.h"
+#include "rwnx_main.h"
 
 static int rwnx_freq_to_idx(struct rwnx_hw *rwnx_hw, int freq)
 {
@@ -439,7 +440,7 @@ static inline int rwnx_rx_channel_survey_ind(struct rwnx_hw *rwnx_hw,
     // Get the survey
     struct rwnx_survey_info *rwnx_survey;
 
-    RWNX_DBG(RWNX_FN_ENTRY_STR);
+    //RWNX_DBG(RWNX_FN_ENTRY_STR);
 
     if (idx >  ARRAY_SIZE(rwnx_hw->survey))
         return 0;
@@ -779,15 +780,27 @@ static inline int rwnx_rx_scanu_result_ind(struct rwnx_hw *rwnx_hw,
 {
     struct cfg80211_bss *bss = NULL;
     struct ieee80211_channel *chan;
+    u64 timestamp;
+    struct ieee80211_mgmt *mgmt = NULL;
     struct scanu_result_ind *ind = (struct scanu_result_ind *)msg->param;
-
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 20, 0) && LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 39))
+    struct timespec ts;
+    get_monotonic_boottime(&ts);
+#endif
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0))
+    timestamp = ktime_to_us(ktime_get_boottime());
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 39))
+    timestamp = ((u64)ts.tv_sec * 1000000) + ts.tv_nsec / 1000;
+#endif
+    mgmt = (struct ieee80211_mgmt *)ind->payload;
+    mgmt->u.probe_resp.timestamp = timestamp;
     RWNX_DBG(RWNX_FN_ENTRY_STR);
 
     chan = ieee80211_get_channel(rwnx_hw->wiphy, ind->center_freq);
 
     if (chan != NULL)
         bss = cfg80211_inform_bss_frame(rwnx_hw->wiphy, chan,
-                                        (struct ieee80211_mgmt *)ind->payload,
+                                        mgmt,
                                         ind->length, ind->rssi * 100, GFP_ATOMIC);
 
     if (bss != NULL)
@@ -836,6 +849,31 @@ static inline int rwnx_rx_me_tx_credits_update_ind(struct rwnx_hw *rwnx_hw,
  * Messages from SM task
  **************************************************************************/
 #ifdef CONFIG_RWNX_FULLMAC
+extern const struct rwnx_legrate legrates_lut[16];
+static inline int rwnx_rx_sm_connect_ind_ex(struct rwnx_hw *rwnx_hw,
+                                         struct rwnx_cmd *cmd,
+                                         struct ipc_e2a_msg *msg)
+{
+    struct sm_connect_ind_ex *ind = (struct sm_connect_ind_ex *)msg->param;
+    struct rwnx_sta *sta = &rwnx_hw->sta_table[ind->ap_idx];
+    int i;
+
+    sta->stats.bcn_interval = ind->bcn_interval;
+    sta->stats.bw_max = ind->bw_max;
+    //sta->stats.dtim = ind->dtim; //TODO dtim info
+    sta->stats.mcs_max = ind->mcs_max;
+    sta->stats.no_ss = ind->no_ss;
+    sta->stats.format_mod = ind->format_mod;
+    sta->stats.short_gi = ind->short_gi;
+    for (i = 0; i < sizeof (legrates_lut) / sizeof(struct rwnx_legrate); i++) {
+        if (ind->r_idx_max == legrates_lut[i].idx) {
+            sta->stats.leg_rate = legrates_lut[i].rate;
+            break;
+        }
+    }
+    return 0;
+}
+
 static inline int rwnx_rx_sm_connect_ind(struct rwnx_hw *rwnx_hw,
                                          struct rwnx_cmd *cmd,
                                          struct ipc_e2a_msg *msg)
@@ -1007,6 +1045,7 @@ static inline int rwnx_rx_sm_disconnect_ind(struct rwnx_hw *rwnx_hw,
     rwnx_vif->generation++;
     rwnx_external_auth_disable(rwnx_vif);
     rwnx_chanctx_unlink(rwnx_vif);
+    rwnx_vif->sta.scan_hang = 0;
 
     return 0;
 }
@@ -1358,6 +1397,65 @@ static inline int rwnx_rx_rf_regvalue(struct rwnx_hw *rwnx_hw,
     return 0;
 }
 
+#ifdef TEST_MODE
+#define RX_PAYLOAD_DESC_PATTERN 0xC0DEDBAD
+static inline int rwnx_dma_ul_result_ind(struct rwnx_hw *rwnx_hw,
+                                      struct rwnx_cmd *cmd,
+                                      struct ipc_e2a_msg *msg)
+{
+    struct dma_ul_result_ind *ind = (struct dma_ul_result_ind *)msg->param;
+    u32_l * read_addr;
+    u8_l result = 1;
+    u32_l read_cnt = 0;
+    read_addr = (u32_l *)rwnx_hw->pcie_prssr_ul_addr;
+    printk("%s %d: dma_ul_info: scr_addr: 0x%x, buffer_len:%d, payload:%x",
+            __func__, __LINE__, ind->dest_addr, ind->len, ind->payload);
+
+    printk("%s %d:,dest_addr: %x, upload: %x",__func__, __LINE__, ((u32_l)(read_addr)), (*read_addr));
+
+    while (*(read_addr + (ind->len/4 -1)) != RX_PAYLOAD_DESC_PATTERN)
+    {
+        read_cnt++;
+        if (read_cnt > 20480)
+        {
+            printk("%s %d: dma upload incomplete!",__func__, __LINE__);
+            break;
+        }
+        msleep(1);
+    }
+
+    while (*(read_addr) != RX_PAYLOAD_DESC_PATTERN)
+    {
+        if (*(read_addr) != ind->payload)
+        {
+            printk("wrong dma_add:%x, wrong_payload:%x", read_addr, *(read_addr));
+            result = false;
+        }
+        read_addr = read_addr + 1;
+    }
+
+    rwnx_ipc_buf_dealloc(rwnx_hw, &rwnx_hw->pcie_prssr_test);
+    printk("pcie dma ul test_done,%s %d, result: %d", __func__, __LINE__,result);
+
+    return 0;
+}
+
+static inline int rwnx_dma_dl_result_ind(struct rwnx_hw *rwnx_hw,
+                                      struct rwnx_cmd *cmd,
+                                      struct ipc_e2a_msg *msg)
+{
+    struct dma_dl_result_ind *ind = (struct dma_dl_result_ind *)msg->param;
+
+    printk("%s %d: dma_dl_result:%x, start_addr: 0x%x, buffer_len:%d, payload:%x",
+            __func__, __LINE__, ind->result, ind->start_addr, ind->len, ind->payload);
+
+    rwnx_ipc_buf_dealloc(rwnx_hw, &rwnx_hw->pcie_prssr_test);
+    printk("pcie dma dl test_done,%s %d", __func__, __LINE__);
+
+    return 0;
+}
+#endif
+
 static inline int rwnx_scanu_cancel_cfm(struct rwnx_hw *rwnx_hw,
                                       struct rwnx_cmd *cmd,
                                       struct ipc_e2a_msg *msg)
@@ -1367,8 +1465,47 @@ static inline int rwnx_scanu_cancel_cfm(struct rwnx_hw *rwnx_hw,
 
     printk("%s %d: status:%x, vif_id=%x\n", __func__, __LINE__, cfm->status, cfm->vif_idx);
     rwnx_ipc_buf_dealloc(rwnx_hw, &rwnx_hw->scan_ie);
+    if (rwnx_hw->scan_request) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 8, 0)
+        struct cfg80211_scan_info info = {
+            .aborted = false,
+        };
+
+        cfg80211_scan_done(rwnx_hw->scan_request, &info);
+#else
+        cfg80211_scan_done(rwnx_hw->scan_request, false);
+#endif
+    }
     rwnx_hw->scan_request = NULL;
     rwnx_vif->sta.cancel_scan_cfm = 1;
+
+    return 0;
+}
+
+static inline int rwnx_tko_conn_dead_ind(struct rwnx_hw *rwnx_hw,
+                                    struct rwnx_cmd *cmd,
+                                    struct ipc_e2a_msg *msg)
+{
+    struct tko_conn_dead_ind *ind = (struct tko_conn_dead_ind *)msg->param;
+
+    printk("%s %d: vif_id=%u src_ip=%u src_port=%u dst_ip=%u dst_port=%u\n",
+            __func__, __LINE__, ind->vif_idx, ind->src_ip, ind->src_port,
+            ind->dst_ip, ind->dst_port);
+
+    return 0;
+}
+
+static inline int rwnx_sched_scan_cfm(struct rwnx_hw *rwnx_hw,
+                                      struct rwnx_cmd *cmd,
+                                      struct ipc_e2a_msg *msg)
+{
+    struct scanu_start_cfm *cfm = (struct scanu_start_cfm *)msg->param;
+
+    printk("%s %d: status:%x, vif_id=%x\n", __func__, __LINE__, cfm->status, cfm->vif_idx);
+
+    if (cfm->result_cnt) {
+        rwnx_cfg80211_sched_scan_results(rwnx_hw->wiphy, 0);
+    }
 
     return 0;
 }
@@ -1458,8 +1595,14 @@ static msg_cb_fct tdls_hdlrs[MSG_I(TDLS_MAX)] = {
 };
 
 static msg_cb_fct priv_hdlrs[MSG_I(TASK_PRIV)] = {
-    [MSG_I(PRIV_RF_READ_RESULT)]    = rwnx_rx_rf_regvalue,
     [MSG_I(PRIV_SCANU_CANCEL_CFM)]  = rwnx_scanu_cancel_cfm,
+    [MSG_I(PRIV_TKO_CONN_DEAD_IND)] = rwnx_tko_conn_dead_ind,
+    [MSG_I(PRIV_SCHED_SCAN_CFM)]    = rwnx_sched_scan_cfm,
+#ifdef TEST_MODE
+    [MSG_I(PRIV_DMA_UL_RESULT)]     = rwnx_dma_ul_result_ind,
+    [MSG_I(PRIV_DMA_DL_RESULT)]     = rwnx_dma_dl_result_ind,
+#endif
+    [MSG_I(PRIV_CONNECT_INFO)]     = rwnx_rx_sm_connect_ind_ex,
 };
 
 static msg_cb_fct *msg_hdlrs[] = {

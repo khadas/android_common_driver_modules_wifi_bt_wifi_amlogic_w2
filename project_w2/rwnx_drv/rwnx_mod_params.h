@@ -80,5 +80,8 @@ void rwnx_enable_wapi(struct rwnx_hw *rwnx_hw);
 void rwnx_enable_mfp(struct rwnx_hw *rwnx_hw);
 void rwnx_enable_gcmp(struct rwnx_hw *rwnx_hw);
 void rwnx_adjust_amsdu_maxnb(struct rwnx_hw *rwnx_hw);
+void rwnx_set_vht_capa(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy);
+void rwnx_set_ht_capa(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy);
+void rwnx_set_he_capa(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy);
 
 #endif /* _RWNX_MOD_PARAM_H_ */

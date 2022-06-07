@@ -7,7 +7,7 @@
  *
  ******************************************************************************
  */
-
+#if (!defined(CONFIG_RWNX_USB_MODE) && !defined(CONFIG_RWNX_SDIO_MODE))
 #include "rwnx_dini.h"
 #include "rwnx_defs.h"
 #include "rwnx_irqs.h"
@@ -96,7 +96,6 @@ static void dini_set_bar4_win(u32 low, u32 high, struct rwnx_dini *rwnx_dini)
     writel(CFPGA_BAR4_LOADDR_MASK_MAX,
            rwnx_dini->pci_bar0_vaddr + CFPGA_BAR4_LOADDR_MASK_REG);
 }
-
 
 /**
  * Enable User Interrupts of CFPGA that trigger PCIe IRQs on PCIE_10
@@ -292,3 +291,5 @@ int rwnx_dini_platform_init(struct pci_dev *pci_dev, struct rwnx_plat **rwnx_pla
     kfree(*rwnx_plat);
     return ret;
 }
+
+#endif
