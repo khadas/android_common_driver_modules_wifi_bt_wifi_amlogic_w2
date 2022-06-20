@@ -309,8 +309,14 @@ static struct ieee80211_supported_band rwnx_band_5GHz = {
 };
 
 static struct ieee80211_iface_limit rwnx_limits[] = {
-    { .max = NX_VIRT_DEV_MAX, .types = BIT(NL80211_IFTYPE_AP) |
-                                       BIT(NL80211_IFTYPE_STATION)}
+    {
+        .max = NX_VIRT_DEV_MAX,
+        .types = BIT(NL80211_IFTYPE_STATION) | BIT(NL80211_IFTYPE_AP)
+    },
+    {
+        .max = NX_VIRT_DEV_MAX,
+        .types = BIT(NL80211_IFTYPE_P2P_CLIENT) | BIT(NL80211_IFTYPE_P2P_GO)
+    }
 };
 
 static struct ieee80211_iface_limit rwnx_limits_dfs[] = {
@@ -460,7 +466,7 @@ static const int rwnx_hwq2uapsd[NL80211_NUM_ACS] = {
     [RWNX_HWQ_BK] = IEEE80211_WMM_IE_STA_QOSINFO_AC_BK,
 };
 
-static char * rf_conf_path = WIFI_CONF_PATH;
+//static char *rf_conf_path = WIFI_CONF_PATH;
 
 extern void rwnx_print_version(void);
 
@@ -600,6 +606,7 @@ void rwnx_chanctx_link(struct rwnx_vif *vif, u8 ch_idx,
         return;
     }
 
+    RWNX_INFO("vif:%d ch_id:%d", vif->vif_index,ch_idx);
     vif->ch_index = ch_idx;
     ctxt = &vif->rwnx_hw->chanctx_table[ch_idx];
     ctxt->count++;
@@ -633,6 +640,7 @@ void rwnx_chanctx_unlink(struct rwnx_vif *vif)
         ctxt->count--;
     }
 
+    RWNX_INFO("vif:%d", vif->vif_index);
     if (ctxt->count == 0) {
         if (vif->ch_index == vif->rwnx_hw->cur_chanctx) {
             /* If current chan ctxt is no longer linked to a vif
@@ -1682,6 +1690,9 @@ static int rwnx_cfg80211_connect(struct wiphy *wiphy, struct net_device *dev,
 
     RWNX_DBG(RWNX_FN_ENTRY_STR);
 
+    RWNX_INFO("%s %d <%s> privacy=%d, key=%p, key_len=%d, key_idx=%d\n",
+        __func__, __LINE__, dev->name, sme->privacy, sme->key, sme->key_len, sme->key_idx);
+
     /* For SHARED-KEY authentication, must install key first */
     if (sme->auth_type == NL80211_AUTHTYPE_SHARED_KEY && sme->key)
     {
@@ -1710,6 +1721,7 @@ static int rwnx_cfg80211_connect(struct wiphy *wiphy, struct net_device *dev,
     {
         case CO_OK:
             rwnx_save_assoc_info_for_ft(rwnx_vif, sme);
+            //RWNX_INFO("ssid=%s, center:%d\n",ssid_sprintf(sme->ssid, sme->ssid_len),sme->channel->center_freq);
             error = 0;
             break;
         case CO_BUSY:
@@ -1739,16 +1751,18 @@ static int rwnx_cfg80211_disconnect(struct wiphy *wiphy, struct net_device *dev,
     struct rwnx_hw *rwnx_hw = wiphy_priv(wiphy);
     struct rwnx_vif *rwnx_vif = netdev_priv(dev);
     int error = 0;
+    int rtn = 0;
 
     RWNX_DBG(RWNX_FN_ENTRY_STR);
     if (rwnx_hw->scan_request) {
         error = rwnx_cancel_scan(rwnx_hw, rwnx_vif);
         if (error) {
-            rwnx_vif->sta.scan_hang = 0;
             printk("cancel scan fail:error = %d\n");
         }
     }
-    return(rwnx_send_sm_disconnect_req(rwnx_hw, rwnx_vif, reason_code));
+    rtn = rwnx_send_sm_disconnect_req(rwnx_hw, rwnx_vif, reason_code);
+    rwnx_vif->sta.scan_hang = 0;
+    return rtn;
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0)
@@ -2710,6 +2724,19 @@ static int rwnx_cfg80211_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
             wiphy_warn(wiphy, "%d frames sent within the same Roc (> NX_ROC_TX)",
                        rwnx_hw->roc->tx_cnt + 1);
         rwnx_hw->roc->tx_cnt++;
+    }
+    if ((ieee80211_is_deauth(mgmt->frame_control)) && (res == 0)) {
+        u8 cnt = 0;
+        rwnx_vif->is_disconnect = 1;
+        printk("send deauth\n");
+        while (rwnx_vif->is_disconnect) {
+            msleep(20);
+            if (cnt++ > 20) {
+                rwnx_vif->is_disconnect = 0;
+                printk("deauth send fail\n");
+                return res;
+            }
+        }
     }
     return res;
 }
@@ -4403,7 +4430,7 @@ unsigned char rwnx_parse_cali_param(char *varbuf, int len, struct Cali_Param *ca
     cali_param->version = version;
     cali_param->cali_config = cali_config;
 
-    printk("======>>>>>> version = %ld\n", cali_param->version);
+    printk("======>>>>>> version = %d\n", cali_param->version);
     printk("======>>>>>> cali_config = %d\n", cali_param->cali_config);
     printk("======>>>>>> freq_offset = %d\n", cali_param->freq_offset);
     printk("======>>>>>> htemp_freq_offset = %d\n", cali_param->htemp_freq_offset);
@@ -4495,6 +4522,7 @@ int rwnx_isFileReadable(const char *path, u32 *sz)
 
 unsigned char rwnx_get_cali_param(struct Cali_Param *cali_param)
 {
+#if 0 //TBD: coverity dead code, this api not used as of now.
     struct file *fp;
     struct kstat stat;
     int size, len;
@@ -4563,7 +4591,6 @@ unsigned char rwnx_get_cali_param(struct Cali_Param *cali_param)
 
     len = rwnx_process_cali_content(content, size);
     rwnx_parse_cali_param(content, len, cali_param);
-
     if (chip_id_l & 0xf0) {
         if (chip_id_l & BIT(5))
             cali_param->rf_num = 2;
@@ -4579,6 +4606,9 @@ unsigned char rwnx_get_cali_param(struct Cali_Param *cali_param)
 err:
     set_fs(fs);
     return 1;
+#else
+    return 0;
+#endif
 }
 
 void rwnx_config_cali_param(struct rwnx_hw *rwnx_hw)

@@ -15,6 +15,7 @@
 #include "ipc_host.h"
 #include "share_mem_map.h"
 #include "rwnx_prealloc.h"
+#include "reg_ipc_app.h"
 
 #ifdef CONFIG_RWNX_SOFTMAC
 #define FW_STR  "lmac"
@@ -762,6 +763,7 @@ unsigned int tx_desc_index;
 unsigned int tx_buff_index;
 #define STRUCT_BUFF_LEN 252
 #define MAX_HEAD_LEN 92
+#define MAX_TAIL_LEN 20
 unsigned int remain_len[4] = {0x4dc8, 0x4dc8, 0x4dc8, 0x4dc8};
 unsigned int offset[4] = {0};
 #define _CO_ALIGN4_HI(val) (((val)+3)&~3)
@@ -772,10 +774,10 @@ int rwnx_tx_task(void *data)
     struct rwnx_tx_list * tx_list, *next;
     struct rwnx_sw_txhdr *sw_txhdr;
     struct txdesc_host *txdesc_host = NULL;
+    unsigned char *frm = NULL;
     int trans_len;
     uint32_t addr;
     int ac = 0;
-    printk("%s,%d\n", __func__, __LINE__);
 
     while (1) {
         /* wait for work */
@@ -790,41 +792,94 @@ int rwnx_tx_task(void *data)
             txdesc_host = &sw_txhdr->desc;
             ac = txdesc_host->ctrl.hwq;
             addr = 0x6001c760 + (ac * 0x13720) + STRUCT_BUFF_LEN + MAX_HEAD_LEN;
-            trans_len = _CO_ALIGN4_HI(sw_txhdr->frame_len + STRUCT_BUFF_LEN + MAX_HEAD_LEN);
-            if (trans_len <= remain_len[ac]) {
+
+            if (sw_txhdr->desc.api.host.flags & TXU_CNTRL_AMSDU) {
+                struct rwnx_amsdu_txhdr *amsdu_txhdr, *tmp;
+                uint32_t cnt = 0;
+                printk("%s, %d, TXU_CNTRL_AMSDU, amsdu.nb=%d, amsdu.len=%d\n", __func__, __LINE__, sw_txhdr->amsdu.nb, sw_txhdr->amsdu.len);
+                list_for_each_entry_safe(amsdu_txhdr, tmp, &sw_txhdr->amsdu.hdrs, list) {
+                    if (cnt == 0)
+                        trans_len = _CO_ALIGN4_HI(sw_txhdr->desc.api.host.packet_len[cnt] + STRUCT_BUFF_LEN + MAX_HEAD_LEN);
+                    else
+                        trans_len = _CO_ALIGN4_HI(sw_txhdr->desc.api.host.packet_len[cnt] + STRUCT_BUFF_LEN + MAX_TAIL_LEN);
+
+                    frm = (unsigned char *)amsdu_txhdr->skb->data + sizeof(struct rwnx_amsdu_txhdr);
+                    if ((sw_txhdr->desc.api.host.flags & TXU_CNTRL_MGMT) == 0) { //skip ethhdr for data frame
+                        frm += sizeof(struct ethhdr);
+                    }
+                    if (trans_len <= remain_len[ac]) {
 #if defined(CONFIG_RWNX_SDIO_MODE)
-                rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)sw_txhdr->skb->data + sizeof(struct rwnx_txhdr) + sizeof(struct ethhdr), (unsigned char *)(unsigned long)addr + offset[ac],  sw_txhdr->frame_len);
+                        rwnx_hw->plat->hif_ops->hi_write_ipc_sram(frm, (unsigned char *)(unsigned long)addr + offset[ac],  sw_txhdr->desc.api.host.packet_len[cnt]);
 #else
-                rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)sw_txhdr->skb->data + sizeof(struct rwnx_txhdr) + sizeof(struct ethhdr), (unsigned char *)(unsigned long)addr + offset[ac],  sw_txhdr->frame_len, USB_EP4);
+                        rwnx_hw->plat->hif_ops->hi_write_sram(frm, (unsigned char *)(unsigned long)addr + offset[ac],  sw_txhdr->desc.api.host.packet_len[cnt], USB_EP4);
 #endif
 
-                remain_len[ac] -= trans_len;
-                printk("%s, addr=%x, frame_len=%x, hwq=%d, trans_len=%x, remain_len[ac]=%x, offset[ac]=%x, trans_len/4=%x\n", __func__, addr + offset[ac], sw_txhdr->frame_len, txdesc_host->ctrl.hwq, trans_len, remain_len[ac], offset[ac], trans_len/4);
+                        remain_len[ac] -= trans_len;
+                        printk("%s, cnt=%d, len=%d\n", __func__, cnt, sw_txhdr->desc.api.host.packet_len[cnt]);
+                        printk("%s, addr=%x, frame_len=%x, hwq=%d, trans_len=%x, remain_len[ac]=%x, offset[ac]=%x, cnt=%x\n", __func__, addr + offset[ac], sw_txhdr->frame_len, txdesc_host->ctrl.hwq, trans_len, remain_len[ac], offset[ac], cnt);
+                        cnt++;
 
-                #if 0
-                for (i =0;i < sw_txhdr->frame_len; i++) {
-                    printk("%x:", *(sw_txhdr->skb->data + sizeof(struct rwnx_txhdr) + i));
-                    if (i % 10 == 0) {
-                        printk("\n");
+                        offset[ac] += trans_len;
+                    } else {
+                        offset[ac] = 0;
+#if defined(CONFIG_RWNX_SDIO_MODE)
+                        rwnx_hw->plat->hif_ops->hi_write_ipc_sram(frm, (unsigned char *)(unsigned long)addr + offset[ac],  sw_txhdr->desc.api.host.packet_len[cnt]);
+#else
+                        rwnx_hw->plat->hif_ops->hi_write_sram(frm, (unsigned char *)(unsigned long)addr + offset[ac],  sw_txhdr->desc.api.host.packet_len[cnt], USB_EP4);
+#endif
+                        printk("reamin %s, cnt=%d, len=%d\n", __func__, cnt, sw_txhdr->desc.api.host.packet_len[cnt]);
+                        printk("reamin %s, addr=%x, frame_len=%x, hwq=%d, trans_len=%x, remain_len[ac]=%x, offset[ac]=%x, cnt=%x\n", __func__, addr + offset[ac], sw_txhdr->frame_len, txdesc_host->ctrl.hwq, trans_len, remain_len[ac], offset[ac], cnt);
+
+                        cnt++;
+                        remain_len[ac] = 0x4dc8;
+                        remain_len[ac] -= trans_len;
+
+                        offset[ac] += trans_len;
                     }
                 }
-                #endif
-                offset[ac] += trans_len;
-            } else {
-                offset[ac] = 0;
+            }else {
+                trans_len = _CO_ALIGN4_HI(sw_txhdr->frame_len + STRUCT_BUFF_LEN + MAX_HEAD_LEN);
+                frm = (unsigned char *)sw_txhdr->skb->data + sizeof(struct rwnx_txhdr);
+                if ((sw_txhdr->desc.api.host.flags & TXU_CNTRL_MGMT) == 0) { //skip ethhdr for data frame
+                    frm += sizeof(struct ethhdr);
+                }
+                if (trans_len <= remain_len[ac]) {
 #if defined(CONFIG_RWNX_SDIO_MODE)
-                rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)sw_txhdr->skb->data + sizeof(struct rwnx_txhdr) + sizeof(struct ethhdr), (unsigned char *)(unsigned long)addr + offset[ac],  sw_txhdr->frame_len);
+                    rwnx_hw->plat->hif_ops->hi_write_ipc_sram(frm, (unsigned char *)(unsigned long)addr + offset[ac],  sw_txhdr->frame_len);
 #else
-                rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)sw_txhdr->skb->data + sizeof(struct rwnx_txhdr) + sizeof(struct ethhdr), (unsigned char *)(unsigned long)addr + offset[ac],  sw_txhdr->frame_len, USB_EP4);
+                    rwnx_hw->plat->hif_ops->hi_write_sram(frm, (unsigned char *)(unsigned long)addr + offset[ac],  sw_txhdr->frame_len, USB_EP4);
 #endif
-                printk("reamin %s, addr=%x, frame_len=%x, hwq=%d, trans_len=%x, remain_len[ac]=%x, offset[ac]=%x, trans_len/4=%x\n", __func__, addr + offset[ac], sw_txhdr->frame_len, txdesc_host->ctrl.hwq, trans_len, remain_len[ac], offset[ac], trans_len/4);
 
-                remain_len[ac] = 0x4dc8;
-                remain_len[ac] -= trans_len;
+                    remain_len[ac] -= trans_len;
+                    printk("%s, addr=%x, frame_len=%x, hwq=%d, trans_len=%x, remain_len[ac]=%x, offset[ac]=%x, trans_len/4=%x\n", __func__, addr + offset[ac], sw_txhdr->frame_len, txdesc_host->ctrl.hwq, trans_len, remain_len[ac], offset[ac], trans_len/4);
 
-                offset[ac] += trans_len;
+#if 0
+                    {
+                        int i;
+                        for (i =0;i < sw_txhdr->frame_len; i++) {
+                            printk("%02x ", *(sw_txhdr->skb->data + sizeof(struct rwnx_txhdr) + i));
+                            if (i % 16 == 15) {
+                                printk("\n");
+                            }
+                        }
+                    }
+#endif
+                    offset[ac] += trans_len;
+                } else {
+                    offset[ac] = 0;
+#if defined(CONFIG_RWNX_SDIO_MODE)
+                    rwnx_hw->plat->hif_ops->hi_write_ipc_sram(frm, (unsigned char *)(unsigned long)addr + offset[ac],  sw_txhdr->frame_len);
+#else
+                    rwnx_hw->plat->hif_ops->hi_write_sram(frm, (unsigned char *)(unsigned long)addr + offset[ac],  sw_txhdr->frame_len, USB_EP4);
+#endif
+                    printk("reamin %s, addr=%x, frame_len=%x, hwq=%d, trans_len=%x, remain_len[ac]=%x, offset[ac]=%x, trans_len/4=%x\n", __func__, addr + offset[ac], sw_txhdr->frame_len, txdesc_host->ctrl.hwq, trans_len, remain_len[ac], offset[ac], trans_len/4);
+
+                    remain_len[ac] = 0x4dc8;
+                    remain_len[ac] -= trans_len;
+
+                    offset[ac] += trans_len;
+                }
             }
-
 #if defined(CONFIG_RWNX_SDIO_MODE)
             rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)txdesc_host, (unsigned char *)0x6001134C + (tx_desc_index * 72), sizeof(*txdesc_host));
 #else
@@ -1032,7 +1087,6 @@ static u8 rwnx_msgind(void *pthis, void *arg)
 #endif
 
 #if !defined(CONFIG_RWNX_PCIE_MODE)
-    u32_l fdh_val = 0;
     struct ipc_e2a_msg msg_rst = {0};
 #endif
 
@@ -1046,24 +1100,14 @@ static u8 rwnx_msgind(void *pthis, void *arg)
     memcpy(&msg_rst, msg, sizeof(struct ipc_e2a_msg));
     msg_rst.id = 0;
     rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)&msg_rst, (unsigned char *)&(rwnx_hw->ipc_env->shared->msg_e2a_buf), sizeof(struct ipc_e2a_msg), USB_EP4);
-
-    fdh_val = rwnx_hw->plat->hif_ops->hi_read_word((unsigned int)CMD_DOWN_FIFO_FDN_ADDR, USB_EP4);
-    fdh_val |= 0x4;
-    rwnx_hw->plat->hif_ops->hi_write_word((unsigned int)CMD_DOWN_FIFO_FDN_ADDR, fdh_val, USB_EP4); //msg->1, tx->2, msg clear->4
     rwnx_hw->plat->hif_ops->hi_write_word((unsigned int)CMD_DOWN_FIFO_FDH_ADDR, 1, USB_EP4);
 #elif defined(CONFIG_RWNX_SDIO_MODE)
     msg = &rwnx_hw->g_msg;
     rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)msg, (unsigned char *)&(rwnx_hw->ipc_env->shared->msg_e2a_buf), sizeof(struct ipc_e2a_msg));
-
     memcpy(&msg_rst, msg, sizeof(struct ipc_e2a_msg));
     msg_rst.id = 0;
     rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)&msg_rst, (unsigned char *)&(rwnx_hw->ipc_env->shared->msg_e2a_buf), sizeof(struct ipc_e2a_msg));
-
-    fdh_val = rwnx_hw->plat->hif_ops->hi_read_ipc_word((unsigned int)CMD_DOWN_FIFO_FDN_ADDR);
-    fdh_val |= 0x4;
-    rwnx_hw->plat->hif_ops->hi_write_ipc_word((unsigned int)CMD_DOWN_FIFO_FDN_ADDR, fdh_val); //msg->1, tx->2, msg clear->4
     rwnx_hw->plat->hif_ops->hi_write_ipc_word((unsigned int)CMD_DOWN_FIFO_FDH_ADDR, 1);
-
 #else
     msg = buf->addr;
 #endif
@@ -1193,14 +1237,29 @@ static u8 rwnx_dbgind(void *pthis, void *arg)
     struct ipc_dbg_msg *dbg_msg = buf->addr;
     u8 ret = 0;
 
+#if !defined(CONFIG_RWNX_PCIE_MODE)
+    struct ipc_dbg_msg dbg_rst;
+#endif
+
 #if defined(CONFIG_RWNX_USB_MODE)
     dbg_msg = &rwnx_hw->g_dbg_msg;
-    rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)dbg_msg,
-        (unsigned char *)&(rwnx_hw->ipc_env->shared->dbg_buf), sizeof(struct ipc_dbg_msg), USB_EP4);
+    rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)dbg_msg, (unsigned char *)&(rwnx_hw->ipc_env->shared->dbg_buf), sizeof(struct ipc_dbg_msg), USB_EP4);
+
+    memset(&dbg_rst, 0, sizeof(struct ipc_dbg_msg));
+    dbg_rst.pattern = IPC_DBG_VALID_PATTERN;
+    rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)&dbg_rst, (unsigned char *)&(rwnx_hw->ipc_env->shared->dbg_buf),  sizeof(struct ipc_dbg_msg), USB_EP4);
+
+    ipc_app2emb_trigger_set(rwnx_hw, IPC_IRQ_A2E_DBG);
 #elif defined(CONFIG_RWNX_SDIO_MODE)
     dbg_msg = &rwnx_hw->g_dbg_msg;
-    rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)dbg_msg,
-        (unsigned char *)&(rwnx_hw->ipc_env->shared->dbg_buf),  sizeof(struct ipc_dbg_msg));
+    rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)dbg_msg, (unsigned char *)&(rwnx_hw->ipc_env->shared->dbg_buf),  sizeof(struct ipc_dbg_msg));
+
+    memset(&dbg_rst, 0, sizeof(struct ipc_dbg_msg));
+    dbg_rst.pattern = IPC_DBG_VALID_PATTERN;
+    rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)&dbg_rst, (unsigned char *)&(rwnx_hw->ipc_env->shared->dbg_buf),  sizeof(struct ipc_dbg_msg));
+
+    ipc_app2emb_trigger_set(rwnx_hw, IPC_IRQ_A2E_DBG);
+
 #endif
 
     REG_SW_SET_PROFILING(rwnx_hw, SW_PROF_DBGIND);
@@ -1424,5 +1483,50 @@ void rwnx_umh_done(struct rwnx_hw *rwnx_hw)
        is called and so does not irq protect (TODO) against error_ind */
     rwnx_hw->debugfs.trace_prst = false;
     ipc_host_dbginfo_push(rwnx_hw->ipc_env, &rwnx_hw->dbgdump.buf);
+}
+
+const char *ssid_sprintf(const unsigned char *ssid, unsigned char ssid_len) {
+    static unsigned char slssid[MAC_SSID_LEN+1];
+    memset(slssid, 0, MAC_SSID_LEN+1);
+    if (ssid && ssid_len>0 && ssid_len<=MAC_SSID_LEN)
+        memcpy(slssid, ssid, ssid_len);
+    return slssid;
+}
+
+u32 aml_ieee80211_chan_to_freq(u32 chan, u32 band)
+{
+    if (band == NL80211_BAND_5GHZ) {
+        if (chan >= 182 && chan <= 196) {
+            return 4000 + chan * 5;
+        } else {
+            return 5000 + chan * 5;
+        }
+    } else {
+        if (chan == 14) {
+            return 2484;
+        } else if (chan < 14) {
+            return 2407 + chan * 5;
+        } else {
+            return 0;
+        }
+    }
+}
+u32 aml_ieee80211_freq_to_chan(u32 freq, u32 band)
+{
+    if (band == NL80211_BAND_5GHZ) {
+        if (freq >= 4910 && freq <= 4980) {
+            return (freq - 4000) / 5;
+        } else {
+            return (freq - 5000) / 5;
+        }
+    } else {
+        if (freq == 2484) {
+            return 14;
+        } else if (freq < 2484) {
+            return (freq - 2407) / 5;
+        } else {
+            return 0;
+        }
+    }
 }
 

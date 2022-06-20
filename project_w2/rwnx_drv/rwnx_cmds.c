@@ -35,8 +35,7 @@ static void cmd_dump(const struct rwnx_cmd *cmd)
 }
 
 #define CMD_PRINT(cmd) do { \
-    if (cmd) \
-        printk("[%-20.20s %4d] cmd tkn[%d]  flags:%04x  result:%3d  cmd:%4d-%-24s - reqcfm(%4d-%-s)\n", \
+    printk("[%-20.20s %4d] cmd tkn[%d]  flags:%04x  result:%3d  cmd:%4d-%-24s - reqcfm(%4d-%-s)\n", \
            __func__, __LINE__,  \
            cmd->tkn, cmd->flags, cmd->result, cmd->id, RWNX_ID2STR(cmd->id), \
            cmd->reqid, (((cmd->flags & RWNX_CMD_FLAG_REQ_CFM) && \
@@ -107,7 +106,7 @@ static int cmd_mgr_queue(struct rwnx_cmd_mgr *cmd_mgr, struct rwnx_cmd *cmd)
     struct rwnx_hw *rwnx_hw = container_of(cmd_mgr, struct rwnx_hw, cmd_mgr);
     bool defer_push = false;
 
-    RWNX_DBG(RWNX_FN_ENTRY_STR);
+    printk("%s cmd:%p\n", __func__, cmd);
     trace_msg_send(cmd->id);
 
     spin_lock_bh(&cmd_mgr->lock);
@@ -459,14 +458,14 @@ static void cmd_mgr_drain(struct rwnx_cmd_mgr *cmd_mgr)
     list_for_each_entry_safe(cur, nxt, &cmd_mgr->cmds, list) {
         list_del(&cur->list);
 
+        cmd_mgr->queue_sz--;
+        if (!(cur->flags & RWNX_CMD_FLAG_NONBLOCK))
+            complete(&cur->complete);
+
         if (cur->flags & RWNX_CMD_FLAG_WAIT_PUSH) {
             kfree(cur->a2e_msg);
             kfree(cur);
         }
-
-        cmd_mgr->queue_sz--;
-        if (!(cur->flags & RWNX_CMD_FLAG_NONBLOCK))
-            complete(&cur->complete);
     }
     spin_unlock_bh(&cmd_mgr->lock);
 }

@@ -66,7 +66,7 @@ static inline int rwnx_rx_chan_pre_switch_ind(struct rwnx_hw *rwnx_hw,
     struct rwnx_vif *rwnx_vif;
     int chan_idx = ((struct mm_channel_pre_switch_ind *)msg->param)->chan_index;
 
-    RWNX_DBG(RWNX_FN_ENTRY_STR);
+    //RWNX_DBG(RWNX_FN_ENTRY_STR);
 
     REG_SW_SET_PROFILING_CHAN(rwnx_hw, SW_PROF_CHAN_CTXT_PSWTCH_BIT);
 
@@ -109,7 +109,7 @@ static inline int rwnx_rx_chan_switch_ind(struct rwnx_hw *rwnx_hw,
     bool roc_req = ((struct mm_channel_switch_ind *)msg->param)->roc;
     bool roc_tdls = ((struct mm_channel_switch_ind *)msg->param)->roc_tdls;
 
-    RWNX_DBG(RWNX_FN_ENTRY_STR);
+    //RWNX_INFO("chan_idx:%d", chan_idx);
 
     REG_SW_SET_PROFILING_CHAN(rwnx_hw, SW_PROF_CHAN_CTXT_SWTCH_BIT);
 
@@ -794,7 +794,7 @@ static inline int rwnx_rx_scanu_result_ind(struct rwnx_hw *rwnx_hw,
 #endif
     mgmt = (struct ieee80211_mgmt *)ind->payload;
     mgmt->u.probe_resp.timestamp = timestamp;
-    RWNX_DBG(RWNX_FN_ENTRY_STR);
+    //RWNX_DBG(RWNX_FN_ENTRY_STR);
 
     chan = ieee80211_get_channel(rwnx_hw->wiphy, ind->center_freq);
 

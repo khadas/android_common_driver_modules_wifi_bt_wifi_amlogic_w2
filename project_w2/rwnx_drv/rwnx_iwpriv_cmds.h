@@ -49,6 +49,7 @@ enum aml_iwpriv_subcmd
     AML_COEX_CMD = 41,
     AML_LA_DUMP = 42,
     AML_IWP_SET_PT_CALIBRATION = 43,
+    AML_IWP_GET_CHAN_LIST = 44,
 };
 
 

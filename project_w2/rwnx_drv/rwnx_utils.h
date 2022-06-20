@@ -25,7 +25,7 @@
 #define RWNX_FN_ENTRY_STR ">>> %s()\n", __func__
 
 #define RWNX_INFO(fmt, ...) do { \
-    printk("[%-20.20s %4d] "fmt, __func__, __LINE__, ##__VA_ARGS__); \
+    printk("[%s %d] "fmt, __func__, __LINE__, ##__VA_ARGS__); \
 } while (0);
 
 enum rwnx_dev_flag {
@@ -252,5 +252,8 @@ bool rwnx_ipc_tx_pending(struct rwnx_hw *rwnx_hw);
 void rwnx_error_ind(struct rwnx_hw *rwnx_hw);
 void rwnx_umh_done(struct rwnx_hw *rwnx_hw);
 void *rwnx_ipc_fw_trace_desc_get(struct rwnx_hw *rwnx_hw);
+const char* ssid_sprintf(const unsigned char *ssid, unsigned char ssid_len);
+u32 aml_ieee80211_chan_to_freq(u32 chan, u32 band);
+u32 aml_ieee80211_freq_to_chan(u32 freq, u32 band);
 
 #endif /* _RWNX_IPC_UTILS_H_ */

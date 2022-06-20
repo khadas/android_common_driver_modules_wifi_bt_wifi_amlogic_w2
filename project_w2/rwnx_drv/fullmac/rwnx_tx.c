@@ -879,7 +879,9 @@ static bool rwnx_amsdu_add_subframe(struct rwnx_hw *rwnx_hw, struct sk_buff *skb
 {
     bool res = false;
     struct ethhdr *eth;
-
+#if !defined(CONFIG_RWNX_PCIE_MODE)
+    rwnx_hw->mod_params->amsdu_maxnb = 1;
+#endif
     /* Adjust the maximum number of MSDU allowed in A-MSDU */
     rwnx_adjust_amsdu_maxnb(rwnx_hw);
 
@@ -1422,10 +1424,14 @@ int rwnx_tx_cfm_task(void *data)
 
             /* Update txq and HW queue credits */
             if (sw_txhdr->desc.api.host.flags & TXU_CNTRL_MGMT) {
+                struct ieee80211_mgmt *mgmt;
                 trace_mgmt_cfm(sw_txhdr->rwnx_vif->vif_index,
                                (sw_txhdr->rwnx_sta) ? sw_txhdr->rwnx_sta->sta_idx : 0xFF,
                                cfm.status.acknowledged);
-
+                mgmt = (struct ieee80211_mgmt *)(skb->data + RWNX_TX_HEADROOM);
+                if ((ieee80211_is_deauth(mgmt->frame_control)) && (sw_txhdr->rwnx_vif->is_disconnect == 1)) {
+                    sw_txhdr->rwnx_vif->is_disconnect = 0;
+                }
                 /* Confirm transmission to CFG80211 */
                 cfg80211_mgmt_tx_status(&sw_txhdr->rwnx_vif->wdev,
                                         (unsigned long)skb, skb_mac_header(skb),
@@ -1549,10 +1555,14 @@ int rwnx_txdatacfm(void *pthis, void *arg)
 
     /* Update txq and HW queue credits */
     if (sw_txhdr->desc.api.host.flags & TXU_CNTRL_MGMT) {
+        struct ieee80211_mgmt *mgmt;
         trace_mgmt_cfm(sw_txhdr->rwnx_vif->vif_index,
                        (sw_txhdr->rwnx_sta) ? sw_txhdr->rwnx_sta->sta_idx : 0xFF,
                        cfm->status.acknowledged);
-
+        mgmt = (struct ieee80211_mgmt *)(skb->data + RWNX_TX_HEADROOM);
+        if ((ieee80211_is_deauth(mgmt->frame_control)) && (sw_txhdr->rwnx_vif->is_disconnect == 1)) {
+            sw_txhdr->rwnx_vif->is_disconnect = 0;
+        }
         /* Confirm transmission to CFG80211 */
         cfg80211_mgmt_tx_status(&sw_txhdr->rwnx_vif->wdev,
                                 (unsigned long)skb, skb_mac_header(skb),

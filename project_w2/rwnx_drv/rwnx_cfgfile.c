@@ -240,7 +240,7 @@ u32 aml_read_macaddr_from_file(const char *path, u8 *buf)
     u8 temp[3];
     u32 ret = false;
 
-    u8 file_data[FILE_DATA_LEN];
+    u8 file_data[FILE_DATA_LEN] = {0};
     u32 read_size;
     u8 addr[ETH_ALEN];
 

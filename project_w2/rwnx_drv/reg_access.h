@@ -203,15 +203,13 @@ extern u8 * ipc_basic_address;
 __INLINE u32 REG_IPC_APP_RD (void *env, unsigned int INDEX)
 {
     struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)env;
-    rwnx_hw->plat->hif_ops->hi_write_reg32(RG_SCFG_SRAM_FUNC, (unsigned long)((IPC_BASIC_ADDRESS + 4 * INDEX)&0xfffe0000));
-    return rwnx_hw->plat->hif_ops->hi_read_word((unsigned int)((IPC_BASIC_ADDRESS + 4 * INDEX)&0x0001ffff));
+    return rwnx_hw->plat->hif_ops->hi_read_ipc_word((unsigned long)(IPC_BASIC_ADDRESS + 4 * INDEX));
 }
 
 __INLINE void REG_IPC_APP_WR (void *env, unsigned int INDEX, u32 value)
 {
     struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)env;
-    rwnx_hw->plat->hif_ops->hi_write_reg32(RG_SCFG_SRAM_FUNC, (unsigned long)((IPC_BASIC_ADDRESS + 4*INDEX)&0xfffe0000));
-    rwnx_hw->plat->hif_ops->hi_write_word((unsigned int)((IPC_BASIC_ADDRESS + 4*INDEX)&0x0001ffff), value);
+    rwnx_hw->plat->hif_ops->hi_write_ipc_word((unsigned long)(IPC_BASIC_ADDRESS + 4 * INDEX), value);
 }
 #else
 /*****************************************************************************

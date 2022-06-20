@@ -103,6 +103,20 @@ static const char *const rwnx_mmid2str[MSG_I(MM_MAX)] = {
     [MSG_I(MM_CSA_TRAFFIC_IND)]           = "MM_CSA_TRAFFIC_IND",
     [MSG_I(MM_MU_GROUP_UPDATE_REQ)]       = "MM_MU_GROUP_UPDATE_REQ",
     [MSG_I(MM_MU_GROUP_UPDATE_CFM)]       = "MM_MU_GROUP_UPDATE_CFM",
+    [MSG_I(MM_ANT_DIV_INIT_REQ)]          = "MM_ANT_DIV_INIT_REQ",
+    [MSG_I(MM_ANT_DIV_STOP_REQ)]          = "MM_ANT_DIV_STOP_REQ",
+    [MSG_I(MM_ANT_DIV_UPDATE_REQ)]        = "MM_ANT_DIV_UPDATE_REQ",
+    [MSG_I(MM_SWITCH_ANTENNA_REQ)]        = "MM_SWITCH_ANTENNA_REQ",
+    [MSG_I(MM_PKTLOSS_IND)]               = "MM_PKTLOSS_IND",
+    [MSG_I(MM_SET_MU_EDCA_REQ)]           = "MM_SET_MU_EDCA_REQ",
+    [MSG_I(MM_SET_MU_EDCA_CFM)]           = "MM_SET_MU_EDCA_CFM",
+    [MSG_I(MM_SET_UORA_REQ)]              = "MM_SET_UORA_REQ",
+    [MSG_I(MM_SET_UORA_CFM)]              = "MM_SET_UORA_CFM",
+    [MSG_I(MM_SET_TXOP_RTS_THRES_REQ)]    = "MM_SET_TXOP_RTS_THRES_REQ",
+    [MSG_I(MM_SET_TXOP_RTS_THRES_CFM)]    = "MM_SET_TXOP_RTS_THRES_CFM",
+    [MSG_I(MM_SET_BSS_COLOR_REQ)]         = "MM_SET_BSS_COLOR_REQ",
+    [MSG_I(MM_SET_BSS_COLOR_CFM)]         = "MM_SET_BSS_COLOR_CFM",
+    [MSG_I(MM_OTHER_REQ)]                 = "MM_OTHER_REQ",
 };
 
 static const char *const rwnx_dbgid2str[MSG_I(DBG_MAX)] = {
@@ -191,6 +205,9 @@ static const char *const rwnx_apmid2str[MSG_I(APM_MAX)] = {
     [MSG_I(APM_START_CAC_CFM)] = "APM_START_CAC_CFM",
     [MSG_I(APM_STOP_CAC_REQ)]  = "APM_STOP_CAC_REQ",
     [MSG_I(APM_STOP_CAC_CFM)]  = "APM_STOP_CAC_CFM",
+    [MSG_I(APM_PROBE_CLIENT_REQ)]  = "APM_PROBE_CLIENT_REQ",
+    [MSG_I(APM_PROBE_CLIENT_CFM)]  = "APM_PROBE_CLIENT_CFM",
+    [MSG_I(APM_PROBE_CLIENT_IND)]  = "APM_PROBE_CLIENT_IND",
 };
 
 static const char *const rwnx_meshid2str[MSG_I(MESH_MAX)] = {

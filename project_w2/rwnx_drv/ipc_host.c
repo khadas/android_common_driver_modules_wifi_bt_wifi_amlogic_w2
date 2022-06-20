@@ -491,32 +491,7 @@ void ipc_host_dbginfo_push(struct ipc_host_env_tag *env, struct rwnx_ipc_buf *bu
  */
 void ipc_host_txdesc_push(struct ipc_host_env_tag *env, struct rwnx_ipc_buf *buf)
 {
-
-#if defined(CONFIG_RWNX_USB_MODE)
-    u32_l fdh_val = 0;
-    struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)env->pthis;
-
-    // Trigger the irq to send the message to EMB
-    //mutex_lock(&rwnx_hw->plat->a2e_mutex_lock);
-    fdh_val = rwnx_hw->plat->hif_ops->hi_read_word((unsigned int)CMD_DOWN_FIFO_FDN_ADDR, USB_EP4);
-    fdh_val |= 0x2;
-    rwnx_hw->plat->hif_ops->hi_write_word((unsigned int)CMD_DOWN_FIFO_FDN_ADDR, fdh_val, USB_EP4); //msg->1, tx->2
-    rwnx_hw->plat->hif_ops->hi_write_word((unsigned int)CMD_DOWN_FIFO_FDH_ADDR, 1, USB_EP4);
-    //mutex_unlock(&rwnx_hw->plat->a2e_mutex_lock);
-
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-    u32_l fdh_val = 0;
-    struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)env->pthis;
-
-    // Trigger the irq to send the message to EMB
-    //mutex_lock(&rwnx_hw->plat->a2e_mutex_lock);
-    fdh_val = rwnx_hw->plat->hif_ops->hi_read_ipc_word((unsigned int)CMD_DOWN_FIFO_FDN_ADDR);
-    fdh_val |= 0x2;
-    rwnx_hw->plat->hif_ops->hi_write_ipc_word((unsigned int)CMD_DOWN_FIFO_FDN_ADDR, fdh_val); //msg->1, tx->2
-    rwnx_hw->plat->hif_ops->hi_write_ipc_word((unsigned int)CMD_DOWN_FIFO_FDH_ADDR, 1);
-    //mutex_unlock(&rwnx_hw->plat->a2e_mutex_lock);
-
-#else
+#if defined(CONFIG_RWNX_PCIE_MODE)
     uint32_t dma_idx = env->txdmadesc_idx;
     volatile struct dma_desc *dmadesc_pushed;
 
@@ -531,10 +506,10 @@ void ipc_host_txdesc_push(struct ipc_host_env_tag *env, struct rwnx_ipc_buf *buf
         env->txdmadesc_idx = 0;
     else
         env->txdmadesc_idx = dma_idx;
+#endif
 
     // trigger interrupt to firmware
     ipc_app2emb_trigger_setf(env->pthis, IPC_IRQ_A2E_TXDESC);
-#endif
 }
 
 /**
@@ -597,10 +572,6 @@ void ipc_host_irq(struct ipc_host_env_tag *env, uint32_t status)
     // Acknowledge the pending interrupts
     ipc_emb2app_ack_clear(env->pthis, status);
 
-    // And re-read the status, just to be sure that the acknowledgment is
-    // effective when we start the interrupt handling
-    ipc_emb2app_status_get(env->pthis);
-
     // Optimized for only one IRQ at a time
     if (status & IPC_IRQ_E2A_RXDESC)
     {
@@ -656,80 +627,17 @@ void ipc_host_irq(struct ipc_host_env_tag *env, uint32_t status)
     }
 }
 
-#if defined(CONFIG_RWNX_USB_MODE)
-int ipc_host_msg_push(struct ipc_host_env_tag *env, void *msg_buf, uint16_t len)
-{
-    unsigned char *src;
-    struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)env->pthis;
-    u32_l fdh_val = 0;
-
-    REG_SW_SET_PROFILING(env->pthis, SW_PROF_IPC_MSGPUSH);
-
-    ASSERT_ERR(!env->msga2e_hostid);
-    ASSERT_ERR(round_up(len, 4) <= sizeof(env->shared->msg_a2e_buf.msg));
-
-    // Copy the message into the IPC MSG buffer
-    src = (unsigned char *)((struct rwnx_cmd *)msg_buf)->a2e_msg;
-
-    rwnx_hw->plat->hif_ops->hi_write_sram(src, (unsigned char *)&(env->shared->msg_a2e_buf.msg), len, USB_EP4);
-
-    env->msga2e_hostid = msg_buf;
-
-    // Trigger the irq to send the message to EMB
-    //mutex_lock(&rwnx_hw->plat->a2e_mutex_lock);
-    fdh_val = rwnx_hw->plat->hif_ops->hi_read_word((unsigned int)CMD_DOWN_FIFO_FDN_ADDR, USB_EP4);
-    fdh_val |= 0x1;
-    rwnx_hw->plat->hif_ops->hi_write_word((unsigned int)CMD_DOWN_FIFO_FDN_ADDR, fdh_val, USB_EP4); //msg->1, tx->2
-    rwnx_hw->plat->hif_ops->hi_write_word((unsigned int)CMD_DOWN_FIFO_FDH_ADDR, 1, USB_EP4);
-    //mutex_unlock(&rwnx_hw->plat->a2e_mutex_lock);
-
-    REG_SW_CLEAR_PROFILING(env->pthis, SW_PROF_IPC_MSGPUSH);
-
-    return (0);
-
-}
-
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-int ipc_host_msg_push(struct ipc_host_env_tag *env, void *msg_buf, uint16_t len)
-{
-    unsigned char *src;
-    struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)env->pthis;
-    u32_l fdh_val = 0;
-
-    REG_SW_SET_PROFILING(env->pthis, SW_PROF_IPC_MSGPUSH);
-    printk("%s\n", __func__);
-
-    ASSERT_ERR(!env->msga2e_hostid);
-    ASSERT_ERR(round_up(len, 4) <= sizeof(env->shared->msg_a2e_buf.msg));
-
-    // Copy the message into the IPC MSG buffer
-    src = (unsigned char *)((struct rwnx_cmd *)msg_buf)->a2e_msg;
-
-    rwnx_hw->plat->hif_ops->hi_write_ipc_sram(src, (unsigned char *)&(env->shared->msg_a2e_buf.msg), len);
-
-    env->msga2e_hostid = msg_buf;
-
-    // Trigger the irq to send the message to EMB
-    //mutex_lock(&rwnx_hw->plat->a2e_mutex_lock);
-    fdh_val = rwnx_hw->plat->hif_ops->hi_read_ipc_word((unsigned int)CMD_DOWN_FIFO_FDN_ADDR);
-    fdh_val |= 0x1;
-    rwnx_hw->plat->hif_ops->hi_write_ipc_word((unsigned int)CMD_DOWN_FIFO_FDN_ADDR, fdh_val); //msg->1, tx->2
-    rwnx_hw->plat->hif_ops->hi_write_ipc_word((unsigned int)CMD_DOWN_FIFO_FDH_ADDR, 1);
-    //mutex_unlock(&rwnx_hw->plat->a2e_mutex_lock);
-
-    REG_SW_CLEAR_PROFILING(env->pthis, SW_PROF_IPC_MSGPUSH);
-
-    return (0);
-}
-
-#else
 /**
  ******************************************************************************
  */
 int ipc_host_msg_push(struct ipc_host_env_tag *env, void *msg_buf, uint16_t len)
 {
-    int i;
-    uint32_t *src, *dst;
+    uint32_t *src;
+#if defined(CONFIG_RWNX_PCIE_MODE)
+    int i; uint32_t *dst;
+#else
+    struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)env->pthis;
+#endif
 
     REG_SW_SET_PROFILING(env->pthis, SW_PROF_IPC_MSGPUSH);
 
@@ -738,13 +646,19 @@ int ipc_host_msg_push(struct ipc_host_env_tag *env, void *msg_buf, uint16_t len)
 
     // Copy the message into the IPC MSG buffer
     src = (uint32_t*)((struct rwnx_cmd *)msg_buf)->a2e_msg;
+#if defined(CONFIG_RWNX_PCIE_MODE)
     dst = (uint32_t*)&(env->shared->msg_a2e_buf.msg);
+#endif
 
     // Copy the message in the IPC queue
+#if defined(CONFIG_RWNX_USB_MODE)
+    rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)src, (unsigned char *)&(env->shared->msg_a2e_buf.msg), len, USB_EP4);
+#elif defined(CONFIG_RWNX_SDIO_MODE)
+    rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)src, (unsigned char *)&(env->shared->msg_a2e_buf.msg), len);
+#else
     for (i=0; i<len; i+=4)
-    {
         *dst++ = *src++;
-    }
+#endif
 
     RWNX_INFO("a2e msg hostid=0x%lx\n", msg_buf);
     env->msga2e_hostid = msg_buf;
@@ -756,7 +670,7 @@ int ipc_host_msg_push(struct ipc_host_env_tag *env, void *msg_buf, uint16_t len)
 
     return (0);
 }
-#endif
+
 /**
  ******************************************************************************
  */

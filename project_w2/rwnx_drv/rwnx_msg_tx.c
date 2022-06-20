@@ -2414,9 +2414,9 @@ int rwnx_send_scanu_req(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
 error:
     if (req != NULL)
         rwnx_msg_free(rwnx_hw, req);
-    /* coverity[leaked_storage] - req have already freed */
 #endif
 
+    /* coverity[leaked_storage] - req have already freed */
     return -ENOMEM;
 }
 
@@ -3180,13 +3180,13 @@ int aml_rf_reg_read(struct net_device *dev, int addr)
         return -ENOMEM;
 
     rf_read_param->rf_addr = addr;
-    /* coverity[leaked_storage] - rf_read_param will be freed later */
     rwnx_priv_send_msg(rwnx_hw, rf_read_param, 1, PRIV_RF_READ_RESULT, &ind);
 
     if (ind.rf_addr != addr) {
-         printk("get_rf_reg:%x erro!\n");
+         printk("get_rf_reg:0x%x erro!\n", ind.rf_addr);
     }
 
+    /* coverity[leaked_storage] - rf_read_param will be freed later */
     return ind.rf_data;
 }
 
@@ -3672,6 +3672,7 @@ int rwnx_tko_activate(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif, u8 active)
 
     req->active = active;
 
+    /* coverity[leaked_storage] - req will be freed later */
     return rwnx_priv_send_msg(rwnx_hw, req, 0, 0, NULL);
 }
 
@@ -3752,6 +3753,7 @@ int aml_coex_cmd(struct net_device *dev, u32_l coex_cmd, u32_l cmd_ctxt_1, u32_l
     coex_cmd_param->cmd_txt_1 = cmd_ctxt_1;
     coex_cmd_param->cmd_txt_2 = cmd_ctxt_2;
     printk("%s,%d, coex_cmd: %d, cmd_ctxt_1:%X, cmd_ctxt_2:%X",__func__, __LINE__, coex_cmd, cmd_ctxt_1, cmd_ctxt_2);
+    /* coverity[leaked_storage] - coex_cmd_param will be freed later */
     return rwnx_priv_send_msg(rwnx_hw, coex_cmd_param, 0, 0, NULL);
 }
 
@@ -3768,6 +3770,7 @@ int rwnx_set_pt_calibration(struct rwnx_vif *rwnx_vif, int pt_cali_val)
     memset((void *)pt_calibration, 0,sizeof(struct set_pt_calibration));
     pt_calibration->pt_cali_cfg = (u32_l)pt_cali_val;
 
+    /* coverity[leaked_storage] - pt_calibration will be freed later */
     return rwnx_priv_send_msg(rwnx_hw, pt_calibration, 0, 0, NULL);
 }
 
@@ -3783,6 +3786,7 @@ int rwnx_send_notify_ip(struct rwnx_vif *rwnx_vif,u8_l ip_ver,u8_l*ip_addr)
     notify_ip_addr->vif_idx = rwnx_vif->vif_index;
     notify_ip_addr->ip_ver = ip_ver;
     memcpy(notify_ip_addr->ipv4_addr,ip_addr,IPV4_ADDR_LEN);
+    /* coverity[leaked_storage] - notify_ip_addr will be freed later */
     return rwnx_priv_send_msg(rwnx_hw, notify_ip_addr, 0, 0, NULL);
 }
 

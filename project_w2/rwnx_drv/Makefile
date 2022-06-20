@@ -1,4 +1,4 @@
-RWNX_VERS_NUM=v1.0.0_20220607-b driver:81166e6b92199b91ef1e134e148764d2ac58caa7
+RWNX_VERS_NUM=v1.0.0_20220620-b driver:3b9abe317878aec0c98eccf2c39873f72d2279e6
 #KERNELDIR=/usr/lib/modules/5.8.0-63-generic/build
 PWD=$(shell pwd)
 ifeq ($(ARCH),)

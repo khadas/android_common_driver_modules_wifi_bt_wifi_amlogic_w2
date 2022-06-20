@@ -59,16 +59,15 @@ int rwnx_task(void *data)
         REG_SW_SET_PROFILING(rwnx_hw, SW_PROF_RWNX_IPC_IRQ_HDLR);
         rwnx_hw->plat->ack_irq(rwnx_hw->plat);
 
-        printk("%s status:%08x\n", __func__, ipc_host_get_status(rwnx_hw->ipc_env));
         while ((status = ipc_host_get_status(rwnx_hw->ipc_env))) {
             /* All kinds of IRQs will be handled in one shot (RX, MSG, DBG, ...)
              * this will ack IPC irqs not the cfpga irqs */
             ipc_host_irq(rwnx_hw->ipc_env, status);
         }
 
-        spin_lock(&rwnx_hw->tx_lock);
+        spin_lock_bh(&rwnx_hw->tx_lock);
         rwnx_hwq_process_all(rwnx_hw);
-        spin_unlock(&rwnx_hw->tx_lock);
+        spin_unlock_bh(&rwnx_hw->tx_lock);
 
 #if defined(CONFIG_RWNX_SDIO_MODE)
         enable_irq(rwnx_hw->irq);

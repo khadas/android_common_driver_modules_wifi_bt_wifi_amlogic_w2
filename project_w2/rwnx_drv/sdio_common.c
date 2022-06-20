@@ -48,6 +48,7 @@ unsigned char g_wifi_in_insmod;
 unsigned char *ipc_basic_address = 0;
 
 static DEFINE_MUTEX(wifi_bt_sdio_mutex);
+static DEFINE_MUTEX(wifi_ipc_mutex);
 
 #define AML_BT_WIFI_MUTEX_ON() do {\
     mutex_lock(&wifi_bt_sdio_mutex);\
@@ -55,6 +56,14 @@ static DEFINE_MUTEX(wifi_bt_sdio_mutex);
 
 #define AML_BT_WIFI_MUTEX_OFF() do {\
     mutex_unlock(&wifi_bt_sdio_mutex);\
+} while (0)
+
+#define AML_WIFI_IPC_MUTEX_ON() do {\
+    mutex_lock(&wifi_ipc_mutex);\
+} while (0)
+
+#define AML_WIFI_IPC_MUTEX_OFF() do {\
+    mutex_unlock(&wifi_ipc_mutex);\
 } while (0)
 
 /* protect cmd53 and host sleep request */
@@ -89,8 +98,10 @@ void aml_sdio_read_ipc_sram(unsigned char* buf, unsigned char* addr, SYS_TYPE le
     //printk("%s %d, share addr:0x%08x, base addr:0x%08x, offset addr:0x%08x,\n", __func__, __LINE__,
     //    addr, (unsigned long)addr & 0xfffe0000, (unsigned char *)((unsigned long)addr & 0x0001ffff));
 
+    AML_WIFI_IPC_MUTEX_ON();
     hif_ops->hi_write_reg32(RG_SCFG_SRAM_FUNC, (unsigned long)(addr) & 0xfffe0000);
     hif_ops->hi_read_sram(buf, (unsigned char *)((unsigned long)addr & 0x0001ffff), len);
+    AML_WIFI_IPC_MUTEX_OFF();
 }
 
 void aml_sdio_write_ipc_sram(unsigned char*buf, unsigned char* addr, SYS_TYPE len)
@@ -100,8 +111,10 @@ void aml_sdio_write_ipc_sram(unsigned char*buf, unsigned char* addr, SYS_TYPE le
     //printk("%s %d, share addr:0x%08x, base addr:0x%08x, offset addr:0x%08x,\n", __func__, __LINE__,
     //    addr, (unsigned long)addr & 0xfffe0000, (unsigned char *)((unsigned long)addr & 0x0001ffff));
 
+    AML_WIFI_IPC_MUTEX_ON();
     hif_ops->hi_write_reg32(RG_SCFG_SRAM_FUNC, (unsigned long)(addr) & 0xfffe0000);
     hif_ops->hi_write_sram(buf, (unsigned char *)((unsigned long)addr & 0x0001ffff), len);
+    AML_WIFI_IPC_MUTEX_OFF();
 }
 
 
@@ -113,8 +126,10 @@ unsigned int aml_sdio_read_ipc_word(unsigned int addr)
     //printk("%s %d, share addr:0x%08x, base addr:0x%08x, offset addr:0x%08x,\n", __func__, __LINE__,
     //    addr, (unsigned long)addr & 0xfffe0000, (unsigned char *)((unsigned long)addr & 0x0001ffff));
 
+    AML_WIFI_IPC_MUTEX_ON();
     hif_ops->hi_write_reg32(RG_SCFG_SRAM_FUNC, (unsigned long)(addr) & 0xfffe0000);
     hif_ops->hi_read_sram((unsigned char*)(SYS_TYPE)&regdata, (unsigned char *)((unsigned long)addr & 0x0001ffff), sizeof(unsigned int));
+    AML_WIFI_IPC_MUTEX_OFF();
 
     return regdata;
 }
@@ -127,11 +142,11 @@ void aml_sdio_write_ipc_word(unsigned int addr, unsigned int data)
     //printk("%s %d, share addr:0x%08x, base addr:0x%08x, offset addr:0x%08x,\n", __func__, __LINE__,
     //    addr, (unsigned long)addr & 0xfffe0000, (unsigned char *)((unsigned long)addr & 0x0001ffff));
 
+    AML_WIFI_IPC_MUTEX_ON();
     hif_ops->hi_write_reg32(RG_SCFG_SRAM_FUNC, (unsigned long)(addr) & 0xfffe0000);
     hif_ops->hi_write_sram((unsigned char *)&data, (unsigned char*)((unsigned long)addr & 0x0001ffff), sizeof(unsigned int));
+    AML_WIFI_IPC_MUTEX_OFF();
 }
-
-
 
 unsigned int aml_bt_hi_read_word(unsigned int addr)
 {
@@ -935,6 +950,7 @@ static const struct sdio_device_id aml_sdio[] =
 {
     {SDIO_DEVICE(W2_VENDOR_AMLOGIC,W2_PRODUCT_AMLOGIC) },
     {SDIO_DEVICE(W2_VENDOR_AMLOGIC_EFUSE,W2_PRODUCT_AMLOGIC_EFUSE)},
+    {SDIO_DEVICE(W2s_VENDOR_AMLOGIC_EFUSE,W2s_PRODUCT_AMLOGIC_EFUSE)},
     {}
 };
 
@@ -1133,7 +1149,6 @@ unsigned char aml_download_wifi_fw_img(char *firmware_filename)
 
     // close phy rest
     hif_ops->hi_write_word(RG_WIFI_RST_CTRL, to_sdio);
-    PRINT("RG_SCFG_SRAM_FUNC %lx \n",hif_ops->hi_read_reg32(RG_SCFG_SRAM_FUNC));
 
 #ifdef EFUSE_ENABLE
     efuse_init();

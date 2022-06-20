@@ -70,6 +70,9 @@ extern void aml_wifi_sdio_power_unlock(void);
 //sdio manufacturer info, usually product ID
 #define W2_PRODUCT_AMLOGIC_EFUSE (0x9007)
 
+#define W2s_VENDOR_AMLOGIC_EFUSE 0x1B8E
+#define W2s_PRODUCT_AMLOGIC_EFUSE 0x0600
+
 #define WIFI_SDIO_IF    (0x5000)
 
 /* APB domain, checksum error status, checksum enable, frame flag bypass*/

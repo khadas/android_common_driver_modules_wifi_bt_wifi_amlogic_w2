@@ -378,7 +378,7 @@ static int aml_send_twt_req(struct net_device *dev)
     return rwnx_send_twt_request(rwnx_hw, setup_type, vif_idx, &twt_conf, &twt_setup_cfm);
 }
 
-void aml_print_buf(char* buf, int len)
+void aml_print_buf(char *buf, int len)
 {
     char tmp[PRINT_BUF_SIZE] = {0};
     while (1) {
@@ -387,7 +387,6 @@ void aml_print_buf(char* buf, int len)
             printk("%s", tmp);
             len -= PRINT_BUF_SIZE;
             buf += PRINT_BUF_SIZE;
-            continue;
         } else {
             printk("%s\n", buf);
             break;
@@ -800,6 +799,51 @@ static int aml_get_acs_info(struct net_device *dev)
     struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
 
     aml_print_acs_info(rwnx_hw);
+    return 0;
+}
+
+static int aml_get_chan_list_info(struct net_device *dev)
+{
+    struct rwnx_vif *rwnx_vif = netdev_priv(dev);
+    struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
+    struct wiphy *wiphy = rwnx_hw->wiphy;
+    int i;
+    const struct ieee80211_reg_rule *reg_rule;
+
+    if (wiphy->bands[NL80211_BAND_2GHZ] != NULL) {
+        struct ieee80211_supported_band *b = wiphy->bands[NL80211_BAND_2GHZ];
+        printk("2.4G channels\n");
+        for (i = 0; i < b->n_channels; i++) {
+            if (b->channels[i].flags & IEEE80211_CHAN_DISABLED)
+                continue;
+            reg_rule = freq_reg_info(wiphy, MHZ_TO_KHZ(b->channels[i].center_freq));
+            if (IS_ERR(reg_rule))
+                continue;
+            printk("channel:%d\tfrequency:%d\tmax_bandwidth:%dMHz\t\n",
+                aml_ieee80211_freq_to_chan(b->channels[i].center_freq, NL80211_BAND_2GHZ),
+                b->channels[i].center_freq, KHZ_TO_MHZ(reg_rule->freq_range.max_bandwidth_khz));
+            if (i == MAC_DOMAINCHANNEL_24G_MAX)
+                break;
+        }
+    }
+
+    if (wiphy->bands[NL80211_BAND_5GHZ] != NULL) {
+        struct ieee80211_supported_band *b = wiphy->bands[NL80211_BAND_5GHZ];
+        printk("5G channels:\n");
+        for (i = 0; i < b->n_channels; i++) {
+            if (b->channels[i].flags & IEEE80211_CHAN_DISABLED)
+                continue;
+            reg_rule = freq_reg_info(wiphy, MHZ_TO_KHZ(b->channels[i].center_freq));
+            if (IS_ERR(reg_rule))
+                continue;
+            printk("channel:%d\tfrequency:%d\tmax_bandwidth:%dMHz\t\n",
+                aml_ieee80211_freq_to_chan(b->channels[i].center_freq, NL80211_BAND_5GHZ),
+                b->channels[i].center_freq, KHZ_TO_MHZ(reg_rule->freq_range.max_bandwidth_khz));
+            if (i == MAC_DOMAINCHANNEL_5G_MAX)
+                break;
+        }
+    }
+
     return 0;
 }
 
@@ -1299,6 +1343,9 @@ static int aml_iwpriv_get(struct net_device *dev,
          case AML_LA_DUMP:
             aml_emb_la_dump(dev);
             break;
+         case AML_IWP_GET_CHAN_LIST:
+            aml_get_chan_list_info(dev);
+            break;
         default:
             printk("%s %d param err\n", __func__, __LINE__);
             break;
@@ -1518,6 +1565,9 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_IWP_SET_MACBYPASS,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 4, 0, "set_macbypass"},
+    {
+        AML_IWP_GET_CHAN_LIST,
+        0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_chan_list"},
 };
 #endif
 

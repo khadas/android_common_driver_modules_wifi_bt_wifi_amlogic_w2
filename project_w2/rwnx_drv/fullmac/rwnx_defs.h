@@ -275,6 +275,7 @@ struct rwnx_vif {
     bool tdls_chsw_prohibited;
     int generation;
     u32 filter;
+    u8 is_disconnect;
     union
     {
         struct

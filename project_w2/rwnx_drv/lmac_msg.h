@@ -414,6 +414,7 @@ enum mm_sub_a2e_tag {
     MM_SUB_SET_PT_CALIBRATION,
     MM_SUB_NOTIFY_IP,
     MM_SUB_CALIBRATION,
+    MM_SUB_TX_BUFFER,
     /// the MAX
     MM_SUB_A2E_MAX,
     /// New members cannot be added below
