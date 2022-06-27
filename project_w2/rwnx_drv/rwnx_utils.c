@@ -5,6 +5,8 @@
  *
  * Copyright (C) RivieraWaves 2012-2021
  */
+#include <uapi/linux/sched/types.h>
+
 #include "rwnx_utils.h"
 #include "rwnx_defs.h"
 #include "rwnx_rx.h"
@@ -774,10 +776,16 @@ int rwnx_tx_task(void *data)
     struct rwnx_tx_list * tx_list, *next;
     struct rwnx_sw_txhdr *sw_txhdr;
     struct txdesc_host *txdesc_host = NULL;
+    struct sched_param sch_param;
     unsigned char *frm = NULL;
     int trans_len;
     uint32_t addr;
     int ac = 0;
+    sch_param.sched_priority = 91;
+    sched_setscheduler(current,SCHED_FIFO,&sch_param);
+
+    sch_param.sched_priority = 91;
+    sched_setscheduler(current,SCHED_RR,&sch_param);
 
     while (1) {
         /* wait for work */
@@ -791,7 +799,7 @@ int rwnx_tx_task(void *data)
             sw_txhdr = tx_list->sw_txhdr;
             txdesc_host = &sw_txhdr->desc;
             ac = txdesc_host->ctrl.hwq;
-            addr = 0x6001c760 + (ac * 0x13720) + STRUCT_BUFF_LEN + MAX_HEAD_LEN;
+            addr = 0x6001c760 + (ac * 0x4dc8) + STRUCT_BUFF_LEN + MAX_HEAD_LEN;
 
             if (sw_txhdr->desc.api.host.flags & TXU_CNTRL_AMSDU) {
                 struct rwnx_amsdu_txhdr *amsdu_txhdr, *tmp;

@@ -380,6 +380,7 @@ enum priv_e2a_tag {
     PRIV_DMA_UL_RESULT,
     PRIV_DMA_DL_RESULT,
     PRIV_CONNECT_INFO,
+    PRIV_EFUSE_READ_RESULT,
 
     PRIV_SUB_E2A_MAX,
 };
@@ -415,6 +416,7 @@ enum mm_sub_a2e_tag {
     MM_SUB_NOTIFY_IP,
     MM_SUB_CALIBRATION,
     MM_SUB_TX_BUFFER,
+    MM_SUB_READ_EFUSE,
     /// the MAX
     MM_SUB_A2E_MAX,
     /// New members cannot be added below
@@ -2902,6 +2904,11 @@ struct rf_read_result_ind
 {
     u32_l rf_addr;
     u32_l rf_data;
+};
+
+struct efuse_read_result_ind {
+    u32_l addr;
+    u32_l value;
 };
 
 #ifdef TEST_MODE

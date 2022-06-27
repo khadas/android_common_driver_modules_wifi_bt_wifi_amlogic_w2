@@ -8,6 +8,7 @@
  ******************************************************************************
  */
 #include <linux/interrupt.h>
+#include <uapi/linux/sched/types.h>
 
 #include "rwnx_defs.h"
 #include "ipc_host.h"
@@ -47,7 +48,10 @@ int rwnx_task(void *data)
 {
     struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)data;
     u32 status;
+    struct sched_param sch_param;
 
+    sch_param.sched_priority = 93;
+    sched_setscheduler(current,SCHED_FIFO,&sch_param);
     while (1) {
         /* wait for work */
         if (down_interruptible(&rwnx_hw->rwnx_task_sem) != 0) {

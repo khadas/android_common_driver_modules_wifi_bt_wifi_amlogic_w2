@@ -194,6 +194,7 @@ int aml_pcie_ul_malloc_test(struct rwnx_hw *rwnx_hw, int start_addr, int len, u3
 #endif
 int aml_rf_reg_write(struct net_device *dev, int addr, int value);
 int aml_rf_reg_read(struct net_device *dev, int addr);
+unsigned int aml_efuse_read(struct rwnx_hw *rwnx_hw, u32 addr);
 int aml_scan_hang(struct rwnx_vif *rwnx_vif, int scan_hang);
 int rwnx_send_suspend_req(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif, enum wifi_suspend_state state);
 int rwnx_send_wow_pattern (struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif,

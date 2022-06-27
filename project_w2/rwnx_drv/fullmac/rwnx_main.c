@@ -39,6 +39,9 @@
 #include "fi_cmd.h"
 #include "rwnx_main.h"
 #include "rwnx_regdom.h"
+#include "rwnx_android.h"
+#include "share_mem_map.h"
+
 
 #define RW_DRV_DESCRIPTION  "RivieraWaves 11nac driver for Linux cfg80211"
 #define RW_DRV_COPYRIGHT    "Copyright (C) RivieraWaves 2015-2021"
@@ -686,6 +689,19 @@ static void rwnx_csa_finish(struct work_struct *ws)
     struct rwnx_vif *vif = csa->vif;
     struct rwnx_hw *rwnx_hw = vif->rwnx_hw;
     int error = csa->status;
+#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
+    unsigned int addr;
+#endif
+
+
+#if defined(CONFIG_RWNX_USB_MODE)
+    addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
+    rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)csa->buf.addr, (unsigned char *)(unsigned long)addr, csa->buf.size, USB_EP4);
+
+#elif defined(CONFIG_RWNX_SDIO_MODE)
+    addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
+    rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)csa->buf.addr, (unsigned char *)(unsigned long)addr, csa->buf.size);
+#endif
 
     if (!error)
         error = rwnx_send_bcn_change(rwnx_hw, vif->vif_index, csa->buf.dma_addr,
@@ -1104,13 +1120,11 @@ static int rwnx_set_mac_address(struct net_device *dev, void *addr)
 
 static int rwnx_priv_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
-    //struct rwnx_vif *rwnx_vif = netdev_priv(dev);
+    struct rwnx_vif *rwnx_vif = netdev_priv(dev);
 
-    /* FIXME: android will call SIOCDEVPRIVATE+1, if invokes failed,
-     * it will cause the dynamic p2p interface create failed. */
     switch (cmd) {
         case SIOCDEVPRIVATE + 1:
-            return 0;
+            return rwnx_android_priv_ioctl(rwnx_vif, ifr);
         default:
             break;
     }
@@ -1283,7 +1297,16 @@ static struct wireless_dev *rwnx_interface_add(struct rwnx_hw *rwnx_hw,
     if (type == NL80211_IFTYPE_AP_VLAN)
         memcpy(ndev->dev_addr, params->macaddr, ETH_ALEN);
     else {
-        memcpy(ndev->dev_addr, rwnx_hw->wiphy->perm_addr, ETH_ALEN);
+        if (type == NL80211_IFTYPE_AP) {
+            memcpy(ndev->dev_addr, rwnx_hw->wiphy->addresses[1].addr, ETH_ALEN);
+        } else {
+            memcpy(ndev->dev_addr, rwnx_hw->wiphy->addresses[0].addr, ETH_ALEN);
+            if ((type == NL80211_IFTYPE_P2P_DEVICE) || (type == NL80211_IFTYPE_P2P_CLIENT) ||
+                (type == NL80211_IFTYPE_P2P_GO)) {
+                /* p2p mac address oui may be as 1c:a4:10 | 02 = 1e:a4:10 */
+                ndev->dev_addr[0] |= 2;
+            }
+        }
         ndev->dev_addr[5] ^= vif_idx;
     }
 
@@ -1480,6 +1503,18 @@ int rwnx_cfg80211_change_iface(struct wiphy *wiphy,
     vif->wdev.iftype = type;
     if (params && params->use_4addr != -1)
         vif->use_4addr = params->use_4addr;
+
+    if (type == NL80211_IFTYPE_AP) {
+        memcpy(dev->dev_addr, rwnx_hw->wiphy->addresses[1].addr, ETH_ALEN);
+    } else {
+        memcpy(dev->dev_addr, rwnx_hw->wiphy->addresses[0].addr, ETH_ALEN);
+        if ((type == NL80211_IFTYPE_P2P_DEVICE) || (type == NL80211_IFTYPE_P2P_CLIENT) ||
+            (type == NL80211_IFTYPE_P2P_GO)) {
+            /* p2p mac address oui may be as 1c:a4:10 | 02 = 1e:a4:10 */
+            dev->dev_addr[0] |= 2;
+        }
+        dev->dev_addr[5] ^= vif->drv_vif_index;
+    }
 
     return 0;
 }
@@ -1687,6 +1722,7 @@ static int rwnx_cfg80211_connect(struct wiphy *wiphy, struct net_device *dev,
     struct rwnx_vif *rwnx_vif = netdev_priv(dev);
     struct sm_connect_cfm sm_connect_cfm;
     int error = 0;
+    int err = 0;
 
     RWNX_DBG(RWNX_FN_ENTRY_STR);
 
@@ -1711,17 +1747,34 @@ static int rwnx_cfg80211_connect(struct wiphy *wiphy, struct net_device *dev,
         return -EINVAL;
     }
 #endif
+    if (rwnx_hw->scan_request) {
+        err = rwnx_cancel_scan(rwnx_hw, rwnx_vif);
+        if (err) {
+            printk("cancel scan fail:err = %d\n",err);
+        }
+    } else {
+        rwnx_vif->sta.scan_hang = 1;
+    }
 
     /* Forward the information to the LMAC */
-    if ((error = rwnx_send_sm_connect_req(rwnx_hw, rwnx_vif, sme, &sm_connect_cfm)))
+    if ((error = rwnx_send_sm_connect_req(rwnx_hw, rwnx_vif, sme, &sm_connect_cfm))) {
+        rwnx_vif->sta.scan_hang = 0;
         return error;
+    }
 
     // Check the status
     switch (sm_connect_cfm.status)
     {
         case CO_OK:
+            rwnx_vif->sta.assoc_ssid_len =
+                sme->ssid_len > MAC_SSID_LEN ? MAC_SSID_LEN : sme->ssid_len;
+            memcpy(&rwnx_vif->sta.assoc_ssid, sme->ssid,
+                    rwnx_vif->sta.assoc_ssid_len);
             rwnx_save_assoc_info_for_ft(rwnx_vif, sme);
-            //RWNX_INFO("ssid=%s, center:%d\n",ssid_sprintf(sme->ssid, sme->ssid_len),sme->channel->center_freq);
+            if (sme->ssid != NULL && sme->channel != NULL)
+            {
+                RWNX_INFO("ssid=%s, center:%d\n",ssid_sprintf(sme->ssid, sme->ssid_len),sme->channel->center_freq);
+            }
             error = 0;
             break;
         case CO_BUSY:
@@ -1737,7 +1790,9 @@ static int rwnx_cfg80211_connect(struct wiphy *wiphy, struct net_device *dev,
             error = -EIO;
             break;
     }
-
+    if(error != 0) {
+        rwnx_vif->sta.scan_hang = 0;
+    }
     return error;
 }
 
@@ -1757,7 +1812,7 @@ static int rwnx_cfg80211_disconnect(struct wiphy *wiphy, struct net_device *dev,
     if (rwnx_hw->scan_request) {
         error = rwnx_cancel_scan(rwnx_hw, rwnx_vif);
         if (error) {
-            printk("cancel scan fail:error = %d\n");
+            printk("cancel scan fail:error = %d\n",error);
         }
     }
     rtn = rwnx_send_sm_disconnect_req(rwnx_hw, rwnx_vif, reason_code);
@@ -1820,6 +1875,7 @@ static int rwnx_cfg80211_add_station(struct wiphy *wiphy, struct net_device *dev
         case CO_OK:
         {
             struct rwnx_sta *sta = &rwnx_hw->sta_table[me_sta_add_cfm.sta_idx];
+            struct station_info sta_info;
             int tid;
             sta->aid = params->aid;
 
@@ -1870,7 +1926,7 @@ static int rwnx_cfg80211_add_station(struct wiphy *wiphy, struct net_device *dev
             #define PRINT_STA_FLAG(f)                               \
                 (params->sta_flags_set & BIT(NL80211_STA_FLAG_##f) ? "["#f"]" : "")
 
-            netdev_info(dev, "Add sta %d (%pM) flags=%s%s%s%s%s%s%s",
+            RWNX_INFO("Add sta %d (%pM) flags=%s%s%s%s%s%s%s",
                         sta->sta_idx, mac,
                         PRINT_STA_FLAG(AUTHORIZED),
                         PRINT_STA_FLAG(SHORT_PREAMBLE),
@@ -1880,6 +1936,16 @@ static int rwnx_cfg80211_add_station(struct wiphy *wiphy, struct net_device *dev
                         PRINT_STA_FLAG(TDLS_PEER),
                         PRINT_STA_FLAG(ASSOCIATED));
             #undef PRINT_STA_FLAG
+            memset(&sta_info, 0, sizeof(sta_info));
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 0, 0))
+            sta_info.filled = STATION_INFO_ASSOC_REQ_IES;
+#endif
+            /*FIXME:
+             * need add the connected sta's assoc req ies info,
+             * */
+            sta_info.assoc_req_ies = NULL;
+            sta_info.assoc_req_ies_len = 0;
+            cfg80211_new_sta(dev, mac, &sta_info, GFP_KERNEL);
             break;
         }
         default:
@@ -1910,7 +1976,7 @@ static int rwnx_cfg80211_del_station(struct wiphy *wiphy,
 
     list_for_each_entry_safe(cur, tmp, &rwnx_vif->ap.sta_list, list) {
         if ((!mac) || (!memcmp(cur->mac_addr, mac, ETH_ALEN))) {
-            netdev_info(dev, "Del sta %d (%pM)", cur->sta_idx, cur->mac_addr);
+            RWNX_INFO("Del sta %d (%pM)", cur->sta_idx, cur->mac_addr);
             /* Ensure that we won't process PS change ind */
             spin_lock_bh(&rwnx_hw->cb_lock);
             cur->ps.active = false;
@@ -1934,7 +2000,7 @@ static int rwnx_cfg80211_del_station(struct wiphy *wiphy,
             error = rwnx_send_me_sta_del(rwnx_hw, cur->sta_idx, false);
             if ((error != 0) && (error != -EPIPE))
                 return error;
-
+            cfg80211_del_sta(dev, cur->mac_addr, GFP_ATOMIC);
 #ifdef CONFIG_RWNX_BFMER
             // Disable Beamformer if supported
             rwnx_bfmer_report_del(rwnx_hw, cur);
@@ -2209,6 +2275,9 @@ static int rwnx_cfg80211_change_beacon(struct wiphy *wiphy, struct net_device *d
     struct rwnx_ipc_buf buf;
     u8 *bcn_buf;
     int error = 0;
+#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
+    unsigned int addr;
+#endif
 
     RWNX_DBG(RWNX_FN_ENTRY_STR);
 
@@ -2218,11 +2287,20 @@ static int rwnx_cfg80211_change_beacon(struct wiphy *wiphy, struct net_device *d
         return -ENOMEM;
 
     // Sync buffer for FW
+#if defined(CONFIG_RWNX_PCIE_MODE)
     if ((error = rwnx_ipc_buf_a2e_init(rwnx_hw, &buf, bcn_buf, bcn->len))) {
         netdev_err(dev, "Failed to allocate IPC buf for new beacon\n");
         kfree(bcn_buf);
         return error;
     }
+#elif defined(CONFIG_RWNX_USB_MODE)
+    addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
+    rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len, USB_EP4);
+
+#elif defined(CONFIG_RWNX_SDIO_MODE)
+    addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
+    rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len);
+#endif
 
     // Forward the information to the LMAC
     error = rwnx_send_bcn_change(rwnx_hw, vif->vif_index, buf.dma_addr,
@@ -2998,7 +3076,9 @@ static int rwnx_cfg80211_channel_switch(struct wiphy *wiphy,
     u16 csa_oft[BCN_MAX_CSA_CPT];
     u8 *bcn_buf;
     int i, error = 0;
-
+#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
+        unsigned int addr;
+#endif
 
     if (vif->ap.csa)
         return -EBUSY;
@@ -3027,12 +3107,21 @@ static int rwnx_cfg80211_channel_switch(struct wiphy *wiphy,
             bcn_buf[csa_oft[i]] = 2;
         }
     }
-
+#if defined(CONFIG_RWNX_PCIE_MODE)
     if ((error = rwnx_ipc_buf_a2e_init(rwnx_hw, &buf, bcn_buf, bcn->len))) {
         netdev_err(dev, "Failed to allocate IPC buf for CSA beacon\n");
         kfree(bcn_buf);
         return error;
     }
+#elif defined(CONFIG_RWNX_USB_MODE)
+    addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
+    rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len, USB_EP4);
+
+#elif defined(CONFIG_RWNX_SDIO_MODE)
+    addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
+    rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len);
+#endif
+
 
     /* Build the beacon to use after CSA. It will only be sent to fw once
        CSA is over, but do it before sending the beacon as it must be ready
@@ -4874,7 +4963,7 @@ static struct notifier_block rwnx_ipv6_cb = {
 int rwnx_cfg80211_init(struct rwnx_plat *rwnx_plat, void **platform_data)
 {
     struct rwnx_hw *rwnx_hw;
-    struct rwnx_conf_file init_conf;
+    struct mac_addr mac_addr_conf[2];
     int ret = 0;
     struct wiphy *wiphy;
     struct wireless_dev *wdev;
@@ -4910,11 +4999,6 @@ int rwnx_cfg80211_init(struct rwnx_plat *rwnx_plat, void **platform_data)
         goto err_cache;
     }
 
-    if ((ret = rwnx_parse_configfile(rwnx_hw, RWNX_CONFIG_FW_NAME, &init_conf))) {
-        wiphy_err(wiphy, "rwnx_parse_configfile failed\n");
-        goto err_config;
-    }
-
     rwnx_hw->vif_started = 0;
     rwnx_hw->monitor_vif = RWNX_INVALID_VIF;
 
@@ -4932,7 +5016,6 @@ int rwnx_cfg80211_init(struct rwnx_plat *rwnx_plat, void **platform_data)
 
     rwnx_hw->roc = NULL;
 
-    memcpy(wiphy->perm_addr, init_conf.mac_addr, ETH_ALEN);
     wiphy->mgmt_stypes = rwnx_default_mgmt_stypes;
 
     wiphy->wowlan = &wowlan_stub;
@@ -5013,6 +5096,10 @@ int rwnx_cfg80211_init(struct rwnx_plat *rwnx_plat, void **platform_data)
     spin_lock_init(&rwnx_hw->cb_lock);
 
     printk("%s:%d\n", __func__, __LINE__);
+
+#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
+    rwnx_rxdata_init();
+#endif
     if ((ret = rwnx_platform_on(rwnx_hw, NULL)))
         goto err_platon;
 
@@ -5062,6 +5149,20 @@ int rwnx_cfg80211_init(struct rwnx_plat *rwnx_plat, void **platform_data)
         wiphy_err(wiphy, "Failed to register debugfs entries");
         goto err_debugfs;
     }
+
+    aml_get_chip_id(rwnx_hw);
+
+    if ((ret = rwnx_parse_mac_addr_configfile(rwnx_hw, RWNX_CONFIG_FW_NAME, mac_addr_conf))) {
+        wiphy_err(wiphy, "rwnx_parse_configfile failed\n");
+        goto err_config;
+    }
+    wiphy->addresses = (struct mac_address *)kmalloc(2 * ETH_ALEN, GFP_KERNEL);
+    if (wiphy->addresses == NULL) {
+        wiphy_err(wiphy, "kmalloc failed\n");
+        goto err_config;
+    }
+    wiphy->n_addresses = 2;
+    memcpy(wiphy->addresses, mac_addr_conf, 2 * ETH_ALEN);
 
     rtnl_lock();
 
@@ -5143,7 +5244,11 @@ void rwnx_cfg80211_deinit(struct rwnx_hw *rwnx_hw)
     wiphy_unregister(rwnx_hw->wiphy);
     rwnx_radar_detection_deinit(&rwnx_hw->radar);
     rwnx_platform_off(rwnx_hw, NULL);
+#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
+    rwnx_rxdata_deinit();
+#endif
     kmem_cache_destroy(rwnx_hw->sw_txhdr_cache);
+    rwnx_wiphy_addresses_free(rwnx_hw->wiphy);
     wiphy_free(rwnx_hw->wiphy);
 }
 

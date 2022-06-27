@@ -133,10 +133,19 @@ struct rwnx_defer_rx_cb {
     struct rwnx_vif *vif;
 };
 
+struct rxdata {
+    struct list_head list;
+    unsigned int host_id;
+    unsigned int frame_len;
+    struct sk_buff *skb;
+};
+
 u8 rwnx_unsup_rx_vec_ind(void *pthis, void *hostid);
 u8 rwnx_rxdataind(void *pthis, void *hostid);
 void rwnx_rx_deferred(struct work_struct *ws);
 void rwnx_rx_defer_skb(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
                        struct sk_buff *skb);
+void rwnx_rxdata_init(void);
+void rwnx_rxdata_deinit(void);
 
 #endif /* _RWNX_RX_H_ */

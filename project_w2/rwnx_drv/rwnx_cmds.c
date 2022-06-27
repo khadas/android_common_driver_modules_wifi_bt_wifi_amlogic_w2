@@ -12,6 +12,7 @@
  */
 
 #include <linux/list.h>
+#include <uapi/linux/sched/types.h>
 
 #include "rwnx_cmds.h"
 #include "rwnx_defs.h"
@@ -70,6 +71,10 @@ int rwnx_msg_task(void *data)
     struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)data;
     struct rwnx_cmd_mgr *cmd_mgr = &rwnx_hw->cmd_mgr;
     struct rwnx_cmd *cmd = NULL;
+    struct sched_param sch_param;
+
+    sch_param.sched_priority = 91;
+    sched_setscheduler(current,SCHED_RR,&sch_param);
 
     while (1) {
         if (down_interruptible(&rwnx_hw->rwnx_msg_sem) != 0) {
@@ -215,6 +220,7 @@ static int cmd_mgr_queue(struct rwnx_cmd_mgr *cmd_mgr, struct rwnx_cmd *cmd)
 {
     struct rwnx_hw *rwnx_hw = container_of(cmd_mgr, struct rwnx_hw, cmd_mgr);
     bool defer_push = false;
+    u16 cmd_flags;
 
     RWNX_DBG(RWNX_FN_ENTRY_STR);
     trace_msg_send(cmd->id);
@@ -267,6 +273,9 @@ static int cmd_mgr_queue(struct rwnx_cmd_mgr *cmd_mgr, struct rwnx_cmd *cmd)
 
     list_add_tail(&cmd->list, &cmd_mgr->cmds);
     cmd_mgr->queue_sz++;
+    /* Prevent critical resources kfree by msg ack hw irq,
+       Using local variables */
+    cmd_flags = cmd->flags;
     spin_unlock_bh(&cmd_mgr->lock);
 
     if (!defer_push) {
@@ -275,7 +284,7 @@ static int cmd_mgr_queue(struct rwnx_cmd_mgr *cmd_mgr, struct rwnx_cmd *cmd)
     }
 
     CMD_PRINT(cmd);
-    if (!(cmd->flags & RWNX_CMD_FLAG_NONBLOCK)) {
+    if (!(cmd_flags & RWNX_CMD_FLAG_NONBLOCK)) {
         #ifdef CONFIG_RWNX_FHOST
         if (wait_for_completion_killable(&cmd->complete)) {
             if (cmd->flags & RWNX_CMD_FLAG_WAIT_ACK)
@@ -304,8 +313,6 @@ static int cmd_mgr_queue(struct rwnx_cmd_mgr *cmd_mgr, struct rwnx_cmd *cmd)
             spin_unlock_bh(&cmd_mgr->lock);
         }
         #endif
-    } else {
-        cmd->result = 0;
     }
 
     return 0;

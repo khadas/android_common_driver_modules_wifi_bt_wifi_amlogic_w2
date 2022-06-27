@@ -332,35 +332,12 @@ void ipc_host_pattern_push(struct ipc_host_env_tag *env, struct rwnx_ipc_buf *bu
 int ipc_host_rxbuf_push(struct ipc_host_env_tag *env, struct rwnx_ipc_buf *buf)
 {
     struct ipc_shared_env_tag *shared_env = env->shared;
-#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
-    struct rwnx_plat *rwnx_plat = (((struct rwnx_hw *)env->pthis)->plat);
-#endif
 
 #ifdef CONFIG_RWNX_FULLMAC
-#if defined(CONFIG_RWNX_USB_MODE)
-    rwnx_plat->hif_ops->hi_write_word((unsigned int)&shared_env->host_rxbuf[env->rxbuf_idx].hostid, (unsigned long)RWNX_RXBUFF_HOSTID_GET(buf), USB_EP4);
-    rwnx_plat->hif_ops->hi_write_word((unsigned int)&shared_env->host_rxbuf[env->rxbuf_idx].dma_addr, (unsigned long)buf->dma_addr, USB_EP4);
-
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-    rwnx_plat->hif_ops->hi_write_ipc_word((unsigned int)&shared_env->host_rxbuf[env->rxbuf_idx].hostid, (unsigned long)RWNX_RXBUFF_HOSTID_GET(buf));
-    rwnx_plat->hif_ops->hi_write_ipc_word((unsigned int)&shared_env->host_rxbuf[env->rxbuf_idx].dma_addr, (unsigned long)buf->dma_addr);
-
-#else
     shared_env->host_rxbuf[env->rxbuf_idx].hostid = RWNX_RXBUFF_HOSTID_GET(buf);
     shared_env->host_rxbuf[env->rxbuf_idx].dma_addr = buf->dma_addr;
-#endif
-
-#else
-#if defined(CONFIG_RWNX_USB_MODE)
-    rwnx_plat->hif_ops->hi_write_word((unsigned int)&shared_env->host_rxbuf[env->rxbuf_idx], (unsigned long)buf->dma_addr, USB_EP4);
-
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-    rwnx_plat->hif_ops->hi_write_ipc_word((unsigned int)&shared_env->host_rxbuf[env->rxbuf_idx], (unsigned long)buf->dma_addr);
-
 #else
     shared_env->host_rxbuf[env->rxbuf_idx] = buf->dma_addr;
-
-#endif
     env->rxbuf[env->rxbuf_idx] = buf;
 #endif // CONFIG_RWNX_FULLMAC
 

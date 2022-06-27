@@ -30,11 +30,10 @@ static char *mactrace_path = "/data/la_dump/mactrace";
 # GI=0: long guard interval, GI=1: short guard interval (for HT/VHT)
 # GI=0: 0.8us guard interval, GI=1: 1.6us guard interval, GI=2: 3.2us guard interval (for HE)
 **/
-static int aml_get_mcs_rate_index(enum aml_iwpriv_subcmd type,
+static int aml_get_mcs_rate_index(enum aml_iwpriv_subcmd type,  unsigned int nss,
     unsigned int mcs, unsigned int bw, unsigned int gi)
 {
     int rate_index = RC_AUTO_RATE_INDEX;
-    unsigned int nss = rwnx_mod_params.nss;
 
     switch (type) {
         case AML_IWP_SET_RATE_HT:
@@ -118,11 +117,18 @@ static int aml_set_p2p_noa(struct net_device *dev, int count, int interval, int 
 }
 
 static int aml_set_mcs_fixed_rate(struct net_device *dev, enum aml_iwpriv_subcmd type,
-    unsigned int mcs, unsigned int bw, unsigned int gi)
+    unsigned int nss_mcs, unsigned int bw, unsigned int gi)
 {
     int fix_rate_idx = 0;
+    unsigned int nss = 0;
+    unsigned int mcs = 0;
 
-    fix_rate_idx = aml_get_mcs_rate_index(type, mcs, bw, gi);
+    nss = (nss_mcs >> 16) & 0xff;
+    mcs = nss_mcs & 0xff;
+
+    printk("set fix_rate[nss:%d mcs:%d bw:%d gi:%d]\n", nss, mcs, bw, gi);
+
+    fix_rate_idx = aml_get_mcs_rate_index(type, nss, mcs, bw, gi);
 
     return aml_set_fixed_rate(dev,fix_rate_idx);
 }

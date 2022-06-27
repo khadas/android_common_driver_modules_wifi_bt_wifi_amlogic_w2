@@ -886,6 +886,7 @@ static inline int rwnx_rx_sm_connect_ind(struct rwnx_hw *rwnx_hw,
     const struct ieee_types_extcap *extcap;
 
     RWNX_DBG(RWNX_FN_ENTRY_STR);
+    rwnx_vif->sta.scan_hang = 0;
 
     /* Retrieve IE addresses and lengths */
     req_ie = (const u8 *)ind->assoc_ie_buf;
@@ -979,6 +980,8 @@ static inline int rwnx_rx_sm_connect_ind(struct rwnx_hw *rwnx_hw,
             rwnx_chanctx_link(rwnx_mon_vif, ind->ch_idx, NULL);
         }
 #endif
+    } else {
+        rwnx_external_auth_disable(rwnx_vif);
     }
 
     if (ind->roamed) {

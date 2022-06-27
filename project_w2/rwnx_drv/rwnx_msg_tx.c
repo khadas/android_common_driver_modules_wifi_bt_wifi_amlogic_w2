@@ -412,7 +412,7 @@ static int rwnx_send_msg(struct rwnx_hw *rwnx_hw, const void *msg_params,
         reqid != MM_RESET_CFM && reqid != MM_VERSION_CFM &&
         reqid != MM_START_CFM && reqid != MM_SET_IDLE_CFM &&
         reqid != ME_CONFIG_CFM && reqid != MM_SET_PS_MODE_CFM &&
-        reqid != ME_CHAN_CONFIG_CFM) {
+        reqid != ME_CHAN_CONFIG_CFM && reqid != PRIV_EFUSE_READ_RESULT) {
         printk(KERN_CRIT "%s: bypassing (RWNX_DEV_RESTARTING set) 0x%02x\n",
                __func__, reqid);
         kfree(msg);
@@ -446,8 +446,13 @@ static int rwnx_send_msg(struct rwnx_hw *rwnx_hw, const void *msg_params,
         cmd->flags |= RWNX_CMD_FLAG_CALL_THREAD;
     ret = rwnx_hw->cmd_mgr.queue(&rwnx_hw->cmd_mgr, cmd);
 
-    if (!ret)
-        ret = cmd->result;
+    if (!ret) {
+        if (nonblock) {
+            ret = 0;
+        } else {
+            ret = cmd->result;
+        }
+    }
 
     if (!nonblock)
         kfree(cmd);
@@ -2210,6 +2215,9 @@ int rwnx_send_apm_start_req(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif,
     int var_offset = offsetof(struct ieee80211_mgmt, u.beacon.variable);
     const u8 *var_pos;
     int len, i, error;
+#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
+    unsigned int addr;
+#endif
 
     RWNX_DBG(RWNX_FN_ENTRY_STR);
 
@@ -2255,6 +2263,7 @@ int rwnx_send_apm_start_req(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif,
 #undef IS_BASIC_RATE
 
     // Sync buffer for FW
+#if defined(CONFIG_RWNX_PCIE_MODE)
     if ((error = rwnx_ipc_buf_a2e_init(rwnx_hw, &buf, bcn_buf, bcn->len))) {
         netdev_err(vif->ndev, "Failed to allocate IPC buf for AP Beacon\n");
         kfree(bcn_buf);
@@ -2262,6 +2271,15 @@ int rwnx_send_apm_start_req(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif,
         /* coverity[leaked_storage] - req have already freed */
         return -EIO;
     }
+
+#elif defined(CONFIG_RWNX_USB_MODE)
+    addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
+    rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len, USB_EP4);
+
+#elif defined(CONFIG_RWNX_SDIO_MODE)
+    addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
+    rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len);
+#endif
 
     /* Set parameters for the APM_START_REQ message */
     req->vif_idx = vif->vif_index;
@@ -3188,6 +3206,30 @@ int aml_rf_reg_read(struct net_device *dev, int addr)
 
     /* coverity[leaked_storage] - rf_read_param will be freed later */
     return ind.rf_data;
+}
+
+unsigned int aml_efuse_read(struct rwnx_hw *rwnx_hw, u32 addr)
+{
+    struct get_efuse_req *req = NULL;
+    struct efuse_read_result_ind ind;
+
+    memset(&ind, 0, sizeof(struct efuse_read_result_ind));
+
+    req = rwnx_priv_msg_zalloc(MM_SUB_READ_EFUSE, sizeof(struct get_efuse_req));
+    if (!req)
+        return -ENOMEM;
+
+    memset((void *)req, 0,sizeof(struct get_efuse_req));
+    req->addr = addr;
+
+    /* coverity[leaked_storage] - req will be freed later */
+    rwnx_priv_send_msg(rwnx_hw, req, 1, PRIV_EFUSE_READ_RESULT, &ind);
+    if (ind.addr != addr) {
+         printk("read_efuse:%x erro!\n", ind.addr);
+    }
+    printk("read_efuse:value = %x\n", ind.value);
+
+    return ind.value;
 }
 
 int aml_scan_hang(struct rwnx_vif *rwnx_vif, int scan_hang)

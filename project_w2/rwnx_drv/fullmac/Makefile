@@ -51,6 +51,7 @@ w2-y := rwnx_msg_tx.o          \
                hal_desc.o             \
                rwnx_prealloc.o        \
                rwnx_regdom.o          \
+               rwnx_android.o         \
                rwnx_iwpriv_cmds.o
 
 ifeq ($(INTERFACE_TYPE), usb)

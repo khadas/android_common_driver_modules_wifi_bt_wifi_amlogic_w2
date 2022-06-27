@@ -999,15 +999,63 @@ u8 rwnx_unsup_rx_vec_ind(void *pthis, void *arg) {
  * This function is called for each buffer received by the fw
  *
  */
-uint8_t drv_rxdesc_idx;
 uint32_t g_exit_cnt;
+
+struct list_head rxdata_list;
+struct list_head free_rxdata_list;
+
+void rwnx_rxdata_init(void)
+{
+    int i = 0;
+    struct rxdata *rxdata_free = NULL;
+
+    INIT_LIST_HEAD(&rxdata_list);
+    INIT_LIST_HEAD(&free_rxdata_list);
+
+    for (i = 0; i < IPC_RXDESC_CNT; i++) {
+        rxdata_free = kmalloc(sizeof(struct rxdata), GFP_ATOMIC);
+        if (!rxdata_free) {
+            ASSERT_ERR(0);
+            return;
+        }
+        list_add_tail(&rxdata_free->list, &free_rxdata_list);
+    }
+}
+
+void rwnx_rxdata_deinit(void)
+{
+    struct rxdata *rxdata = NULL;
+    struct rxdata *rxdata_tmp = NULL;
+
+    list_for_each_entry_safe(rxdata, rxdata_tmp, &free_rxdata_list, list)
+        kfree(rxdata);
+}
+
+struct rxdata *rwnx_get_rxdata_from_free_list(void)
+{
+    struct rxdata *rxdata = NULL;
+
+    if (!list_empty(&free_rxdata_list)) {
+        rxdata = list_first_entry(&free_rxdata_list, struct rxdata, list);
+        list_del(&rxdata->list);
+    } else {
+        ASSERT_ERR(0);
+    }
+
+    return rxdata;
+}
+
+void rwnx_put_rxdata_back_to_free_list(struct rxdata *rxdata)
+{
+    list_add_tail(&rxdata->list, &free_rxdata_list);
+}
 
 u8 rwnx_rxdataind(void *pthis, void *arg)
 {
     struct rwnx_hw *rwnx_hw = pthis;
     struct hw_rxhdr *hw_rxhdr;
     struct rwnx_vif *rwnx_vif;
-    struct sk_buff *skb;
+    struct sk_buff *skb = NULL;
     int msdu_offset = sizeof(struct hw_rxhdr) + 2;
     u16_l status;
     unsigned int addr;
@@ -1016,70 +1064,98 @@ u8 rwnx_rxdataind(void *pthis, void *arg)
     struct drv_stat_val reset = {0};
     uint8_t eth_hdr_offset = 0;
 
+    struct rxdata *rxdata = NULL;
+    struct rxdata *rxdata_tmp = NULL;
+
     REG_SW_SET_PROFILING(rwnx_hw, SW_PROF_RWNXDATAIND);
 
-    addr = RXU_STAT_DESC_POOL + STAT_VAL_OFFSET + (drv_rxdesc_idx  * RX_STAT_DESC_LEN);
-    drv_rxdesc_idx = (drv_rxdesc_idx + 1) % IPC_RXDESC_CNT;
+    addr = RXU_STAT_DESC_POOL + STAT_VAL_OFFSET + (rwnx_hw->ipc_env->rxdesc_idx  * RX_STAT_DESC_LEN);
+    rwnx_hw->ipc_env->rxdesc_idx = (rwnx_hw->ipc_env->rxdesc_idx + 1) % IPC_RXDESC_CNT;
 
 #if defined(CONFIG_RWNX_USB_MODE)
-    rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)&buf, (unsigned char *)(unsigned long)addr, sizeof(struct drv_stat_val), USB_EP4);
-
+    rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)&buf,
+        (unsigned char *)(unsigned long)addr, sizeof(struct drv_stat_val), USB_EP4);
 #elif defined(CONFIG_RWNX_SDIO_MODE)
-    rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)&buf, (unsigned char *)(unsigned long)addr, sizeof(struct drv_stat_val));
-
+    rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)&buf,
+        (unsigned char *)(unsigned long)addr, sizeof(struct drv_stat_val));
 #endif
+
     if (!buf.status) {
-      if (drv_rxdesc_idx > 0)
-          drv_rxdesc_idx = (drv_rxdesc_idx - 1) % IPC_RXDESC_CNT;
+      if (rwnx_hw->ipc_env->rxdesc_idx > 0)
+          rwnx_hw->ipc_env->rxdesc_idx = (rwnx_hw->ipc_env->rxdesc_idx - 1) % IPC_RXDESC_CNT;
       else
-          drv_rxdesc_idx = IPC_RXDESC_CNT - 1;
+          rwnx_hw->ipc_env->rxdesc_idx = IPC_RXDESC_CNT - 1;
 
         g_exit_cnt++;
 
         if (g_exit_cnt > 3) {
             g_exit_cnt = 0;
             printk("%s, %d, rx err\n", __func__, __LINE__);
-            drv_rxdesc_idx = (drv_rxdesc_idx + 1) % IPC_RXDESC_CNT;
+            rwnx_hw->ipc_env->rxdesc_idx = (rwnx_hw->ipc_env->rxdesc_idx + 1) % IPC_RXDESC_CNT;
         }
         return -1;
-    } else {
-#if defined(CONFIG_RWNX_USB_MODE)
-        rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)&reset, (unsigned char *)(unsigned long)addr, sizeof(struct drv_stat_val), USB_EP4);
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-        rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)&reset, (unsigned char *)(unsigned long)addr, sizeof(struct drv_stat_val));
-#endif
     }
 
     g_exit_cnt = 0;
 
     eth_hdr_offset = buf.frame_len & 0xff;
     buf.frame_len >>= 8;
-
-    skb = dev_alloc_skb(buf.frame_len + msdu_offset);
-    if (skb == NULL) {
-        printk("%s,%d, skb == NULL\n", __func__, __LINE__);
-        return -ENOMEM;
-    }
-
-#if defined(CONFIG_RWNX_USB_MODE)
-    rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)skb->data, (unsigned char *)(unsigned long)buf.host_id + RX_HEADER_OFFSET, sizeof(struct hw_rxhdr), USB_EP4);
-    rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)skb->data + msdu_offset, (unsigned char *)(unsigned long)buf.host_id + RX_PAYLOAD_OFFSET + eth_hdr_offset, buf.frame_len, USB_EP4);
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-    rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)skb->data, (unsigned char *)(unsigned long)buf.host_id + RX_HEADER_OFFSET, sizeof(struct hw_rxhdr));
-    rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)skb->data + msdu_offset, (unsigned char *)(unsigned long)buf.host_id + RX_PAYLOAD_OFFSET + eth_hdr_offset, buf.frame_len);
-#endif
-
     status = buf.status;
-
-    printk("%s,%d, status %d\n", __func__, __LINE__, status);
-    hw_rxhdr = (struct hw_rxhdr *)skb->data;
-    printk("%s,%d, frame_en %d len %d\n", __func__, __LINE__, buf.frame_len, hw_rxhdr->hwvect.len);
 
     /* Check if we need to delete the buffer */
     if (status & RX_STAT_DELETE) {
-        dev_kfree_skb(skb);
+        list_for_each_entry_safe(rxdata, rxdata_tmp, &rxdata_list, list) {
+            if (rxdata->host_id == buf.host_id) {
+                list_del(&rxdata->list);
+                dev_kfree_skb(rxdata->skb);
+                rwnx_put_rxdata_back_to_free_list(rxdata);
+                break;
+            }
+        }
         goto end;
     }
+
+    if (status != RX_STAT_FORWARD) {
+        skb = dev_alloc_skb(buf.frame_len + msdu_offset);
+
+        if (skb == NULL) {
+            printk("%s,%d, skb == NULL\n", __func__, __LINE__);
+            return -ENOMEM;
+        }
+
+#if defined(CONFIG_RWNX_USB_MODE)
+        rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)skb->data, (unsigned char *)(unsigned long)buf.host_id + RX_HEADER_OFFSET, sizeof(struct hw_rxhdr), USB_EP4);
+        rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)skb->data + msdu_offset, (unsigned char *)(unsigned long)buf.host_id + RX_PAYLOAD_OFFSET + eth_hdr_offset, buf.frame_len, USB_EP4);
+#elif defined(CONFIG_RWNX_SDIO_MODE)
+        rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)skb->data, (unsigned char *)(unsigned long)buf.host_id + RX_HEADER_OFFSET, sizeof(struct hw_rxhdr));
+        rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)skb->data + msdu_offset, (unsigned char *)(unsigned long)buf.host_id + RX_PAYLOAD_OFFSET + eth_hdr_offset, buf.frame_len);
+#endif
+    }
+
+    if (status == RX_STAT_ALLOC) {
+        rxdata = rwnx_get_rxdata_from_free_list();
+        rxdata->host_id = buf.host_id;
+        rxdata->frame_len = buf.frame_len;
+        rxdata->skb = skb;
+        list_add_tail(&rxdata->list, &rxdata_list);
+        goto end;
+    }
+
+    if (status == RX_STAT_FORWARD) {
+        list_for_each_entry_safe(rxdata, rxdata_tmp, &rxdata_list, list) {
+            if (rxdata->host_id == buf.host_id) {
+                list_del(&rxdata->list);
+                buf.frame_len = rxdata->frame_len;
+                skb = rxdata->skb;
+                rwnx_put_rxdata_back_to_free_list(rxdata);
+                break;
+            }
+        }
+    }
+
+    hw_rxhdr = (struct hw_rxhdr *)skb->data;
+    printk("%s,%d, frame_en %d len %d, status %d\n",
+        __func__, __LINE__, buf.frame_len, hw_rxhdr->hwvect.len, status);
 
     /* Check if we need to forward the buffer coming from a monitor interface */
     if (status & RX_STAT_MONITOR) {
@@ -1237,7 +1313,6 @@ check_len_update:
                                &hw_rxhdr->hwvect.rx_vect2);
 
         skb_reserve(skb, msdu_offset);
-        printk("%s,%d\n", __func__, __LINE__);
         hw_rxhdr->hwvect.len = buf.frame_len;
         skb_put(skb, le32_to_cpu(hw_rxhdr->hwvect.len));
 
@@ -1284,6 +1359,12 @@ check_len_update:
 
 end:
     REG_SW_CLEAR_PROFILING(rwnx_hw, SW_PROF_RWNXDATAIND);
+
+#if defined(CONFIG_RWNX_USB_MODE)
+    rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)&reset, (unsigned char *)(unsigned long)addr, sizeof(struct drv_stat_val), USB_EP4);
+#elif defined(CONFIG_RWNX_SDIO_MODE)
+    rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)&reset, (unsigned char *)(unsigned long)addr, sizeof(struct drv_stat_val));
+#endif
 
     return 0;
 }

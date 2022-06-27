@@ -10,6 +10,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/etherdevice.h>
 #include <net/sock.h>
+#include <uapi/linux/sched/types.h>
 
 #include "rwnx_defs.h"
 #include "rwnx_tx.h"
@@ -1372,8 +1373,12 @@ int rwnx_tx_cfm_task(void *data)
     struct rwnx_hwq *hwq;
     struct rwnx_txq *txq;
     struct tx_cfm_tag reset = {0};
+    struct sched_param sch_param;
     unsigned int *drv_txcfm_idx = &rwnx_hw->ipc_env->txcfm_idx;
     unsigned int addr;
+
+    sch_param.sched_priority = 91;
+    sched_setscheduler(current,SCHED_RR,&sch_param);
 
     while (1) {
         /* wait for work */
@@ -1385,7 +1390,7 @@ int rwnx_tx_cfm_task(void *data)
         }
 
         while(1) {
-            addr = TX_HW_DESC + (*drv_txcfm_idx * TX_CFM_LEN);
+            addr = SRAM_TXCFM_START_ADDR + (*drv_txcfm_idx * sizeof(struct tx_cfm_tag));
 #if defined(CONFIG_RWNX_USB_MODE)
             rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)&cfm, (unsigned char *)(unsigned long)addr, sizeof(cfm), USB_EP4);
 
@@ -1393,7 +1398,8 @@ int rwnx_tx_cfm_task(void *data)
             rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)&cfm, (unsigned char *)(unsigned long)addr, sizeof(cfm));
 
 #endif
-            *drv_txcfm_idx = (*drv_txcfm_idx + 1) % IPC_TXCFM_CNT;
+            //printk("%s, addr=%x, hostid=%x, idx=%x\n", __func__, addr, cfm.hostid, *drv_txcfm_idx);
+            *drv_txcfm_idx = (*drv_txcfm_idx + 1) % SRAM_TXCFM_CNT;
 
             /* Check host id in the confirmation. */
             /* If 0 it means that this confirmation has not yet been updated by firmware */
@@ -1402,9 +1408,9 @@ int rwnx_tx_cfm_task(void *data)
 
             if (!skb) {
                 if (*drv_txcfm_idx > 0)
-                    *drv_txcfm_idx = (*drv_txcfm_idx - 1) % IPC_TXCFM_CNT;
+                    *drv_txcfm_idx = (*drv_txcfm_idx - 1) % SRAM_TXCFM_CNT;
                 else
-                    *drv_txcfm_idx = IPC_TXCFM_CNT - 1;
+                    *drv_txcfm_idx = SRAM_TXCFM_CNT - 1;
 
                 break;
             } else {
@@ -1441,7 +1447,7 @@ int rwnx_tx_cfm_task(void *data)
             } else if ((txq->idx != TXQ_INACTIVE) && cfm.status.sw_retry_required) {
                 /* firmware postponed this buffer */
                 rwnx_tx_retry(rwnx_hw, skb, sw_txhdr, cfm.status);
-                return 0;
+                break;
             }
 
             trace_skb_confirm(skb, txq, hwq, &cfm);

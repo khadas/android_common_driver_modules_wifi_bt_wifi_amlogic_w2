@@ -12,12 +12,15 @@
 
 #include "rwnx_defs.h"
 #include "rwnx_cfgfile.h"
+#include "rwnx_msg_tx.h"
 
 /**
  *
  */
 
-#define MAC_FMT "MAC_ADDR=%02x:%02x:%02x:%02x:%02x:%02x\n"
+#define STA_MAC_FMT "STA_MAC_ADDR=%02x:%02x:%02x:%02x:%02x:%02x\n"
+#define AP_MAC_FMT "AP_MAC_ADDR=%02x:%02x:%02x:%02x:%02x:%02x\n"
+
 #define MAC_ARG(x) ((unsigned char*)(x))[0],((unsigned char*)(x))[1],\
                     ((unsigned char*)(x))[2],((unsigned char*)(x))[3],\
                     ((unsigned char*)(x))[4],((unsigned char*)(x))[5]
@@ -234,7 +237,7 @@ bool aml_char_is_hex_digit(char chTmp)
     }
 }
 
-u32 aml_read_macaddr_from_file(const char *path, u8 *buf)
+u32 aml_read_macaddr_from_file(const char *path, u8 *buf, u8 type)
 {
     u32 i;
     u8 temp[3];
@@ -243,6 +246,15 @@ u32 aml_read_macaddr_from_file(const char *path, u8 *buf)
     u8 file_data[FILE_DATA_LEN] = {0};
     u32 read_size;
     u8 addr[ETH_ALEN];
+    u32 offset;
+
+    if (type == MAC_AP) {
+        offset = PARSE_AP_MAC_DIGIT_BASE;
+    } else if (type == MAC_STA) {
+        offset = PARSE_STA_MAC_DIGIT_BASE;
+    } else {
+        printk("%s type error\n", __func__);
+    }
 
     read_size = aml_retrieve_from_file(path, file_data, FILE_DATA_LEN);
     if (read_size != FILE_DATA_LEN) {
@@ -253,19 +265,19 @@ u32 aml_read_macaddr_from_file(const char *path, u8 *buf)
     temp[2] = 0; /* end of string '\0' */
 
     for (i = 0 ; i < ETH_ALEN ; i++) {
-        if (aml_char_is_hex_digit(file_data[PARSE_DIGIT_BASE + i * 3]) == false
-            || aml_char_is_hex_digit(file_data[PARSE_DIGIT_BASE + i * 3 + 1]) == false) {
+        if (aml_char_is_hex_digit(file_data[offset + i * 3]) == false
+            || aml_char_is_hex_digit(file_data[offset + i * 3 + 1]) == false) {
             printk("%s invalid 8-bit hex format for address offset:%u\n", __func__, i);
             goto exit;
         }
 
-        if (i < ETH_ALEN - 1 && file_data[PARSE_DIGIT_BASE + i * 3 + 2] != ':') {
+        if (i < ETH_ALEN - 1 && file_data[offset + i * 3 + 2] != ':') {
             printk("%s invalid separator after address offset:%u\n", __func__, i);
             goto exit;
         }
 
-        temp[0] = file_data[PARSE_DIGIT_BASE + i * 3];
-        temp[1] = file_data[PARSE_DIGIT_BASE + i * 3 + 1];
+        temp[0] = file_data[offset + i * 3];
+        temp[1] = file_data[offset + i * 3 + 1];
         if (sscanf(temp, "%hhx", &addr[i]) != 1) {
             printk("%s sscanf fail for address offset:0x%03x\n", __func__, i);
             goto exit;
@@ -351,52 +363,106 @@ int rwnx_parse_configfile(struct rwnx_hw *rwnx_hw, const char *filename,
 }
 #endif
 
+void rwnx_wiphy_addresses_free(struct wiphy *wiphy)
+{
+    if (wiphy->addresses != NULL) {
+        kfree(wiphy->addresses);
+    }
+}
+
+int aml_get_chip_id(struct rwnx_hw *rwnx_hw)
+{
+    int ret = false;
+
+    unsigned int chip_id_l = 0;
+    unsigned int chip_id_h = 0;
+    unsigned char chip_id_buf[23];
+
+    chip_id_l = aml_efuse_read(rwnx_hw, CHIP_ID_EFUASE_L);
+    printk("efuse addr:%08x, chip_id is :%08x\n", CHIP_ID_EFUASE_L, chip_id_l);
+    chip_id_h = aml_efuse_read(rwnx_hw, CHIP_ID_EFUASE_H);
+    printk("efuse addr:%08x, chip_id is :%08x\n", CHIP_ID_EFUASE_H, chip_id_h);
+
+    sprintf(chip_id_buf, CHIP_ID_F, chip_id_h & 0xffff, chip_id_l);
+    if (aml_store_to_file(RWNX_WIFI_MAC_ADDR_PATH, chip_id_buf, strlen(chip_id_buf)) > 0) {
+        printk("write the chip_id to wifimac.txt \n");
+        ret = true;
+    }
+    return ret;
+}
+
 /**
  * Parse the Config file WiFi mac addr used at init time
  */
-int rwnx_parse_configfile(struct rwnx_hw *rwnx_hw, const char *filename,
-                          struct rwnx_conf_file *config)
+int rwnx_parse_mac_addr_configfile(struct rwnx_hw *rwnx_hw, const char *filename,
+                          struct mac_addr *mac_addr_conf)
 
 {
-    u8 mac_addr[ETH_ALEN] = { 0x1c, 0xa4, 0x10, 0x58, 0x00, 0xcc };
-    u64 timestamp;
-    u8 cbuf[50];
+    u8 sta_mac_addr[ETH_ALEN] = { 0x1c, 0xa4, 0x10, 0x58, 0x00, 0xcc };
+    u8 ap_mac_addr[ETH_ALEN] = { 0x1c, 0xa4, 0x10, 0x68, 0x11, 0xbb };
+    u64 randNum;
+    u8 cbuf[BUF_LEN_128];
 
     RWNX_DBG(RWNX_FN_ENTRY_STR);
 
-    if (aml_read_macaddr_from_file(RWNX_WIFI_MAC_ADDR_PATH, mac_addr) == true) {
-        printk("%s:%d "MAC_FMT"\n", __func__, __LINE__, MAC_ARG(mac_addr));
+    if (aml_read_macaddr_from_file(RWNX_WIFI_MAC_ADDR_PATH, sta_mac_addr, MAC_STA) == true &&
+        aml_read_macaddr_from_file(RWNX_WIFI_MAC_ADDR_PATH, ap_mac_addr, MAC_AP) == true) {
+        printk("%s:%d "STA_MAC_FMT"\n", __func__, __LINE__, MAC_ARG(sta_mac_addr));
+        printk("%s:%d "AP_MAC_FMT"\n", __func__, __LINE__, MAC_ARG(ap_mac_addr));
     } else {
         /*
             todo: read efuse create mac addr.
         */
-        timestamp = get_jiffies_64();
-        mac_addr[3] = (timestamp & 0xff);
-        mac_addr[4] = ((timestamp >> 2) & 0xff);
-        mac_addr[5] = ((timestamp >> 4) & 0xff);
-        printk("%s:%d "MAC_FMT"\n", __func__, __LINE__, MAC_ARG(mac_addr));
+        get_random_bytes(&randNum, sizeof(u64));
+        sta_mac_addr[3] = (randNum & 0xff);
+        sta_mac_addr[4] = ((randNum >> 2) & 0xff);
+        sta_mac_addr[5] = ((randNum >> 4) & 0xff);
 
-        aml_retrieve_from_file(RWNX_WIFI_MAC_ADDR_PATH, cbuf, 48);
-        sprintf(cbuf, MAC_FMT, mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+        get_random_bytes(&randNum, sizeof(u64));
+        ap_mac_addr[3] = (randNum & 0xff);
+        ap_mac_addr[4] = ((randNum >> 2) & 0xff);
+        ap_mac_addr[5] = ((randNum >> 4) & 0xff);
+
+        aml_retrieve_from_file(RWNX_WIFI_MAC_ADDR_PATH, cbuf, BUF_LEN_128);
+        sprintf(cbuf + 21, STA_MAC_FMT, sta_mac_addr[0], sta_mac_addr[1], sta_mac_addr[2],
+                sta_mac_addr[3], sta_mac_addr[4], sta_mac_addr[5]);
+        sprintf(cbuf + 52, AP_MAC_FMT, ap_mac_addr[0], ap_mac_addr[1], ap_mac_addr[2],
+                ap_mac_addr[3], ap_mac_addr[4], ap_mac_addr[5]);
         if (aml_store_to_file(RWNX_WIFI_MAC_ADDR_PATH, cbuf, strlen(cbuf)) > 0) {
             printk("write the random mac to wifimac.txt\n");
         }
     }
 
-    if (mac_addr[0] & 0x3) {
-        printk("change the mac addr from [0x%x] ", mac_addr[0]);
-        mac_addr[0] &= ~0x3;
-        printk("to [0x%x] \n", mac_addr[0]);
+    if (sta_mac_addr[0] & 0x3) {
+        printk("change the mac addr from [0x%x] ", sta_mac_addr[0]);
+        sta_mac_addr[0] &= ~0x3;
+        printk("to [0x%x] \n", sta_mac_addr[0]);
 
-        aml_retrieve_from_file(RWNX_WIFI_MAC_ADDR_PATH, cbuf, 48);
-        sprintf(cbuf, MAC_FMT, mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+        aml_retrieve_from_file(RWNX_WIFI_MAC_ADDR_PATH, cbuf, BUF_LEN_128);
+        sprintf(cbuf + 21, STA_MAC_FMT, sta_mac_addr[0], sta_mac_addr[1], sta_mac_addr[2],
+                sta_mac_addr[3], sta_mac_addr[4], sta_mac_addr[5]);
         if (aml_store_to_file(RWNX_WIFI_MAC_ADDR_PATH, cbuf, strlen(cbuf)) > 0) {
-            printk("write the random mac to wifimac.txt\n");
+            printk("write the sta random mac to wifimac.txt\n");
         }
     }
-    memcpy(config->mac_addr, mac_addr, ETH_ALEN);
+    if (ap_mac_addr[0] & 0x3) {
+        printk("change the mac addr from [0x%x] ", ap_mac_addr[0]);
+        ap_mac_addr[0] &= ~0x3;
+        printk("to [0x%x] \n", ap_mac_addr[0]);
 
-    RWNX_DBG("MAC Address is:\n%pM\n", config->mac_addr);
+        aml_retrieve_from_file(RWNX_WIFI_MAC_ADDR_PATH, cbuf, BUF_LEN_128);
+        sprintf(cbuf + 52, AP_MAC_FMT, ap_mac_addr[0], ap_mac_addr[1], ap_mac_addr[2],
+                ap_mac_addr[3], ap_mac_addr[4], ap_mac_addr[5]);
+        if (aml_store_to_file(RWNX_WIFI_MAC_ADDR_PATH, cbuf, strlen(cbuf)) > 0) {
+            printk("write the softap random mac to wifimac.txt\n");
+        }
+    }
+
+    memcpy(mac_addr_conf[0].array, sta_mac_addr, ETH_ALEN);
+    memcpy(mac_addr_conf[1].array, ap_mac_addr, ETH_ALEN);
+
+    RWNX_DBG("STA MAC Address is:\n%pM\n", mac_addr_conf[0].array);
+    RWNX_DBG("AP MAC Address is:\n%pM\n", mac_addr_conf[1].array);
 
     return 0;
 }

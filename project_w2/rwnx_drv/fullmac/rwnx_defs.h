@@ -44,6 +44,12 @@
 
 #define PS_SP_INTERRUPTED  255
 
+/// Maximum size of a beacon frame
+#define NX_BCNFRAME_LEN 512
+
+#define BCN_TXLBUF_TAG_LEN 252
+
+
 // Maximum number of AP_VLAN interfaces allowed.
 // At max we can have one AP_VLAN per station, but we also limit the
 // maximum number of interface to 16 (to fit in avail_idx_map)
@@ -289,6 +295,8 @@ struct rwnx_vif {
             u8 scan_hang;
             u16 scan_duration;
             u8 cancel_scan_cfm;
+            u8 assoc_ssid[MAC_SSID_LEN];
+            int assoc_ssid_len;
         } sta;
         struct
         {

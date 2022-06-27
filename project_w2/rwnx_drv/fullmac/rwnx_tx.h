@@ -47,6 +47,10 @@
 #define TXU_CNTRL_TDLS         BIT(11)
 #define TXU_CNTRL_REUSE_SN     BIT(15)
 
+
+#define SRAM_TXCFM_START_ADDR  0xa10080
+#define SRAM_TXCFM_CNT         128
+
 extern const int rwnx_tid2hwq[IEEE80211_NUM_TIDS];
 
 /**

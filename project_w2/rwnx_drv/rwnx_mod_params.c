@@ -1145,9 +1145,12 @@ int rwnx_handle_dynparams(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
     if (ret)
         return ret;
 
+#if defined(CONFIG_RWNX_PCIE_MODE)
     /* Allocate the RX buffers according to the maximum AMSDU RX size */
     ret = rwnx_ipc_rxbuf_init(rwnx_hw,
                               (4 * (rwnx_hw->mod_params->amsdu_rx_max + 1) + 1) * 1024);
+#endif
+
     if (ret) {
         wiphy_err(wiphy, "Cannot allocate the RX buffers\n");
         return ret;
