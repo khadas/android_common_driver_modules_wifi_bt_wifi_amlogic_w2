@@ -45,7 +45,6 @@ unsigned char g_sdio_wifi_bt_alive;
 unsigned char g_sdio_driver_insmoded;
 unsigned char g_sdio_after_porbe;
 unsigned char g_wifi_in_insmod;
-unsigned char *ipc_basic_address = 0;
 
 static DEFINE_MUTEX(wifi_bt_sdio_mutex);
 static DEFINE_MUTEX(wifi_ipc_mutex);
@@ -1020,14 +1019,14 @@ EXPORT_SYMBOL(set_wifi_bt_sdio_driver_bit);
 EXPORT_SYMBOL(g_hwif_sdio);
 EXPORT_SYMBOL(g_hif_sdio_ops);
 
-static int aml_sdio_insmod(void)
+int aml_sdio_insmod(void)
 {
     aml_sdio_init();
     printk("%s(%d) start...\n",__func__, __LINE__);
     return 0;
 }
 
-static void aml_sdio_rmmod(void)
+void aml_sdio_rmmod(void)
 {
     aml_sdio_exit();
 }
@@ -1318,11 +1317,7 @@ unsigned char aml_download_wifi_fw_img(char *firmware_filename)
     return true;
 }
 
-
+EXPORT_SYMBOL(aml_sdio_insmod);
+EXPORT_SYMBOL(aml_sdio_rmmod);
 EXPORT_SYMBOL(aml_download_wifi_fw_img);
 EXPORT_SYMBOL(aml_priv_to_func);
-EXPORT_SYMBOL(ipc_basic_address);
-
-module_init(aml_sdio_insmod);
-module_exit(aml_sdio_rmmod);
-MODULE_LICENSE("GPL");

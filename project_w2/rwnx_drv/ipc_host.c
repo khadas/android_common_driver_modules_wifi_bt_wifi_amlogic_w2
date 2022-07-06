@@ -336,6 +336,10 @@ int ipc_host_rxbuf_push(struct ipc_host_env_tag *env, struct rwnx_ipc_buf *buf)
 #ifdef CONFIG_RWNX_FULLMAC
     shared_env->host_rxbuf[env->rxbuf_idx].hostid = RWNX_RXBUFF_HOSTID_GET(buf);
     shared_env->host_rxbuf[env->rxbuf_idx].dma_addr = buf->dma_addr;
+    if ((shared_env->host_rxbuf[env->rxbuf_idx].hostid == 0)
+        || (shared_env->host_rxbuf[env->rxbuf_idx].hostid > RWNX_RXBUFF_MAX)) {
+        RWNX_INFO("hostid invalid:%x\n",shared_env->host_rxbuf[env->rxbuf_idx].hostid);
+    }
 #else
     shared_env->host_rxbuf[env->rxbuf_idx] = buf->dma_addr;
     env->rxbuf[env->rxbuf_idx] = buf;

@@ -60,6 +60,15 @@
 #define NX_ITF_MAX (NX_VIRT_DEV_MAX + MAX_AP_VLAN_ITF)
 #define WIFI_CONF_PATH "/vendor/etc/wifi/w2"
 
+#define TXBUF_START_ADDR   0x6001c760
+#define TXDESC_START_ADDR  0x6001134C
+
+#define STRUCT_BUFF_LEN   252
+#define MAX_HEAD_LEN      92
+#define MAX_TAIL_LEN      20
+#define CO_ALIGN4_HI(val) (((val)+3)&~3)
+#define TX_BUFFER_POOL_SIZE  0x4dc8
+
 
 enum wifi_module_sn {
       MODULE_ITON = 0X1,
@@ -653,6 +662,7 @@ enum wifi_suspend_state {
  * @debugfs: Debug FS entries
  * @stats: global statistics
  */
+
 struct rwnx_hw {
     struct device *dev;
 
@@ -729,6 +739,10 @@ struct rwnx_hw {
     struct radar_pulse_array_desc g_pulses;
     struct list_head tx_desc_save;
     int radar_pulse_index;
+    struct list_head tx_buf_free_list;
+    struct list_head tx_buf_used_list;
+    spinlock_t tx_buf_free_lock;
+    spinlock_t tx_buf_used_lock;
 
     struct task_struct *rwnx_task;
     struct task_struct *rwnx_tx_task;

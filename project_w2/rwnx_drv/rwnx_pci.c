@@ -77,7 +77,7 @@ static int rwnx_pci_probe(struct pci_dev *pci_dev,
         printk("%s:%d %x\n", __func__, __LINE__, PCI_VENDOR_ID_XILINX);
         ret = rwnx_v7_platform_init(pci_dev, &g_rwnx_plat_pci);
     }
-    else if ((pci_id->vendor == 0x1B8E) || (pci_id->vendor == 0))
+    else if ((pci_id->vendor == 0x1B8E) || (pci_id->vendor == 0) || (pci_id->vendor == W2p_VENDOR_AMLOGIC_EFUSE))
     {
         printk("%s:%d pcie vendor id %x\n", __func__, __LINE__, pci_id->vendor);
         ret = rwnx_v7_platform_init(pci_dev, &g_rwnx_plat_pci);
@@ -175,14 +175,11 @@ void aml_pci_rmmod(void)
 
 
 EXPORT_SYMBOL(aml_pci_insmod);
+EXPORT_SYMBOL(aml_pci_rmmod);
 EXPORT_SYMBOL(g_rwnx_plat_pci);
 EXPORT_SYMBOL(g_pci_driver_insmoded);
 EXPORT_SYMBOL(g_pci_after_probe);
 #ifndef CONFIG_RWNX_FPGA_PCIE
 EXPORT_SYMBOL(pcie_ep_addr_range);
 #endif
-module_init(aml_pci_insmod);
-module_exit(aml_pci_rmmod);
-
-MODULE_LICENSE("GPL");
 

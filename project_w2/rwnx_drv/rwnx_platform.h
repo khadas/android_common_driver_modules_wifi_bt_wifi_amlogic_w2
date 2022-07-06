@@ -17,8 +17,6 @@
 #include "sdio_common.h"
 
 #define RWNX_CONFIG_FW_NAME             "rwnx_settings.ini"
-#define RWNX_WIFI_MAC_ADDR_PATH          "/data/vendor/wifi/wifimac.txt"
-
 #define RWNX_PHY_CONFIG_TRD_NAME        "rwnx_trident.ini"
 #define RWNX_PHY_CONFIG_KARST_NAME      "rwnx_karst.ini"
 #define RWNX_AGC_FW_NAME                "agcram.bin"

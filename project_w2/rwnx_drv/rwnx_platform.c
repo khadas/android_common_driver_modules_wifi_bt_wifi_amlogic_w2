@@ -26,6 +26,8 @@
 #include "chip_ana_reg.h"
 #include "wifi_intf_addr.h"
 #include "../common/wifi_top_addr.h"
+#include "rwnx_utils.h"
+
 
 extern unsigned char auc_driver_insmoded;
 extern struct usb_device *g_udev;
@@ -1694,6 +1696,8 @@ int rwnx_platform_on(struct rwnx_hw *rwnx_hw, void *config)
     }
     INIT_LIST_HEAD(&rwnx_hw->tx_desc_save);
 
+    rwnx_txbuf_list_init(rwnx_hw);
+
 #if defined(CONFIG_RWNX_SDIO_MODE)
     if ((ret = rwnx_plat->enable(rwnx_hw)))
         return ret;
@@ -1731,6 +1735,7 @@ int rwnx_platform_on(struct rwnx_hw *rwnx_hw, void *config)
     int ret;
     RG_DPLL_A6_FIELD_T rg_dpll_a6;
     unsigned int mac_clk_reg;
+    u32 temp_data;
 
     if (rwnx_plat->enabled)
         return 0;
@@ -1748,6 +1753,18 @@ int rwnx_platform_on(struct rwnx_hw *rwnx_hw, void *config)
     //change cpu clock to 240M
     RWNX_REG_WRITE(CPU_CLK_VALUE, rwnx_plat,
                    RWNX_ADDR_MAC_PHY, CPU_CLK_REG_ADDR);
+
+    // pcie Priority adjustment
+    RWNX_REG_WRITE(0xF7468800, rwnx_plat, RWNX_ADDR_MAC_PHY, MAC_AHBABT_CONTROL0);
+    temp_data = RWNX_REG_READ(rwnx_plat, RWNX_ADDR_MAC_PHY, MAC_AHBABT_CONTROL1);
+    temp_data &= ~0x7;
+    RWNX_REG_WRITE(temp_data, rwnx_plat, RWNX_ADDR_MAC_PHY, MAC_AHBABT_CONTROL1);
+    temp_data |= 0x6;
+    RWNX_REG_WRITE(temp_data, rwnx_plat, RWNX_ADDR_MAC_PHY, MAC_AHBABT_CONTROL1);
+
+    printk("%s:%d, reg:0x00a07028's value %x, reg:0x00a0702c's value %x", __func__, __LINE__,
+           RWNX_REG_READ(rwnx_plat, RWNX_ADDR_MAC_PHY, MAC_AHBABT_CONTROL0),
+           RWNX_REG_READ(rwnx_plat, RWNX_ADDR_MAC_PHY, MAC_AHBABT_CONTROL1));
 
     //change mac clock to 240M
     mac_clk_reg = RWNX_REG_READ(rwnx_plat, RWNX_ADDR_MAC_PHY, RG_INTF_MACCORE_CLK);
@@ -1847,7 +1864,9 @@ void rwnx_platform_off(struct rwnx_hw *rwnx_hw, void **config)
     rwnx_ipc_deinit(rwnx_hw);
 
     rwnx_platform_reset(rwnx_hw->plat);
-
+#if !defined(CONFIG_RWNX_PCIE_MODE)
+    rwnx_txbuf_list_deinit(rwnx_hw);
+#endif
     rwnx_hw->plat->enabled = false;
 }
 
@@ -1927,7 +1946,7 @@ int rwnx_platform_register_drv(void)
     void *drv_data = NULL;
 
     if (!auc_driver_insmoded) {
-        ret = aml_common_insmod();
+        ret = aml_usb_insmod();
     }
 
     rwnx_plat = kzalloc(sizeof(struct rwnx_plat), GFP_KERNEL);

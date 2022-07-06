@@ -170,7 +170,7 @@ struct auc_hif_ops {
     void (*hi_rcv_frame)(unsigned char* buf, unsigned char* addr, unsigned long len);
 };
 
-int aml_common_insmod(void);
+int aml_usb_insmod(void);
 int wifi_fw_download(char *firmware_filename);
 int start_wifi(void);
 #endif

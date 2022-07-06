@@ -19,6 +19,7 @@
 #include "rwnx_events.h"
 #include "rwnx_compat.h"
 #include "share_mem_map.h"
+#include "rwnx_utils.h"
 
 /******************************************************************************
  * Power Save functions
@@ -412,6 +413,11 @@ u16 rwnx_select_txq(struct rwnx_vif *rwnx_vif, struct sk_buff *skb)
         if (sta->acm)
             rwnx_downgrade_ac(sta, skb);
 
+        if (skb->protocol == cpu_to_be16(ETH_P_PAE)) {
+            skb->priority = 7;
+            printk("%s: set eap frame to vo\n", __func__);
+        }
+
         txq = rwnx_txq_sta_get(sta, skb->priority, rwnx_hw);
         netdev_queue = txq->ndev_idx;
     }
@@ -595,6 +601,7 @@ void rwnx_tx_push(struct rwnx_hw *rwnx_hw, struct rwnx_txhdr *txhdr, int flags)
     } else if (!(flags & RWNX_PUSH_RETRY)) {
         txq->pkt_sent++;
     }
+    sw_txhdr->desc.api.host.flags &= ~TXU_CNTRL_RETRY;
 
 #ifdef CONFIG_RWNX_AMSDUS_TX
     if (txq->amsdu == sw_txhdr) {
@@ -1215,7 +1222,7 @@ netdev_tx_t rwnx_start_xmit(struct sk_buff *skb, struct net_device *dev)
     eap_temp = (struct rwnx_eap_hdr *)((uint8_t *)(skb->data) + sizeof(struct ethhdr));
     if (skb->protocol == cpu_to_be16(ETH_P_PAE) || skb->protocol == cpu_to_be16(WAPI_TYPE)) {
         desc->host.flags |= TXU_CNTRL_MESH_FWD;
-        printk("filter special frame,ethertype:%x, tid:%x, vif_idx:%x\n", desc->host.ethertype, desc->host.tid, desc->host.vif_idx);
+        printk("filter special frame,ethertype:0x%04x, tid:%x, vif_idx:%x\n", cpu_to_be16(desc->host.ethertype), desc->host.tid, desc->host.vif_idx);
     }
 
     /* store Tx info in skb headroom */
@@ -1223,7 +1230,8 @@ netdev_tx_t rwnx_start_xmit(struct sk_buff *skb, struct net_device *dev)
     txhdr->sw_hdr = sw_txhdr;
 
 #if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
-    printk("%s, ethertype:%x, tid:%x, vif_idx:%x\n", __func__, desc->host.ethertype, desc->host.tid, desc->host.vif_idx);
+    printk("%s, ethertype:0x%04x, credits:%d, tid:%d, vif_idx:%d\n",
+        __func__, cpu_to_be16(desc->host.ethertype), txq->credits, desc->host.tid, desc->host.vif_idx);
 #endif
 
     /* queue the buffer */
@@ -1363,7 +1371,6 @@ int rwnx_start_mgmt_xmit(struct rwnx_vif *vif, struct rwnx_sta *sta,
     return 0;
 }
 #if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
-#define TX_CFM_LEN  96
 int rwnx_tx_cfm_task(void *data)
 {
     struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)data;
@@ -1376,7 +1383,6 @@ int rwnx_tx_cfm_task(void *data)
     struct sched_param sch_param;
     unsigned int *drv_txcfm_idx = &rwnx_hw->ipc_env->txcfm_idx;
     unsigned int addr;
-
     sch_param.sched_priority = 91;
     sched_setscheduler(current,SCHED_RR,&sch_param);
 
@@ -1404,7 +1410,7 @@ int rwnx_tx_cfm_task(void *data)
             /* Check host id in the confirmation. */
             /* If 0 it means that this confirmation has not yet been updated by firmware */
 
-            skb = ipc_host_tx_host_id_to_ptr(rwnx_hw->ipc_env, cfm.hostid);
+            skb = rwnx_get_skb_from_used_txbuf(rwnx_hw, cfm.hostid);
 
             if (!skb) {
                 if (*drv_txcfm_idx > 0)
@@ -1423,8 +1429,12 @@ int rwnx_tx_cfm_task(void *data)
 
             sw_txhdr = ((struct rwnx_txhdr *)skb->data)->sw_hdr;
             txq = sw_txhdr->txq;
+
             /* don't use txq->hwq as it may have changed between push and confirm */
             hwq = &rwnx_hw->hwq[sw_txhdr->hw_queue];
+
+            printk("%s, skb=%p, cfm_status=%x, hostid:%d, cfm_credit=%x\n",
+                __func__, skb, cfm.status, cfm.hostid, cfm.credits);
 
             rwnx_txq_confirm_any(rwnx_hw, txq, hwq, sw_txhdr);
 
@@ -1445,6 +1455,7 @@ int rwnx_tx_cfm_task(void *data)
                                         cfm.status.acknowledged,
                                         GFP_ATOMIC);
             } else if ((txq->idx != TXQ_INACTIVE) && cfm.status.sw_retry_required) {
+                sw_txhdr->desc.api.host.flags |= TXU_CNTRL_RETRY;
                 /* firmware postponed this buffer */
                 rwnx_tx_retry(rwnx_hw, skb, sw_txhdr, cfm.status);
                 break;
@@ -1457,7 +1468,6 @@ int rwnx_tx_cfm_task(void *data)
             if (txq->idx != TXQ_INACTIVE) {
                 if (cfm.credits) {
                     txq->credits += cfm.credits;
-                    printk("RWNX_TXQ_STOP_FULL, %s, txq->credits=%d\n", __func__, txq->credits );
                     if (txq->credits <= 0) {
                         rwnx_txq_stop(txq, RWNX_TXQ_STOP_FULL);
                     }
@@ -1576,6 +1586,7 @@ int rwnx_txdatacfm(void *pthis, void *arg)
                                 cfm->status.acknowledged,
                                 GFP_ATOMIC);
     } else if ((txq->idx != TXQ_INACTIVE) && cfm->status.sw_retry_required) {
+        sw_txhdr->desc.api.host.flags |= TXU_CNTRL_RETRY;
         /* firmware postponed this buffer */
         rwnx_tx_retry(rwnx_hw, skb, sw_txhdr, cfm->status);
         return 0;

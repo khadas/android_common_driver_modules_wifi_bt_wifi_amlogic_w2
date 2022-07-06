@@ -783,6 +783,7 @@ static inline int rwnx_rx_scanu_result_ind(struct rwnx_hw *rwnx_hw,
     u64 timestamp;
     struct ieee80211_mgmt *mgmt = NULL;
     struct scanu_result_ind *ind = (struct scanu_result_ind *)msg->param;
+    u8* ie = NULL;
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 20, 0) && LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 39))
     struct timespec ts;
     get_monotonic_boottime(&ts);
@@ -794,6 +795,17 @@ static inline int rwnx_rx_scanu_result_ind(struct rwnx_hw *rwnx_hw,
 #endif
     mgmt = (struct ieee80211_mgmt *)ind->payload;
     mgmt->u.probe_resp.timestamp = timestamp;
+    ie = mgmt->u.probe_resp.variable;
+    if ((ie[0] == WLAN_EID_SSID) && (ie + 2 + ie[1] < (u8 *) mgmt + ind->length)) {
+        printk("ssid:%-32.32s bssid:%02x:%02x:%02x:%02x:%02x:%02x",
+                ssid_sprintf(&ie[2], ie[1]),
+                mgmt->bssid[0],
+                mgmt->bssid[1],
+                mgmt->bssid[2],
+                mgmt->bssid[3],
+                mgmt->bssid[4],
+                mgmt->bssid[5]);
+    }
     //RWNX_DBG(RWNX_FN_ENTRY_STR);
 
     chan = ieee80211_get_channel(rwnx_hw->wiphy, ind->center_freq);

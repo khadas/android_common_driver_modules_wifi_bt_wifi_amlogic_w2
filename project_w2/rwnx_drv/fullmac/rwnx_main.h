@@ -12,6 +12,7 @@
 #define _RWNX_MAIN_H_
 
 #include "rwnx_defs.h"
+#include "rwnx_tx.h"
 
 int rwnx_cfg80211_init(struct rwnx_plat *rwnx_plat, void **platform_data);
 void rwnx_cfg80211_deinit(struct rwnx_hw *rwnx_hw);

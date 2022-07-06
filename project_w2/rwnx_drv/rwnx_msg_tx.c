@@ -325,6 +325,11 @@ static inline void *rwnx_msg_zalloc(lmac_msg_id_t const id,
     else
         flags = GFP_KERNEL;
 
+#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
+    if (id == ME_TRAFFIC_IND_REQ)
+        flags = GFP_ATOMIC;
+#endif
+
     msg = (struct lmac_msg *)kzalloc(sizeof(struct lmac_msg) + param_len,
                                      flags);
     if (msg == NULL) {
@@ -2026,7 +2031,7 @@ int rwnx_send_me_set_ps_mode(struct rwnx_hw *rwnx_hw, u8 ps_mode)
 {
     struct me_set_ps_mode_req *req;
 
-    RWNX_DBG(RWNX_FN_ENTRY_STR);
+    RWNX_INFO("mode:%d\n",ps_mode);
 
     /* Build the ME_SET_PS_MODE_REQ message */
     req = rwnx_msg_zalloc(ME_SET_PS_MODE_REQ, TASK_ME, DRV_TASK_ID,

@@ -54,17 +54,19 @@ w2-y := rwnx_msg_tx.o          \
                rwnx_android.o         \
                rwnx_iwpriv_cmds.o
 
+obj-m += w2_comm.o
+  w2_comm-objs :=\
+        ../aml_bus/aml_interface.o\
+        usb_common.o\
+        sdio_common.o\
+        rwnx_pci.o\
+        rwnx_v7.o
+
 ifeq ($(INTERFACE_TYPE), usb)
-  obj-m += w2_usb.o
-  w2_usb-objs += usb_common.o
   CONFIG_RWNX_USB_MODE := y
 else ifeq ($(INTERFACE_TYPE), sdio)
-  obj-m += w2_sdio.o
-  w2_sdio-objs += sdio_common.o
   CONFIG_RWNX_SDIO_MODE := y
 else
-  obj-m += w2_pci.o
-  w2_pci-objs := rwnx_pci.o rwnx_v7.o
   CONFIG_RWNX_PCIE_MODE := y
 endif
 

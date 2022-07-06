@@ -1079,14 +1079,14 @@ static void rwnx_set_rf_params(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
 #ifndef CONFIG_RWNX_SDM
     struct ieee80211_supported_band *band_5GHz = wiphy->bands[NL80211_BAND_5GHZ];
     u32 mdm_phy_cfg = __MDM_PHYCFG_FROM_VERS(rwnx_hw->version_cfm.version_phy_1);
-    struct rwnx_phy_conf_file phy_conf;
+    struct rwnx_cfgfile_phy phy_conf;
 
     /*
      * Get configuration file depending on the RF
      */
     if (mdm_phy_cfg == MDM_PHY_CONFIG_TRIDENT) {
         // Retrieve the Trident configuration
-        rwnx_parse_phy_configfile(rwnx_hw, RWNX_PHY_CONFIG_TRD_NAME,
+        rwnx_cfgfile_parse_phy(rwnx_hw, RWNX_PHY_CONFIG_TRD_NAME,
                                   &phy_conf, rwnx_hw->mod_params->phy_cfg);
         memcpy(&rwnx_hw->phy.cfg, &phy_conf.trd, sizeof(phy_conf.trd));
     } else if (mdm_phy_cfg == MDM_PHY_CONFIG_CATAXIA) {
@@ -1096,7 +1096,7 @@ static void rwnx_set_rf_params(struct rwnx_hw *rwnx_hw, struct wiphy *wiphy)
     } else if (mdm_phy_cfg == MDM_PHY_CONFIG_KARST) {
         // We use the NSS parameter as is
         // Retrieve the Karst configuration
-        rwnx_parse_phy_configfile(rwnx_hw, RWNX_PHY_CONFIG_KARST_NAME,
+        rwnx_cfgfile_parse_phy(rwnx_hw, RWNX_PHY_CONFIG_KARST_NAME,
                                   &phy_conf, rwnx_hw->mod_params->phy_cfg);
 
         memcpy(&rwnx_hw->phy.cfg, &phy_conf.karst, sizeof(phy_conf.karst));

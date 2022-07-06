@@ -15,19 +15,20 @@
 #include "hal_desc.h"
 #include "ipc_shared.h"
 
+#define RXBUF_START_ADDR  0x60016404
+#define RXBUF_END_ADDR    0x6001C4DF
+
+#define RXDESC_CNT_READ_ONCE 32
+
 #define STAT_VAL_OFFSET     36
 #define RX_STAT_DESC_LEN    48
 #define RX_HEADER_OFFSET    28
 #define RX_PAYLOAD_OFFSET   144
+#define RX_HEADER_TO_PAYLOAD_LEN 116
 
- struct drv_stat_val
-{
-    /// Host Buffer Address
-    uint32_t host_id;
-    /// Length
-    uint32_t frame_len;
-    /// Status (@ref rx_status_bits)
-    uint16_t status;
+struct drv_stat_desc{
+    uint32_t reserved[9];
+    struct rxdesc_tag rx_stat_val;
 };
 
 enum rx_status_bits

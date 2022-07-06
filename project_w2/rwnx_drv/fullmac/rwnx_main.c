@@ -21,7 +21,6 @@
 #include "rwnx_defs.h"
 #include "rwnx_dini.h"
 #include "rwnx_msg_tx.h"
-#include "rwnx_tx.h"
 #include "reg_access.h"
 #include "hal_desc.h"
 #include "rwnx_debugfs.h"
@@ -950,6 +949,8 @@ static int rwnx_open(struct net_device *dev)
             return -EIO;
         }
     }
+    RWNX_INFO("vif index=%d, type=%d, name=%s\n",
+            add_if_cfm.inst_nbr, RWNX_VIF_TYPE(rwnx_vif), dev->name);
 
     /* Save the index retrieved from LMAC */
     spin_lock_bh(&rwnx_hw->cb_lock);
@@ -1191,7 +1192,6 @@ static struct wireless_dev *rwnx_interface_add(struct rwnx_hw *rwnx_hw,
     int vif_idx = -1;
     int i;
 
-    RWNX_INFO("interface type=%d\n", type);
     // Look for an available VIF
     if (type == NL80211_IFTYPE_AP_VLAN) {
         min_idx = NX_VIRT_DEV_MAX;
@@ -1210,6 +1210,7 @@ static struct wireless_dev *rwnx_interface_add(struct rwnx_hw *rwnx_hw,
     if (vif_idx < 0)
         return NULL;
 
+    RWNX_INFO("vif index=%d, type=%d name=%s\n", vif_idx, type, name);
     #ifndef CONFIG_RWNX_MON_DATA
     list_for_each_entry(vif, &rwnx_hw->vifs, list) {
         // Check if monitor interface already exists or type is monitor
@@ -1244,7 +1245,6 @@ static struct wireless_dev *rwnx_interface_add(struct rwnx_hw *rwnx_hw,
     switch (type) {
     case NL80211_IFTYPE_STATION:
     case NL80211_IFTYPE_P2P_CLIENT:
-    case NL80211_IFTYPE_P2P_DEVICE:
         vif->sta.flags = 0;
         vif->sta.ap = NULL;
         vif->sta.tdls_sta = NULL;
@@ -1294,20 +1294,10 @@ static struct wireless_dev *rwnx_interface_add(struct rwnx_hw *rwnx_hw,
         break;
     }
 
-    if (type == NL80211_IFTYPE_AP_VLAN)
-        memcpy(ndev->dev_addr, params->macaddr, ETH_ALEN);
-    else {
-        if (type == NL80211_IFTYPE_AP) {
-            memcpy(ndev->dev_addr, rwnx_hw->wiphy->addresses[1].addr, ETH_ALEN);
-        } else {
-            memcpy(ndev->dev_addr, rwnx_hw->wiphy->addresses[0].addr, ETH_ALEN);
-            if ((type == NL80211_IFTYPE_P2P_DEVICE) || (type == NL80211_IFTYPE_P2P_CLIENT) ||
-                (type == NL80211_IFTYPE_P2P_GO)) {
-                /* p2p mac address oui may be as 1c:a4:10 | 02 = 1e:a4:10 */
-                ndev->dev_addr[0] |= 2;
-            }
-        }
-        ndev->dev_addr[5] ^= vif_idx;
+    if (vif_idx >= 1) {
+        memcpy(ndev->dev_addr, rwnx_hw->wiphy->addresses[1].addr, ETH_ALEN);
+    } else {
+        memcpy(ndev->dev_addr, rwnx_hw->wiphy->addresses[0].addr, ETH_ALEN);
     }
 
     if (params) {
@@ -1465,6 +1455,7 @@ int rwnx_cfg80211_change_iface(struct wiphy *wiphy,
     }
 #endif
 
+    RWNX_INFO("vif index=%d, type=%d, name=%s", vif->vif_index, type, dev->name);
     // Reset to default case (i.e. not monitor)
     dev->type = ARPHRD_ETHER;
     dev->netdev_ops = &rwnx_netdev_ops;
@@ -1472,7 +1463,6 @@ int rwnx_cfg80211_change_iface(struct wiphy *wiphy,
     switch (type) {
     case NL80211_IFTYPE_STATION:
     case NL80211_IFTYPE_P2P_CLIENT:
-    case NL80211_IFTYPE_P2P_DEVICE:
         vif->sta.flags = 0;
         vif->sta.ap = NULL;
         vif->sta.tdls_sta = NULL;
@@ -1504,16 +1494,10 @@ int rwnx_cfg80211_change_iface(struct wiphy *wiphy,
     if (params && params->use_4addr != -1)
         vif->use_4addr = params->use_4addr;
 
-    if (type == NL80211_IFTYPE_AP) {
+    if (type != NL80211_IFTYPE_STATION) {
         memcpy(dev->dev_addr, rwnx_hw->wiphy->addresses[1].addr, ETH_ALEN);
     } else {
         memcpy(dev->dev_addr, rwnx_hw->wiphy->addresses[0].addr, ETH_ALEN);
-        if ((type == NL80211_IFTYPE_P2P_DEVICE) || (type == NL80211_IFTYPE_P2P_CLIENT) ||
-            (type == NL80211_IFTYPE_P2P_GO)) {
-            /* p2p mac address oui may be as 1c:a4:10 | 02 = 1e:a4:10 */
-            dev->dev_addr[0] |= 2;
-        }
-        dev->dev_addr[5] ^= vif->drv_vif_index;
     }
 
     return 0;
@@ -1565,6 +1549,7 @@ static int rwnx_cfg80211_add_key(struct wiphy *wiphy, struct net_device *netdev,
     struct rwnx_key *rwnx_key;
 
     RWNX_DBG(RWNX_FN_ENTRY_STR);
+    printk("%s: add %s for index:%d\n", __func__, pairwise ? "PTK" : "GTK", key_index);
 
     if (mac_addr) {
         sta = rwnx_get_sta(rwnx_hw, mac_addr);
@@ -4957,17 +4942,37 @@ static struct notifier_block rwnx_ipv6_cb = {
     .notifier_call = rwnx_inetaddr6_event
 };
 
+static int rwnx_wiphy_addresses_add(struct wiphy *wiphy, struct rwnx_cfgfile cfg)
+{
+    wiphy->addresses = (struct mac_address *)kmalloc(ETH_ALEN * 2, GFP_KERNEL);
+    if (!wiphy->addresses) {
+        wiphy_err(wiphy, "kmalloc mac address failed\n");
+        return -1;
+    }
+    wiphy->n_addresses = 2;
+    memcpy(wiphy->addresses, cfg.vif0_mac, ETH_ALEN);
+    memcpy(wiphy->addresses + 1, cfg.vif1_mac, ETH_ALEN);
+    return 0;
+}
+
+static void rwnx_wiphy_addresses_free(struct wiphy *wiphy)
+{
+    if (wiphy->addresses != NULL) {
+        kfree(wiphy->addresses);
+    }
+}
+
 /**
  *
  */
 int rwnx_cfg80211_init(struct rwnx_plat *rwnx_plat, void **platform_data)
 {
     struct rwnx_hw *rwnx_hw;
-    struct mac_addr mac_addr_conf[2];
-    int ret = 0;
+    struct rwnx_cfgfile cfg;
     struct wiphy *wiphy;
     struct wireless_dev *wdev;
     char alpha2[2];
+    int ret = 0;
     int i;
 
     RWNX_DBG(RWNX_FN_ENTRY_STR);
@@ -5150,19 +5155,15 @@ int rwnx_cfg80211_init(struct rwnx_plat *rwnx_plat, void **platform_data)
         goto err_debugfs;
     }
 
-    aml_get_chip_id(rwnx_hw);
+    if ((ret = rwnx_cfgfile_parse(rwnx_hw, &cfg))) {
+        wiphy_err(wiphy, "Failed to parse config from file\n");
+        goto err_config;
+    }
 
-    if ((ret = rwnx_parse_mac_addr_configfile(rwnx_hw, RWNX_CONFIG_FW_NAME, mac_addr_conf))) {
-        wiphy_err(wiphy, "rwnx_parse_configfile failed\n");
+    if ((ret = rwnx_wiphy_addresses_add(wiphy, cfg))) {
+        wiphy_err(wiphy, "Failed to add wiphy addresses\n");
         goto err_config;
     }
-    wiphy->addresses = (struct mac_address *)kmalloc(2 * ETH_ALEN, GFP_KERNEL);
-    if (wiphy->addresses == NULL) {
-        wiphy_err(wiphy, "kmalloc failed\n");
-        goto err_config;
-    }
-    wiphy->n_addresses = 2;
-    memcpy(wiphy->addresses, mac_addr_conf, 2 * ETH_ALEN);
 
     rtnl_lock();
 
@@ -5196,14 +5197,14 @@ int rwnx_cfg80211_init(struct rwnx_plat *rwnx_plat, void **platform_data)
 
     rtnl_lock();
 
-    /* Add an p2p interface */
-    wdev = rwnx_interface_add(rwnx_hw, "p2p%d", NET_NAME_UNKNOWN,
-               NL80211_IFTYPE_P2P_DEVICE, NULL);
+    /* Add another interface, it will be use for p2p and softap */
+    wdev = rwnx_interface_add(rwnx_hw, "ap%d", NET_NAME_UNKNOWN,
+               NL80211_IFTYPE_STATION, NULL);
 
     rtnl_unlock();
 
     if (!wdev) {
-        wiphy_err(wiphy, "Failed to instantiate a p2p network device\n");
+        wiphy_err(wiphy, "Failed to add the second network device\n");
         ret = -ENOMEM;
         goto err_add_interface;
     }

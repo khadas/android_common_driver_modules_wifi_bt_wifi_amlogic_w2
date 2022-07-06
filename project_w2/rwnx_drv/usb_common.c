@@ -34,7 +34,6 @@ unsigned char auc_wifi_in_insmod;
 struct crg_msc_cbw *g_cmd_buf = NULL;
 struct mutex auc_usb_mutex;
 unsigned char *g_kmalloc_buf;
-unsigned char *ipc_basic_address = 0;
 
 typedef unsigned long SYS_TYPE;
 
@@ -866,17 +865,6 @@ static struct usb_driver aml_usb_common_driver = {
 #endif
 };
 
-unsigned int aml_aon_read_reg(unsigned int addr)
-{
-    unsigned int regdata = 0;
-    struct auc_hif_ops *hif_ops = &g_auc_hif_ops;
-
-    regdata = hif_ops->hi_read_word((addr), USB_EP4);
-
-    return regdata;
-}
-
-
 int wifi_iccm_download(unsigned char* addr, unsigned int len)
 {
 #ifdef ICCM_ROM
@@ -1101,7 +1089,7 @@ int start_wifi(void)
     return 0;
 }
 
-int aml_common_insmod(void)
+int aml_usb_insmod(void)
 {
     int err = 0;
 
@@ -1117,14 +1105,15 @@ int aml_common_insmod(void)
     return err;
 }
 
-void aml_common_rmmod(void)
+void aml_usb_rmmod(void)
 {
     usb_deregister(&aml_usb_common_driver);
     auc_driver_insmoded = 0;
     PRINT("%s(%d) aml common driver rmsmod\n",__func__, __LINE__);
 }
 
-EXPORT_SYMBOL(aml_common_insmod);
+EXPORT_SYMBOL(aml_usb_insmod);
+EXPORT_SYMBOL(aml_usb_rmmod);
 EXPORT_SYMBOL(g_cmd_buf);
 EXPORT_SYMBOL(g_auc_hif_ops);
 EXPORT_SYMBOL(g_udev);
@@ -1133,10 +1122,4 @@ EXPORT_SYMBOL(auc_wifi_in_insmod);
 EXPORT_SYMBOL(auc_usb_mutex);
 EXPORT_SYMBOL(wifi_fw_download);
 EXPORT_SYMBOL(start_wifi);
-EXPORT_SYMBOL(ipc_basic_address);
-
-module_init(aml_common_insmod);
-module_exit(aml_common_rmmod);
-
-MODULE_LICENSE("GPL");
 

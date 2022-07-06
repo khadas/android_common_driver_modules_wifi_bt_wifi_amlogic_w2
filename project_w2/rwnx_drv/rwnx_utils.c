@@ -672,11 +672,11 @@ static void rwnx_elems_deallocs(struct rwnx_hw *rwnx_hw)
  * LMAC, such as Rx Data elements, MSGs elements, ...
  * This function should be called in correspondence with the deallocation function.
  */
-#if (defined(CONFIG_RWNX_PCIE_MODE))
 static int rwnx_elems_allocs(struct rwnx_hw *rwnx_hw)
 {
     RWNX_DBG(RWNX_FN_ENTRY_STR);
 
+#if (defined(CONFIG_RWNX_PCIE_MODE))
     if (dma_set_coherent_mask(rwnx_hw->dev, DMA_BIT_MASK(32)))
         goto err_alloc;
 
@@ -716,31 +716,12 @@ static int rwnx_elems_allocs(struct rwnx_hw *rwnx_hw)
         goto err_alloc;
     ipc_host_pattern_push(rwnx_hw->ipc_env, &rwnx_hw->tx_pattern);
 
-#ifdef CONFIG_RWNX_USB_MODE
-    rwnx_hw->plat->hif_ops->hi_write_word(TXL_BUFFER_DMA_LATE_LOC, rwnx_tx_pattern, USB_EP4);
-#endif
-#ifdef CONFIG_RWNX_SDIO_MODE
-    rwnx_hw->plat->hif_ops->hi_write_ipc_word(TXL_BUFFER_DMA_LATE_LOC, rwnx_tx_pattern);
-#endif
-
-#ifdef CONFIG_RWNX_USE_PREALLOC_BUF
-    if (rwnx_ipc_buf_e2a_prealloc(rwnx_hw, &rwnx_hw->dbgdump.buf,
-                               sizeof(struct dbg_debug_dump_tag),
-                               PREALLOC_BUF_TYPE_DUMP))
-#else
-    if (rwnx_ipc_buf_e2a_alloc(rwnx_hw, &rwnx_hw->dbgdump.buf,
-                               sizeof(struct dbg_debug_dump_tag)))
-#endif
-        goto err_alloc;
-    ipc_host_dbginfo_push(rwnx_hw->ipc_env, &rwnx_hw->dbgdump.buf);
-
     /*
      * Note that the RX buffers are no longer allocated here as their size depends on the
      * FW configuration, which is not available at that time.
      * They will be allocated when checking the parameter compatibility between the driver
      * and the underlying components (i.e. during the rwnx_handle_dynparams() execution)
      */
-
 #ifdef CONFIG_RWNX_FULLMAC
     if (rwnx_ipc_buf_pool_alloc(rwnx_hw, &rwnx_hw->rxdesc_pool,
                                  rwnx_hw->ipc_env->rxdesc_nb,
@@ -750,6 +731,22 @@ static int rwnx_elems_allocs(struct rwnx_hw *rwnx_hw)
         goto err_alloc;
 
 #endif /* CONFIG_RWNX_FULLMAC */
+#endif
+
+
+#ifdef CONFIG_RWNX_USE_PREALLOC_BUF
+        if (rwnx_ipc_buf_e2a_prealloc(rwnx_hw, &rwnx_hw->dbgdump.buf,
+                                   sizeof(struct dbg_debug_dump_tag),
+                                   PREALLOC_BUF_TYPE_DUMP))
+#else
+        if (rwnx_ipc_buf_e2a_alloc(rwnx_hw, &rwnx_hw->dbgdump.buf,
+                                   sizeof(struct dbg_debug_dump_tag)))
+#endif
+            goto err_alloc;
+
+#if (defined(CONFIG_RWNX_PCIE_MODE))
+        ipc_host_dbginfo_push(rwnx_hw->ipc_env, &rwnx_hw->dbgdump.buf);
+#endif
 
     return 0;
 
@@ -758,17 +755,82 @@ err_alloc:
     rwnx_elems_deallocs(rwnx_hw);
     return -ENOMEM;
 }
-#endif
 
 #if !defined(CONFIG_RWNX_PCIE_MODE)
 unsigned int tx_desc_index;
-unsigned int tx_buff_index;
-#define STRUCT_BUFF_LEN 252
-#define MAX_HEAD_LEN 92
-#define MAX_TAIL_LEN 20
-unsigned int remain_len[4] = {0x4dc8, 0x4dc8, 0x4dc8, 0x4dc8};
-unsigned int offset[4] = {0};
-#define _CO_ALIGN4_HI(val) (((val)+3)&~3)
+
+void rwnx_txbuf_list_init(struct rwnx_hw *rwnx_hw)
+{
+    struct rwnx_txbuf *txbuf = NULL;
+    int i = 0;
+
+    spin_lock_init(&rwnx_hw->tx_buf_free_lock);
+    spin_lock_init(&rwnx_hw->tx_buf_used_lock);
+    INIT_LIST_HEAD(&rwnx_hw->tx_buf_free_list);
+    INIT_LIST_HEAD(&rwnx_hw->tx_buf_used_list);
+    for (i = 0; i < TX_BUF_CNT; i++) {
+        txbuf = kmalloc(sizeof(struct rwnx_txbuf), GFP_ATOMIC);
+        if (!txbuf) {
+            ASSERT_ERR(0);
+            return;
+        }
+        txbuf->index = i;
+        txbuf->skb = NULL;
+        list_add_tail(&txbuf->list, &rwnx_hw->tx_buf_free_list);
+    }
+}
+
+struct rwnx_txbuf *rwnx_get_from_free_txbuf(struct rwnx_hw *rwnx_hw)
+{
+    struct rwnx_txbuf *txbuf = NULL;
+
+    if (!list_empty(&rwnx_hw->tx_buf_free_list)) {
+        txbuf = list_first_entry(&rwnx_hw->tx_buf_free_list, struct rwnx_txbuf, list);
+        spin_lock_bh(&rwnx_hw->tx_buf_free_lock);
+        list_del(&txbuf->list);
+        spin_unlock_bh(&rwnx_hw->tx_buf_free_lock);
+    } else {
+        ASSERT_ERR(0);
+    }
+
+    return txbuf;
+}
+
+struct sk_buff *rwnx_get_skb_from_used_txbuf(struct rwnx_hw *rwnx_hw, u32_l hostid)
+{
+    struct rwnx_txbuf *txbuf = NULL;
+    struct rwnx_txbuf *txbuf_tmp = NULL;
+
+
+    list_for_each_entry_safe(txbuf, txbuf_tmp, &rwnx_hw->tx_buf_used_list, list) {
+        if (hostid == txbuf->index) {
+
+            spin_lock_bh(&rwnx_hw->tx_buf_used_lock);
+            list_del(&txbuf->list);
+            spin_unlock_bh(&rwnx_hw->tx_buf_used_lock);
+
+            spin_lock_bh(&rwnx_hw->tx_buf_free_lock);
+            list_add_tail(&txbuf->list, &rwnx_hw->tx_buf_free_list);
+            spin_unlock_bh(&rwnx_hw->tx_buf_free_lock);
+
+            return txbuf->skb;
+        }
+    }
+
+    return NULL;
+}
+
+
+void rwnx_txbuf_list_deinit(struct rwnx_hw *rwnx_hw)
+{
+    struct rwnx_txbuf *txbuf = NULL;
+    struct rwnx_txbuf *txbuf_tmp = NULL;
+
+    list_for_each_entry_safe(txbuf, txbuf_tmp, &rwnx_hw->tx_buf_free_list, list) {
+        kfree(txbuf);
+    }
+}
+
 
 int rwnx_tx_task(void *data)
 {
@@ -778,14 +840,11 @@ int rwnx_tx_task(void *data)
     struct txdesc_host *txdesc_host = NULL;
     struct sched_param sch_param;
     unsigned char *frm = NULL;
-    int trans_len;
     uint32_t addr;
-    int ac = 0;
-    sch_param.sched_priority = 91;
-    sched_setscheduler(current,SCHED_FIFO,&sch_param);
+    struct rwnx_txbuf *txbuf = NULL;
 
     sch_param.sched_priority = 91;
-    sched_setscheduler(current,SCHED_RR,&sch_param);
+    sched_setscheduler(current,SCHED_FIFO,&sch_param);
 
     while (1) {
         /* wait for work */
@@ -798,103 +857,48 @@ int rwnx_tx_task(void *data)
         list_for_each_entry_safe(tx_list, next, &rwnx_hw->tx_desc_save, list) {
             sw_txhdr = tx_list->sw_txhdr;
             txdesc_host = &sw_txhdr->desc;
-            ac = txdesc_host->ctrl.hwq;
-            addr = 0x6001c760 + (ac * 0x4dc8) + STRUCT_BUFF_LEN + MAX_HEAD_LEN;
 
-            if (sw_txhdr->desc.api.host.flags & TXU_CNTRL_AMSDU) {
-                struct rwnx_amsdu_txhdr *amsdu_txhdr, *tmp;
-                uint32_t cnt = 0;
-                printk("%s, %d, TXU_CNTRL_AMSDU, amsdu.nb=%d, amsdu.len=%d\n", __func__, __LINE__, sw_txhdr->amsdu.nb, sw_txhdr->amsdu.len);
-                list_for_each_entry_safe(amsdu_txhdr, tmp, &sw_txhdr->amsdu.hdrs, list) {
-                    if (cnt == 0)
-                        trans_len = _CO_ALIGN4_HI(sw_txhdr->desc.api.host.packet_len[cnt] + STRUCT_BUFF_LEN + MAX_HEAD_LEN);
-                    else
-                        trans_len = _CO_ALIGN4_HI(sw_txhdr->desc.api.host.packet_len[cnt] + STRUCT_BUFF_LEN + MAX_TAIL_LEN);
+            txbuf = rwnx_get_from_free_txbuf(rwnx_hw);
+            if (txbuf) {
+                txdesc_host->api.host.hostid = txbuf->index;
+                txbuf->skb = sw_txhdr->skb;
 
-                    frm = (unsigned char *)amsdu_txhdr->skb->data + sizeof(struct rwnx_amsdu_txhdr);
-                    if ((sw_txhdr->desc.api.host.flags & TXU_CNTRL_MGMT) == 0) { //skip ethhdr for data frame
-                        frm += sizeof(struct ethhdr);
-                    }
-                    if (trans_len <= remain_len[ac]) {
-#if defined(CONFIG_RWNX_SDIO_MODE)
-                        rwnx_hw->plat->hif_ops->hi_write_ipc_sram(frm, (unsigned char *)(unsigned long)addr + offset[ac],  sw_txhdr->desc.api.host.packet_len[cnt]);
-#else
-                        rwnx_hw->plat->hif_ops->hi_write_sram(frm, (unsigned char *)(unsigned long)addr + offset[ac],  sw_txhdr->desc.api.host.packet_len[cnt], USB_EP4);
+                spin_lock_bh(&rwnx_hw->tx_buf_used_lock);
+                list_add_tail(&txbuf->list, &rwnx_hw->tx_buf_used_list);
+                spin_unlock_bh(&rwnx_hw->tx_buf_used_lock);
+            } else {
+                printk("%s, ****************no free txbuff**************\n", __func__);
+                break;
+            }
+
+            addr = TXBUF_START_ADDR + (txbuf->index * 2000) + STRUCT_BUFF_LEN + MAX_HEAD_LEN;
+#ifdef CONFIG_RWNX_AMSDUS_TX
+            if (txdesc_host->api.host.flags & TXU_CNTRL_AMSDU) {
+                 //todo
+            } else
 #endif
-
-                        remain_len[ac] -= trans_len;
-                        printk("%s, cnt=%d, len=%d\n", __func__, cnt, sw_txhdr->desc.api.host.packet_len[cnt]);
-                        printk("%s, addr=%x, frame_len=%x, hwq=%d, trans_len=%x, remain_len[ac]=%x, offset[ac]=%x, cnt=%x\n", __func__, addr + offset[ac], sw_txhdr->frame_len, txdesc_host->ctrl.hwq, trans_len, remain_len[ac], offset[ac], cnt);
-                        cnt++;
-
-                        offset[ac] += trans_len;
-                    } else {
-                        offset[ac] = 0;
-#if defined(CONFIG_RWNX_SDIO_MODE)
-                        rwnx_hw->plat->hif_ops->hi_write_ipc_sram(frm, (unsigned char *)(unsigned long)addr + offset[ac],  sw_txhdr->desc.api.host.packet_len[cnt]);
-#else
-                        rwnx_hw->plat->hif_ops->hi_write_sram(frm, (unsigned char *)(unsigned long)addr + offset[ac],  sw_txhdr->desc.api.host.packet_len[cnt], USB_EP4);
-#endif
-                        printk("reamin %s, cnt=%d, len=%d\n", __func__, cnt, sw_txhdr->desc.api.host.packet_len[cnt]);
-                        printk("reamin %s, addr=%x, frame_len=%x, hwq=%d, trans_len=%x, remain_len[ac]=%x, offset[ac]=%x, cnt=%x\n", __func__, addr + offset[ac], sw_txhdr->frame_len, txdesc_host->ctrl.hwq, trans_len, remain_len[ac], offset[ac], cnt);
-
-                        cnt++;
-                        remain_len[ac] = 0x4dc8;
-                        remain_len[ac] -= trans_len;
-
-                        offset[ac] += trans_len;
-                    }
-                }
-            }else {
-                trans_len = _CO_ALIGN4_HI(sw_txhdr->frame_len + STRUCT_BUFF_LEN + MAX_HEAD_LEN);
+            {
                 frm = (unsigned char *)sw_txhdr->skb->data + sizeof(struct rwnx_txhdr);
-                if ((sw_txhdr->desc.api.host.flags & TXU_CNTRL_MGMT) == 0) { //skip ethhdr for data frame
+                if ((txdesc_host->api.host.flags & TXU_CNTRL_MGMT) == 0) { //skip ethhdr for data frame
                     frm += sizeof(struct ethhdr);
                 }
-                if (trans_len <= remain_len[ac]) {
+
 #if defined(CONFIG_RWNX_SDIO_MODE)
-                    rwnx_hw->plat->hif_ops->hi_write_ipc_sram(frm, (unsigned char *)(unsigned long)addr + offset[ac],  sw_txhdr->frame_len);
+                rwnx_hw->plat->hif_ops->hi_write_ipc_sram(frm, (unsigned char *)(unsigned long)addr,  sw_txhdr->frame_len);
 #else
-                    rwnx_hw->plat->hif_ops->hi_write_sram(frm, (unsigned char *)(unsigned long)addr + offset[ac],  sw_txhdr->frame_len, USB_EP4);
+                rwnx_hw->plat->hif_ops->hi_write_sram(frm, (unsigned char *)(unsigned long)addr,  sw_txhdr->frame_len, USB_EP4);
 #endif
+                txdesc_host->api.host.packet_addr[0] = addr;
+                printk("%s: frame_len=%d, hwq=%d, index=%d, packet_addr[0]=%x\n", __func__, sw_txhdr->frame_len, txdesc_host->ctrl.hwq, txbuf->index, txdesc_host->api.host.packet_addr[0]);
 
-                    remain_len[ac] -= trans_len;
-                    printk("%s, addr=%x, frame_len=%x, hwq=%d, trans_len=%x, remain_len[ac]=%x, offset[ac]=%x, trans_len/4=%x\n", __func__, addr + offset[ac], sw_txhdr->frame_len, txdesc_host->ctrl.hwq, trans_len, remain_len[ac], offset[ac], trans_len/4);
-
-#if 0
-                    {
-                        int i;
-                        for (i =0;i < sw_txhdr->frame_len; i++) {
-                            printk("%02x ", *(sw_txhdr->skb->data + sizeof(struct rwnx_txhdr) + i));
-                            if (i % 16 == 15) {
-                                printk("\n");
-                            }
-                        }
-                    }
-#endif
-                    offset[ac] += trans_len;
-                } else {
-                    offset[ac] = 0;
-#if defined(CONFIG_RWNX_SDIO_MODE)
-                    rwnx_hw->plat->hif_ops->hi_write_ipc_sram(frm, (unsigned char *)(unsigned long)addr + offset[ac],  sw_txhdr->frame_len);
-#else
-                    rwnx_hw->plat->hif_ops->hi_write_sram(frm, (unsigned char *)(unsigned long)addr + offset[ac],  sw_txhdr->frame_len, USB_EP4);
-#endif
-                    printk("reamin %s, addr=%x, frame_len=%x, hwq=%d, trans_len=%x, remain_len[ac]=%x, offset[ac]=%x, trans_len/4=%x\n", __func__, addr + offset[ac], sw_txhdr->frame_len, txdesc_host->ctrl.hwq, trans_len, remain_len[ac], offset[ac], trans_len/4);
-
-                    remain_len[ac] = 0x4dc8;
-                    remain_len[ac] -= trans_len;
-
-                    offset[ac] += trans_len;
-                }
             }
 #if defined(CONFIG_RWNX_SDIO_MODE)
-            rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)txdesc_host, (unsigned char *)0x6001134C + (tx_desc_index * 72), sizeof(*txdesc_host));
+            rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)txdesc_host, (unsigned char *)TXDESC_START_ADDR + (tx_desc_index * 72), sizeof(*txdesc_host));
 #else
-            rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)txdesc_host, (unsigned char *)0x6001134C + (tx_desc_index * 72), sizeof(*txdesc_host), USB_EP4);
+            rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)txdesc_host, (unsigned char *)TXDESC_START_ADDR + (tx_desc_index * 72), sizeof(*txdesc_host), USB_EP4);
 #endif
-            printk("%s,%d, tx_desc_index=%d, addr=%x, ipc_cnt=%x\n", __func__, __LINE__, tx_desc_index, 0x6001134C + (tx_desc_index * 72), IPC_TXDMA_DESC_CNT);
-            printk("%s, ethertype:%x, tid:%x, vif_idx:%x\n", __func__, txdesc_host->api.host.ethertype, txdesc_host->api.host.tid, txdesc_host->api.host.vif_idx);
+            printk("%s, tx_desc_index=%d, addr=%x, ipc_cnt=%x, skb=%p\n",
+                __func__, tx_desc_index, TXDESC_START_ADDR + (tx_desc_index * 72), IPC_TXDMA_DESC_CNT, sw_txhdr->skb);
             tx_desc_index = (tx_desc_index + 1) % IPC_TXDMA_DESC_CNT;
             list_del(&tx_list->list);
             kfree(tx_list);
@@ -905,6 +909,7 @@ int rwnx_tx_task(void *data)
 
     return 0;
 }
+
 #endif
 /**
  * rwnx_ipc_msg_push() - Push a msg to IPC queue
@@ -934,18 +939,12 @@ void rwnx_ipc_txdesc_push(struct rwnx_hw *rwnx_hw, struct rwnx_sw_txhdr *sw_txhd
     struct rwnx_tx_list *tx_list;
 
     txdesc_host->ctrl.hwq = hw_queue;
-    txdesc_host->api.host.hostid = ipc_host_tx_host_ptr_to_id(rwnx_hw->ipc_env, skb);
     txdesc_host->ready = 0xFFFFFFFF;
-    if (!txdesc_host->api.host.hostid) {
-        dev_err(rwnx_hw->dev, "No more tx_hostid available \n");
-        return;
-    }
 
-    printk("%s,%d, hw_queue=%d\n", __func__, __LINE__, txdesc_host->ctrl.hwq);
+    //printk("%s,%d, hw_queue=%d\n", __func__, __LINE__, txdesc_host->ctrl.hwq);
 
     tx_list = kmalloc(sizeof(*tx_list), GFP_ATOMIC);
     if (tx_list) {
-        printk("%s,%d\n", __func__, __LINE__);
         tx_list->sw_txhdr = sw_txhdr;
         list_add_tail(&tx_list->list, &rwnx_hw->tx_desc_save);
     }
@@ -1080,6 +1079,24 @@ void rwnx_ipc_sta_buffer(struct rwnx_hw *rwnx_hw, struct rwnx_sta *sta, int tid,
 }
 #endif
 
+#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
+void rwnx_get_noparammsg_info(struct rwnx_hw *rwnx_hw, struct ipc_e2a_msg *msg)
+{
+    if (msg->id == DBG_ERROR_IND) {
+        struct rwnx_ipc_buf *dbgdump_buf = &rwnx_hw->dbgdump.buf;
+
+#if defined(CONFIG_RWNX_USB_MODE)
+        rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)dbgdump_buf->addr,
+            (unsigned char *)(unsigned long)DEBUG_INFO, dbgdump_buf->size, USB_EP4);
+
+#elif defined(CONFIG_RWNX_SDIO_MODE)
+        rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)dbgdump_buf->addr,
+            (unsigned char *)(unsigned long)DEBUG_INFO, dbgdump_buf->size);
+#endif
+    }
+}
+#endif
+
 /**
  * rwnx_msgind() - IRQ handler callback for %IPC_IRQ_E2A_MSG
  *
@@ -1104,21 +1121,33 @@ static u8 rwnx_msgind(void *pthis, void *arg)
 
 #if defined(CONFIG_RWNX_USB_MODE)
     msg = &rwnx_hw->g_msg;
-    rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)msg, (unsigned char *)&(rwnx_hw->ipc_env->shared->msg_e2a_buf), sizeof(struct ipc_e2a_msg), USB_EP4);
+    rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)msg, 
+        (unsigned char *)&(rwnx_hw->ipc_env->shared->msg_e2a_buf), sizeof(struct ipc_e2a_msg), USB_EP4);
     memcpy(&msg_rst, msg, sizeof(struct ipc_e2a_msg));
     msg_rst.id = 0;
-    rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)&msg_rst, (unsigned char *)&(rwnx_hw->ipc_env->shared->msg_e2a_buf), sizeof(struct ipc_e2a_msg), USB_EP4);
+    rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)&msg_rst,
+        (unsigned char *)&(rwnx_hw->ipc_env->shared->msg_e2a_buf), sizeof(struct ipc_e2a_msg), USB_EP4);
     rwnx_hw->plat->hif_ops->hi_write_word((unsigned int)CMD_DOWN_FIFO_FDH_ADDR, 1, USB_EP4);
 #elif defined(CONFIG_RWNX_SDIO_MODE)
     msg = &rwnx_hw->g_msg;
-    rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)msg, (unsigned char *)&(rwnx_hw->ipc_env->shared->msg_e2a_buf), sizeof(struct ipc_e2a_msg));
+    rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)msg,
+        (unsigned char *)&(rwnx_hw->ipc_env->shared->msg_e2a_buf), sizeof(struct ipc_e2a_msg));
     memcpy(&msg_rst, msg, sizeof(struct ipc_e2a_msg));
     msg_rst.id = 0;
-    rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)&msg_rst, (unsigned char *)&(rwnx_hw->ipc_env->shared->msg_e2a_buf), sizeof(struct ipc_e2a_msg));
+    rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)&msg_rst,
+        (unsigned char *)&(rwnx_hw->ipc_env->shared->msg_e2a_buf), sizeof(struct ipc_e2a_msg));
     rwnx_hw->plat->hif_ops->hi_write_ipc_word((unsigned int)CMD_DOWN_FIFO_FDH_ADDR, 1);
 #else
     msg = buf->addr;
 #endif
+
+#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
+    /*get info for msg no param*/
+    rwnx_get_noparammsg_info(rwnx_hw, msg);
+#endif
+    if (rwnx_hw->scan_request == NULL) {
+        RWNX_INFO("msg id=%d, pattern=0x%x\n",msg->id, msg->pattern);
+    }
 
     /* Look for pattern which means that this hostbuf has been used for a MSG */
     if (msg->pattern != IPC_MSGE2A_VALID_PATTERN) {
@@ -1351,13 +1380,11 @@ int rwnx_ipc_init(struct rwnx_hw *rwnx_hw, u8 *shared_ram)
 
     rwnx_cmd_mgr_init(&rwnx_hw->cmd_mgr);
 
-#if (defined(CONFIG_RWNX_PCIE_MODE))
     res = rwnx_elems_allocs(rwnx_hw);
     if (res) {
         kfree(rwnx_hw->ipc_env);
         rwnx_hw->ipc_env = NULL;
     }
-#endif
 
     return res;
 }
@@ -1490,7 +1517,9 @@ void rwnx_umh_done(struct rwnx_hw *rwnx_hw)
     /* this assumes error_ind won't trigger before ipc_host_dbginfo_push
        is called and so does not irq protect (TODO) against error_ind */
     rwnx_hw->debugfs.trace_prst = false;
+#if (defined(CONFIG_RWNX_PCIE_MODE))
     ipc_host_dbginfo_push(rwnx_hw->ipc_env, &rwnx_hw->dbgdump.buf);
+#endif
 }
 
 const char *ssid_sprintf(const unsigned char *ssid, unsigned char ssid_len) {

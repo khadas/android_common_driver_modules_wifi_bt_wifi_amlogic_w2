@@ -237,6 +237,63 @@ int aml_set_reg(struct net_device *dev, int addr, int val)
     return 0;
 }
 
+#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
+int aml_sdio_start_test(struct net_device *dev)
+{
+    struct rwnx_vif *rwnx_vif = netdev_priv(dev);
+    struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
+    unsigned int temperature = 0;
+    unsigned int i = 0;
+
+    unsigned char set_buf[100] = {0};
+    unsigned char get_buf[100] = {0};
+    unsigned char rst_buf[100] = {0};
+    memset(set_buf, 0x66, 100);
+
+    printk("sdio stress testing start\n");
+
+    while (1) {
+#if defined(CONFIG_RWNX_USB_MODE)
+        rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)set_buf, (unsigned char *)0x6000f4f4, 100, USB_EP4);
+        rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)get_buf, (unsigned char *)0x6000f4f4, 100, USB_EP4); //RXU_STAT_DESC_POOL
+#else
+        rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)set_buf, (unsigned char *)0x6000f4f4, 100); //RXU_STAT_DESC_POOL
+        rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)get_buf, (unsigned char *)0x6000f4f4, 100); //RXU_STAT_DESC_POOL
+#endif
+
+        if (memcmp(set_buf, get_buf, 100)) {
+#if defined(CONFIG_RWNX_USB_MODE)
+            temperature = rwnx_hw->plat->hif_ops->hi_read_word(0x00a04940, USB_EP4);
+#else
+            temperature = rwnx_hw->plat->hif_ops->hi_read_ipc_word(0x00a04940);
+#endif
+            printk(" test NG, temperature is 0x%08x\n", temperature & 0x0000ffff);
+
+        } else {
+#if defined(CONFIG_RWNX_USB_MODE)
+            temperature = rwnx_hw->plat->hif_ops->hi_read_word(0x00a04940,USB_EP4);
+#else
+            temperature = rwnx_hw->plat->hif_ops->hi_read_ipc_word(0x00a04940);
+#endif
+            i++;
+            if (i == 1000) {
+                printk(" test OK, temperature is 0x%08x\n", temperature & 0x0000ffff);
+                i = 0;
+            }
+        }
+        memset(get_buf, 0x77, 100);
+#if defined(CONFIG_RWNX_USB_MODE)
+        rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)rst_buf, (unsigned char *)0x6000f4f4, 100, USB_EP4); //RXU_STAT_DESC_POOL
+#else
+        rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)rst_buf, (unsigned char *)0x6000f4f4, 100); //RXU_STAT_DESC_POOL
+#endif
+    }
+
+    printk("sdio stress testing end\n");
+    return 0;
+}
+#endif
+
 int aml_get_efuse(struct net_device *dev, int addr)
 {
     struct rwnx_vif *rwnx_vif = netdev_priv(dev);
@@ -1352,6 +1409,11 @@ static int aml_iwpriv_get(struct net_device *dev,
          case AML_IWP_GET_CHAN_LIST:
             aml_get_chan_list_info(dev);
             break;
+#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
+        case AML_IWP_BUS_START_TEST:
+            aml_sdio_start_test(dev);
+            break;
+#endif
         default:
             printk("%s %d param err\n", __func__, __LINE__);
             break;
@@ -1476,7 +1538,15 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_LA_DUMP,
         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "la_dump"},
-
+#if defined(CONFIG_RWNX_USB_MODE)
+    {
+        AML_IWP_BUS_START_TEST,
+        0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "usb_start_test"},
+#elif defined(CONFIG_RWNX_SDIO_MODE)
+   {
+         AML_IWP_BUS_START_TEST,
+         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "sdio_start_test"},
+#endif
     {
         SIOCIWFIRSTPRIV + 1,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, ""},

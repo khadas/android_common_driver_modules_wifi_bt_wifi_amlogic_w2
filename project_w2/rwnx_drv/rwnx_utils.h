@@ -28,6 +28,10 @@
     printk("[%s %d] "fmt, __func__, __LINE__, ##__VA_ARGS__); \
 } while (0);
 
+
+#define MACFMT "%02x:%02x:%02x:%02x:%02x:%02x"
+#define MACARG(a) (a)[0], (a)[1], (a)[2], (a)[3], (a)[4], (a)[5]
+
 enum rwnx_dev_flag {
     RWNX_DEV_RESTARTING,
     RWNX_DEV_STACK_RESTARTING,
@@ -84,6 +88,13 @@ struct rwnx_tx_list {
     struct rwnx_sw_txhdr *sw_txhdr;
 };
 
+struct rwnx_txbuf {
+    struct list_head list;
+    uint32_t index;
+    struct sk_buff *skb;
+};
+#define TX_BUF_CNT    128
+
 static const u32 rwnx_tx_pattern = 0xCAFEFADE;
 
 /*
@@ -103,6 +114,8 @@ static const u32 rwnx_tx_pattern = 0xCAFEFADE;
 
 /// Number of radar event structures
 #define RADAR_EVENT_MAX   10
+
+#define TX_AC_BUF_SIZE 0x4dc8 //19912
 
 /**
  * IPC environment control
@@ -255,5 +268,12 @@ void *rwnx_ipc_fw_trace_desc_get(struct rwnx_hw *rwnx_hw);
 const char* ssid_sprintf(const unsigned char *ssid, unsigned char ssid_len);
 u32 aml_ieee80211_chan_to_freq(u32 chan, u32 band);
 u32 aml_ieee80211_freq_to_chan(u32 freq, u32 band);
+
+#if !defined(CONFIG_RWNX_PCIE_MODE)
+void rwnx_txbuf_list_init(struct rwnx_hw *rwnx_hw);
+struct rwnx_txbuf *rwnx_get_from_free_txbuf(struct rwnx_hw *rwnx_hw);
+void rwnx_txbuf_list_deinit(struct rwnx_hw *rwnx_hw);
+struct sk_buff *rwnx_get_skb_from_used_txbuf(struct rwnx_hw *rwnx_hw, u32_l hostid);
+#endif
 
 #endif /* _RWNX_IPC_UTILS_H_ */
