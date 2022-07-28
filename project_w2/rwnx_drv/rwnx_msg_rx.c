@@ -796,6 +796,7 @@ static inline int rwnx_rx_scanu_result_ind(struct rwnx_hw *rwnx_hw,
     mgmt = (struct ieee80211_mgmt *)ind->payload;
     mgmt->u.probe_resp.timestamp = timestamp;
     ie = mgmt->u.probe_resp.variable;
+    /*
     if ((ie[0] == WLAN_EID_SSID) && (ie + 2 + ie[1] < (u8 *) mgmt + ind->length)) {
         printk("ssid:%-32.32s bssid:%02x:%02x:%02x:%02x:%02x:%02x",
                 ssid_sprintf(&ie[2], ie[1]),
@@ -806,6 +807,7 @@ static inline int rwnx_rx_scanu_result_ind(struct rwnx_hw *rwnx_hw,
                 mgmt->bssid[4],
                 mgmt->bssid[5]);
     }
+    */
     //RWNX_DBG(RWNX_FN_ENTRY_STR);
 
     chan = ieee80211_get_channel(rwnx_hw->wiphy, ind->center_freq);
@@ -1046,17 +1048,18 @@ static inline int rwnx_rx_sm_disconnect_ind(struct rwnx_hw *rwnx_hw,
         netif_tx_stop_all_queues(dev);
         netif_carrier_off(dev);
     }
-
+    if (rwnx_vif->sta.ap) {
 #ifdef CONFIG_RWNX_BFMER
-    /* Disable Beamformer if supported */
-    rwnx_bfmer_report_del(rwnx_hw, rwnx_vif->sta.ap);
+        /* Disable Beamformer if supported */
+        rwnx_bfmer_report_del(rwnx_hw, rwnx_vif->sta.ap);
 #endif //(CONFIG_RWNX_BFMER)
 
-    rwnx_txq_sta_deinit(rwnx_hw, rwnx_vif->sta.ap);
-    rwnx_txq_tdls_vif_deinit(rwnx_vif);
-    rwnx_dbgfs_unregister_sta(rwnx_hw, rwnx_vif->sta.ap);
-    rwnx_vif->sta.ap->valid = false;
-    rwnx_vif->sta.ap = NULL;
+        rwnx_txq_sta_deinit(rwnx_hw, rwnx_vif->sta.ap);
+        rwnx_txq_tdls_vif_deinit(rwnx_vif);
+        rwnx_dbgfs_unregister_sta(rwnx_hw, rwnx_vif->sta.ap);
+        rwnx_vif->sta.ap->valid = false;
+        rwnx_vif->sta.ap = NULL;
+    }
     rwnx_vif->generation++;
     rwnx_external_auth_disable(rwnx_vif);
     rwnx_chanctx_unlink(rwnx_vif);
@@ -1492,8 +1495,9 @@ static inline int rwnx_scanu_cancel_cfm(struct rwnx_hw *rwnx_hw,
 #endif
     }
     rwnx_hw->scan_request = NULL;
-    rwnx_vif->sta.cancel_scan_cfm = 1;
-
+    if (rwnx_vif != NULL) {
+        rwnx_vif->sta.cancel_scan_cfm = 1;
+    }
     return 0;
 }
 

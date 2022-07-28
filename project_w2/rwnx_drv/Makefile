@@ -1,4 +1,4 @@
-RWNX_VERS_NUM=v1.0.0_20220706-w2 driver:861d903c0486b5f7296f82fb3b48a54c4f6c5848
+RWNX_VERS_NUM=v1.0.0_20220728-w2 driver:7801949d057eda8a7c17ae8a6a613e5091b78a0d
 #KERNELDIR=/usr/lib/modules/5.8.0-63-generic/build
 PWD=$(shell pwd)
 ifeq ($(ARCH),)
@@ -114,7 +114,7 @@ all: modules
 
 modules clean:
 	@$(PWD)/mklink.sh
-	$(MAKE)  CUR_DIR=$(CUR_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) -C $(KERNEL_SRC) M=$(M) INTERFACE_TYPE=$(MAKECMDGOALS) $@
+	$(MAKE)  CUR_DIR=$(CUR_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) -C $(KERNEL_SRC) M=$(M) $@
 	@$(PWD)/mklink.sh clean
 #ifneq (${OUT_DIR},)
 #	$(CROSS_COMPILE)strip --strip-unneeded ${OUT_DIR}/$(M)/$(TARGET).ko

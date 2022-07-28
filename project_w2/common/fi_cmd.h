@@ -17,10 +17,26 @@ typedef struct Cali_Param
     unsigned char wf2g_spur_rmen;
     unsigned short spur_freq;
     unsigned char rf_num;
+    unsigned char cw2mod[6];
+    unsigned char wf2g_11b_tpwr[4]; //the number based on rates
+    unsigned char wf2g_11g_tpwr[8];
+    unsigned char wf2g_ht20_tpwr[8];
+    unsigned char wf2g_ht40_tpwr[8];
+    unsigned char wf2g_vht20_tpwr[9];
+    unsigned char wf2g_vht40_tpwr[10];
+    unsigned char wf2g_he20_tpwr[12];
+    unsigned char wf2g_he40_tpwr[12];
+    unsigned char wf5g_11a_tpwr[8];
+    unsigned char wf5g_ht20_tpwr[8];
+    unsigned char wf5g_ht40_tpwr[8];
+    unsigned char wf5g_vht20_tpwr[9];
+    unsigned char wf5g_vht40_tpwr[10];
+    unsigned char wf5g_vht80_tpwr[10];
+    unsigned char wf5g_he20_tpwr[12];
+    unsigned char wf5g_he40_tpwr[12];
+    unsigned char wf5g_he80_tpwr[12];
 } Cali_Param;
 
-
-#if (defined(CONFIG_SDIO_IF) || defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
 
 //================cmd=========================================
 
@@ -571,5 +587,4 @@ typedef union FI_CMDFIFO_PARAM
     struct PagelenCmd page_len_cmd;
 } FI_CMDFIFO_PARAM;
 
-#endif// #ifdef CONFIG_SDIO_IF
 #endif

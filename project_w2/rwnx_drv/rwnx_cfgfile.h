@@ -18,6 +18,7 @@
 
 #define RWNX_CFGFILE_CHIPID_LOW     0x8
 #define RWNX_CFGFILE_CHIPID_HIGH    0x9
+#define RWNX_CFGFILE_CHIPID_LEN     12
 
 enum rwnx_cfgfile_flag {
     RWNX_CFGFILE_ERROR,

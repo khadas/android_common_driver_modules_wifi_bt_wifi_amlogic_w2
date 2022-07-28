@@ -7,7 +7,6 @@
  *
  ******************************************************************************
  */
-#if (!defined(CONFIG_RWNX_USB_MODE) && !defined(CONFIG_RWNX_SDIO_MODE))
 #include "rwnx_dini.h"
 #include "rwnx_defs.h"
 #include "rwnx_irqs.h"
@@ -110,7 +109,7 @@ int rwnx_cfpga_irq_enable(struct rwnx_hw *rwnx_hw)
     int ret;
 
     /* sched_setscheduler on ONESHOT threaded irq handler for BCNs ? */
-    if ((ret = request_irq(rwnx_hw->plat->pci_dev->irq, rwnx_irq_hdlr, 0,
+    if ((ret = request_irq(rwnx_hw->plat->pci_dev->irq, rwnx_irq_pcie_hdlr, 0,
                            "rwnx", rwnx_hw)))
             return ret;
 
@@ -193,11 +192,11 @@ static u8* rwnx_dini_get_address(struct rwnx_plat *rwnx_plat, int addr_name,
     return rwnx_dini->pci_bar4_vaddr + offset;
 }
 
-static void rwnx_dini_ack_irq(struct rwnx_plat *rwnx_plat)
+static u32 rwnx_dini_ack_irq(struct rwnx_plat *rwnx_plat)
 {
     struct rwnx_dini *rwnx_dini = (struct rwnx_dini *)rwnx_plat->priv;
-
     writel(CFPGA_ALL_ITS, rwnx_dini->pci_bar0_vaddr + CFPGA_UINTR_SRC_REG);
+    return 0;
 }
 
 static const u32 rwnx_dini_config_reg[] = {
@@ -291,5 +290,3 @@ int rwnx_dini_platform_init(struct pci_dev *pci_dev, struct rwnx_plat **rwnx_pla
     kfree(*rwnx_plat);
     return ret;
 }
-
-#endif

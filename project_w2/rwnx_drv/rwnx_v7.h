@@ -32,7 +32,14 @@
  * @priv Private data for the link driver
  */
 struct rwnx_plat_pci {
+    struct usb_device *usb_dev;
+    struct auc_hif_ops *hif_ops;
+
+    struct device *dev;
+    struct aml_hif_sdio_ops *hif_sdio_ops;
+
     struct pci_dev *pci_dev;
+
     bool enabled;
 
     int (*enable)(void *rwnx_hw);

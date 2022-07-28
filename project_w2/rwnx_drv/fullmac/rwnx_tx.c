@@ -528,8 +528,7 @@ static struct rwnx_sta *rwnx_get_tx_info(struct rwnx_vif *rwnx_vif,
  *
  * Map the frame for DMA transmission and save its ipc address in the tx descriptor
  */
-#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
-static int rwnx_prep_dma_tx(struct rwnx_hw *rwnx_hw, struct rwnx_sw_txhdr *sw_txhdr,
+static int rwnx_sdio_prep_dma_tx(struct rwnx_hw *rwnx_hw, struct rwnx_sw_txhdr *sw_txhdr,
                              void *frame_start)
 {
     struct txdesc_api *desc = &sw_txhdr->desc.api;
@@ -549,8 +548,7 @@ static int rwnx_prep_dma_tx(struct rwnx_hw *rwnx_hw, struct rwnx_sw_txhdr *sw_tx
     return 0;
 }
 
-#else
-static int rwnx_prep_dma_tx(struct rwnx_hw *rwnx_hw, struct rwnx_sw_txhdr *sw_txhdr,
+static int rwnx_pcie_prep_dma_tx(struct rwnx_hw *rwnx_hw, struct rwnx_sw_txhdr *sw_txhdr,
                             void *frame_start)
 {
     struct txdesc_api *desc = &sw_txhdr->desc.api;
@@ -568,7 +566,15 @@ static int rwnx_prep_dma_tx(struct rwnx_hw *rwnx_hw, struct rwnx_sw_txhdr *sw_tx
 
     return 0;
 }
-#endif
+static int rwnx_prep_dma_tx(struct rwnx_hw *rwnx_hw, struct rwnx_sw_txhdr *sw_txhdr,
+                            void *frame_start)
+{
+    if (aml_bus_type != PCIE_MODE) {
+        return rwnx_sdio_prep_dma_tx(rwnx_hw, sw_txhdr, frame_start);
+    } else {
+        return rwnx_pcie_prep_dma_tx(rwnx_hw, sw_txhdr, frame_start);
+    }
+}
 /**
  *  rwnx_tx_push - Push one packet to fw
  *
@@ -852,10 +858,10 @@ static int rwnx_amsdu_add_subframe_header(struct rwnx_hw *rwnx_hw,
     list_add_tail(&amsdu_txhdr->list, &amsdu->hdrs);
     amsdu->len += amsdu_len;
 
-#if (defined(CONFIG_RWNX_PCIE_MODE))
-    rwnx_ipc_sta_buffer(rwnx_hw, sw_txhdr->txq->sta,
-                        sw_txhdr->txq->tid, msdu_len);
-#endif
+    if (aml_bus_type == PCIE_MODE) {
+        rwnx_ipc_sta_buffer(rwnx_hw, sw_txhdr->txq->sta,
+                            sw_txhdr->txq->tid, msdu_len);
+    }
 
     trace_amsdu_subframe(sw_txhdr);
     return 0;
@@ -887,9 +893,10 @@ static bool rwnx_amsdu_add_subframe(struct rwnx_hw *rwnx_hw, struct sk_buff *skb
 {
     bool res = false;
     struct ethhdr *eth;
-#if !defined(CONFIG_RWNX_PCIE_MODE)
-    rwnx_hw->mod_params->amsdu_maxnb = 1;
-#endif
+
+   //if (aml_bus_type != PCIE_MODE) {
+        rwnx_hw->mod_params->amsdu_maxnb = 1;
+    //}
     /* Adjust the maximum number of MSDU allowed in A-MSDU */
     rwnx_adjust_amsdu_maxnb(rwnx_hw);
 
@@ -989,9 +996,8 @@ static void rwnx_amsdu_dismantle(struct rwnx_hw *rwnx_hw, struct rwnx_sw_txhdr *
 {
     struct rwnx_amsdu_txhdr *amsdu_txhdr, *next;
     struct sk_buff *skb_prev = sw_txhdr_main->skb;
-#if (defined(CONFIG_RWNX_PCIE_MODE))
     struct rwnx_txq *txq =  sw_txhdr_main->txq;
-#endif
+
     trace_amsdu_dismantle(sw_txhdr_main);
 
     rwnx_hw->stats.amsdus[sw_txhdr_main->amsdu.nb - 1].done--;
@@ -1008,9 +1014,9 @@ static void rwnx_amsdu_dismantle(struct rwnx_hw *rwnx_hw, struct rwnx_sw_txhdr *
         size_t data_oft;
 
         list_del(&amsdu_txhdr->list);
-#if (defined(CONFIG_RWNX_PCIE_MODE))
-        rwnx_ipc_sta_buffer(rwnx_hw, txq->sta, txq->tid, -amsdu_txhdr->msdu_len);
-#endif
+        if (aml_bus_type == PCIE_MODE) {
+            rwnx_ipc_sta_buffer(rwnx_hw, txq->sta, txq->tid, -amsdu_txhdr->msdu_len);
+        }
         rwnx_amsdu_del_subframe_header(amsdu_txhdr);
 
         frame_len = RWNX_TX_DMA_MAP_LEN(skb);
@@ -1229,10 +1235,10 @@ netdev_tx_t rwnx_start_xmit(struct sk_buff *skb, struct net_device *dev)
     txhdr = (struct rwnx_txhdr *)skb_push(skb, RWNX_TX_HEADROOM);
     txhdr->sw_hdr = sw_txhdr;
 
-#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
-    printk("%s, ethertype:0x%04x, credits:%d, tid:%d, vif_idx:%d\n",
-        __func__, cpu_to_be16(desc->host.ethertype), txq->credits, desc->host.tid, desc->host.vif_idx);
-#endif
+    if (aml_bus_type != PCIE_MODE) {
+        printk("%s, ethertype:0x%04x, credits:%d, tid:%d, vif_idx:%d\n",
+                __func__, cpu_to_be16(desc->host.ethertype), txq->credits, desc->host.tid, desc->host.vif_idx);
+    }
 
     /* queue the buffer */
     spin_lock_bh(&rwnx_hw->tx_lock);
@@ -1370,173 +1376,228 @@ int rwnx_start_mgmt_xmit(struct rwnx_vif *vif, struct rwnx_sta *sta,
 
     return 0;
 }
-#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
-int rwnx_tx_cfm_task(void *data)
+
+int rwnx_update_tx_cfm(void *pthis)
 {
-    struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)data;
+    struct rwnx_hw *rwnx_hw = pthis;
+    struct tx_cfm_tag *read_cfm;
+
+    read_cfm = rwnx_hw->read_cfm;
+    if (aml_bus_type == USB_MODE) {
+        rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)read_cfm,
+            (unsigned char *)SRAM_TXCFM_START_ADDR, sizeof(struct tx_cfm_tag) * TXCFM_READ_CNT, USB_EP4);
+
+    } else if (aml_bus_type == SDIO_MODE) {
+        rwnx_hw->plat->hif_sdio_ops->hi_random_ram_read((unsigned char *)read_cfm,
+            (unsigned char *)SRAM_TXCFM_START_ADDR, sizeof(struct tx_cfm_tag) * TXCFM_READ_CNT);
+    }
+    return 0;
+}
+u8_l rwnx_get_txcfm_reset_cnt(u8_l cnt)
+{
+    u8_l reset_cnt = 0;
+
+    if (cnt <= TXCFM_RESET_CNT) {
+        reset_cnt = 0;
+    } else if (cnt <= (TXCFM_RESET_CNT * 2)) {
+        reset_cnt = 1;
+    } else if (cnt <= (TXCFM_RESET_CNT * 3)) {
+        reset_cnt = 2;
+    } else {
+        reset_cnt = 3;
+    }
+    return reset_cnt;
+}
+int rwnx_clear_tx_cfm(void *pthis)
+{
+    struct rwnx_hw *rwnx_hw = pthis;
+    struct tx_cfm_tag *reset_cfm;
+    struct rwnx_tx_cfmed * tx_cfmed, *next;
+    struct tx_cfm_tag *read_addr = (struct tx_cfm_tag *)SRAM_TXCFM_START_ADDR;
+    u8_l start=0, end=0, cnt=0;
+    u8_l i = 0, reset_cnt = 0;
+
+    reset_cfm = rwnx_hw->reset_cfm;
+
+    tx_cfmed = list_first_entry(&rwnx_hw->tx_cfmed_list, struct rwnx_tx_cfmed, list);
+    start = tx_cfmed->tx_cfmed_idx;
+    tx_cfmed = list_last_entry(&rwnx_hw->tx_cfmed_list, struct rwnx_tx_cfmed, list);
+    end = tx_cfmed->tx_cfmed_idx;
+
+    list_for_each_entry_safe(tx_cfmed, next, &rwnx_hw->tx_cfmed_list, list) {
+        cnt++;
+        list_del(&tx_cfmed->list);
+    }
+    if (!cnt || cnt > SRAM_TXCFM_CNT)
+        return 0;
+    if (end >= start) {
+
+        if (aml_bus_type == USB_MODE) {
+            rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)&reset_cfm[start],
+                (unsigned char *)(unsigned long)&read_addr[start], sizeof(struct tx_cfm_tag)* cnt, USB_EP4);
+
+        } else if (aml_bus_type == SDIO_MODE) {
+            reset_cnt = rwnx_get_txcfm_reset_cnt(cnt);
+            for (i = 0; i < reset_cnt; i++) {
+                rwnx_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)&reset_cfm[start],
+                    (unsigned char *)(unsigned long)&read_addr[start + (i * TXCFM_RESET_CNT)], sizeof(struct tx_cfm_tag)* TXCFM_RESET_CNT);
+            }
+            rwnx_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)&reset_cfm[start],
+                (unsigned char *)(unsigned long)&read_addr[start + (i * TXCFM_RESET_CNT)], sizeof(struct tx_cfm_tag)* (cnt- (i * TXCFM_RESET_CNT)));
+        }
+
+    } else {
+        if (aml_bus_type == USB_MODE) {
+            rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)&reset_cfm[start],
+                (unsigned char *)(unsigned long)&read_addr[start], sizeof(struct tx_cfm_tag)*  (SRAM_TXCFM_CNT - start), USB_EP4);
+            rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)&reset_cfm[0],
+                (unsigned char *)(unsigned long)&read_addr[0], sizeof(struct tx_cfm_tag)* (end+1 - 0), USB_EP4);
+        } else if (aml_bus_type == SDIO_MODE) {
+            reset_cnt = rwnx_get_txcfm_reset_cnt(SRAM_TXCFM_CNT - start);
+            for (i = 0; i < reset_cnt; i++) {
+                rwnx_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)&reset_cfm[start],
+                    (unsigned char *)(unsigned long)&read_addr[start + (i * TXCFM_RESET_CNT)], sizeof(struct tx_cfm_tag)* TXCFM_RESET_CNT);
+            }
+            rwnx_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)&reset_cfm[start],
+                (unsigned char *)(unsigned long)&read_addr[start + (i * TXCFM_RESET_CNT)], sizeof(struct tx_cfm_tag)* (SRAM_TXCFM_CNT - start - (i * TXCFM_RESET_CNT)));
+
+            reset_cnt = rwnx_get_txcfm_reset_cnt(end + 1);
+            for (i = 0; i < reset_cnt; i++) {
+                rwnx_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)&reset_cfm[0],
+                    (unsigned char *)(unsigned long)&read_addr[0 + (i * TXCFM_RESET_CNT)], sizeof(struct tx_cfm_tag)* TXCFM_RESET_CNT);
+            }
+            rwnx_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)&reset_cfm[0],
+                (unsigned char *)(unsigned long)&read_addr[0 + (i * TXCFM_RESET_CNT)], sizeof(struct tx_cfm_tag)* (end + 1 - (i * TXCFM_RESET_CNT)));
+        }
+    }
+    return 0;
+}
+
+int rwnx_sdio_txdatacfm(void *pthis, void *arg)
+{
+    struct rwnx_hw *rwnx_hw = pthis;
     struct sk_buff *skb = NULL;
     struct tx_cfm_tag cfm;
     struct rwnx_sw_txhdr *sw_txhdr;
     struct rwnx_hwq *hwq;
     struct rwnx_txq *txq;
-    struct tx_cfm_tag reset = {0};
-    struct sched_param sch_param;
-    unsigned int *drv_txcfm_idx = &rwnx_hw->ipc_env->txcfm_idx;
-    unsigned int addr;
-    sch_param.sched_priority = 91;
-    sched_setscheduler(current,SCHED_RR,&sch_param);
+    struct tx_cfm_tag *read_cfm;
+    unsigned int drv_txcfm_idx = rwnx_hw->ipc_env->txcfm_idx;
+    u8 i = 0;
 
-    while (1) {
-        /* wait for work */
-        if (down_interruptible(&rwnx_hw->rwnx_tx_cfm_sem) != 0)
-        {
-            /* interrupted, exit */
-            printk("%s:%d wait rwnx_tx_cfm_sem fail!\n", __func__, __LINE__);
+    read_cfm = rwnx_hw->read_cfm;
+    for (i = 0; i < TXCFM_READ_CNT; i++, drv_txcfm_idx = (drv_txcfm_idx + 1) % SRAM_TXCFM_CNT) {
+        rwnx_hw->ipc_env->txcfm_idx = drv_txcfm_idx;
+
+        cfm = read_cfm[drv_txcfm_idx];
+        cfm.credits = cfm.status.value >> 16;
+        cfm.status.value &= 0xffff;
+        skb = rwnx_get_skb_from_used_txbuf(rwnx_hw, cfm.hostid);
+
+        if (!skb)
             break;
+
+        rwnx_hw->tx_cfmed[i].tx_cfmed_idx = drv_txcfm_idx;
+        list_add_tail(&rwnx_hw->tx_cfmed[i].list, &rwnx_hw->tx_cfmed_list);
+
+        sw_txhdr = ((struct rwnx_txhdr *)skb->data)->sw_hdr;
+        txq = sw_txhdr->txq;
+
+        /* don't use txq->hwq as it may have changed between push and confirm */
+        hwq = &rwnx_hw->hwq[sw_txhdr->hw_queue];
+
+        printk("%s, skb=%p, cfm_status=%x, hostid:%x, cfm_credit=%x\n",
+            __func__, skb, cfm.status, cfm.hostid, cfm.credits);
+
+        rwnx_txq_confirm_any(rwnx_hw, txq, hwq, sw_txhdr);
+
+        /* Update txq and HW queue credits */
+        if (sw_txhdr->desc.api.host.flags & TXU_CNTRL_MGMT) {
+            struct ieee80211_mgmt *mgmt;
+            trace_mgmt_cfm(sw_txhdr->rwnx_vif->vif_index,
+                           (sw_txhdr->rwnx_sta) ? sw_txhdr->rwnx_sta->sta_idx : 0xFF,
+                           cfm.status.acknowledged);
+            mgmt = (struct ieee80211_mgmt *)(skb->data + RWNX_TX_HEADROOM);
+            if ((ieee80211_is_deauth(mgmt->frame_control)) && (sw_txhdr->rwnx_vif->is_disconnect == 1)) {
+                sw_txhdr->rwnx_vif->is_disconnect = 0;
+            }
+            /* Confirm transmission to CFG80211 */
+            cfg80211_mgmt_tx_status(&sw_txhdr->rwnx_vif->wdev,
+                                    (unsigned long)skb, skb_mac_header(skb),
+                                    sw_txhdr->frame_len,
+                                    cfm.status.acknowledged,
+                                    GFP_ATOMIC);
+        } else if ((txq->idx != TXQ_INACTIVE) && cfm.status.sw_retry_required) {
+            sw_txhdr->desc.api.host.flags |= TXU_CNTRL_RETRY;
+            /* firmware postponed this buffer */
+            rwnx_tx_retry(rwnx_hw, skb, sw_txhdr, cfm.status);
+            continue;
         }
 
-        while(1) {
-            addr = SRAM_TXCFM_START_ADDR + (*drv_txcfm_idx * sizeof(struct tx_cfm_tag));
-#if defined(CONFIG_RWNX_USB_MODE)
-            rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)&cfm, (unsigned char *)(unsigned long)addr, sizeof(cfm), USB_EP4);
+        trace_skb_confirm(skb, txq, hwq, &cfm);
 
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-            rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)&cfm, (unsigned char *)(unsigned long)addr, sizeof(cfm));
-
-#endif
-            //printk("%s, addr=%x, hostid=%x, idx=%x\n", __func__, addr, cfm.hostid, *drv_txcfm_idx);
-            *drv_txcfm_idx = (*drv_txcfm_idx + 1) % SRAM_TXCFM_CNT;
-
-            /* Check host id in the confirmation. */
-            /* If 0 it means that this confirmation has not yet been updated by firmware */
-
-            skb = rwnx_get_skb_from_used_txbuf(rwnx_hw, cfm.hostid);
-
-            if (!skb) {
-                if (*drv_txcfm_idx > 0)
-                    *drv_txcfm_idx = (*drv_txcfm_idx - 1) % SRAM_TXCFM_CNT;
-                else
-                    *drv_txcfm_idx = SRAM_TXCFM_CNT - 1;
-
-                break;
-            } else {
-#if defined(CONFIG_RWNX_USB_MODE)
-                rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)&reset, (unsigned char *)(unsigned long)addr, sizeof(cfm), USB_EP4);
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-                rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)&reset, (unsigned char *)(unsigned long)addr, sizeof(cfm));
-#endif
+        /* STA may have disconnect (and txq stopped) when buffers were stored
+                        in fw. In this case do nothing when they're returned */
+        if (txq->idx != TXQ_INACTIVE) {
+            if (cfm.credits) {
+                txq->credits += cfm.credits;
+                if (txq->credits <= 0) {
+                    rwnx_txq_stop(txq, RWNX_TXQ_STOP_FULL);
+                }
+                else if (txq->credits > 0)
+                  rwnx_txq_start(txq, RWNX_TXQ_STOP_FULL);
             }
 
-            sw_txhdr = ((struct rwnx_txhdr *)skb->data)->sw_hdr;
-            txq = sw_txhdr->txq;
-
-            /* don't use txq->hwq as it may have changed between push and confirm */
-            hwq = &rwnx_hw->hwq[sw_txhdr->hw_queue];
-
-            printk("%s, skb=%p, cfm_status=%x, hostid:%d, cfm_credit=%x\n",
-                __func__, skb, cfm.status, cfm.hostid, cfm.credits);
-
-            rwnx_txq_confirm_any(rwnx_hw, txq, hwq, sw_txhdr);
-
-            /* Update txq and HW queue credits */
-            if (sw_txhdr->desc.api.host.flags & TXU_CNTRL_MGMT) {
-                struct ieee80211_mgmt *mgmt;
-                trace_mgmt_cfm(sw_txhdr->rwnx_vif->vif_index,
-                               (sw_txhdr->rwnx_sta) ? sw_txhdr->rwnx_sta->sta_idx : 0xFF,
-                               cfm.status.acknowledged);
-                mgmt = (struct ieee80211_mgmt *)(skb->data + RWNX_TX_HEADROOM);
-                if ((ieee80211_is_deauth(mgmt->frame_control)) && (sw_txhdr->rwnx_vif->is_disconnect == 1)) {
-                    sw_txhdr->rwnx_vif->is_disconnect = 0;
-                }
-                /* Confirm transmission to CFG80211 */
-                cfg80211_mgmt_tx_status(&sw_txhdr->rwnx_vif->wdev,
-                                        (unsigned long)skb, skb_mac_header(skb),
-                                        sw_txhdr->frame_len,
-                                        cfm.status.acknowledged,
-                                        GFP_ATOMIC);
-            } else if ((txq->idx != TXQ_INACTIVE) && cfm.status.sw_retry_required) {
-                sw_txhdr->desc.api.host.flags |= TXU_CNTRL_RETRY;
-                /* firmware postponed this buffer */
-                rwnx_tx_retry(rwnx_hw, skb, sw_txhdr, cfm.status);
-                break;
+            /* continue service period */
+            if (unlikely(txq->push_limit && !rwnx_txq_is_full(txq))) {
+                rwnx_txq_add_to_hw_list(txq);
             }
-
-            trace_skb_confirm(skb, txq, hwq, &cfm);
-
-            /* STA may have disconnect (and txq stopped) when buffers were stored
-                            in fw. In this case do nothing when they're returned */
-            if (txq->idx != TXQ_INACTIVE) {
-                if (cfm.credits) {
-                    txq->credits += cfm.credits;
-                    if (txq->credits <= 0) {
-                        rwnx_txq_stop(txq, RWNX_TXQ_STOP_FULL);
-                    }
-                    else if (txq->credits > 0)
-                      rwnx_txq_start(txq, RWNX_TXQ_STOP_FULL);
-                }
-
-                /* continue service period */
-                if (unlikely(txq->push_limit && !rwnx_txq_is_full(txq))) {
-                    rwnx_txq_add_to_hw_list(txq);
-                }
-            }
-            /* coverity[result_independent_of_operands] - Enhance code robustness */
-            if (cfm.ampdu_size && (cfm.ampdu_size < IEEE80211_MAX_AMPDU_BUF))
-                rwnx_hw->stats.ampdus_tx[cfm.ampdu_size - 1]++;
-
-    #ifdef CONFIG_RWNX_AMSDUS_TX
-          if (!cfm.status.acknowledged) {
-              if (sw_txhdr->desc.api.host.flags & TXU_CNTRL_AMSDU)
-                  rwnx_hw->stats.amsdus[sw_txhdr->amsdu.nb - 1].failed++;
-              else if (!sw_txhdr->rwnx_sta || !is_multicast_sta(sw_txhdr->rwnx_sta->sta_idx))
-                  rwnx_hw->stats.amsdus[0].failed++;
         }
+        /* coverity[result_independent_of_operands] - Enhance code robustness */
+        if (cfm.ampdu_size && (cfm.ampdu_size < IEEE80211_MAX_AMPDU_BUF))
+            rwnx_hw->stats.ampdus_tx[cfm.ampdu_size - 1]++;
 
-          rwnx_amsdu_update_len(rwnx_hw, txq, cfm.amsdu_size);
-    #endif
-
-      /* Release SKBs */
-      #ifdef CONFIG_RWNX_AMSDUS_TX
-          if (sw_txhdr->desc.api.host.flags & TXU_CNTRL_AMSDU) {
-              struct rwnx_amsdu_txhdr *amsdu_txhdr, *tmp;
-              list_for_each_entry_safe(amsdu_txhdr, tmp, &sw_txhdr->amsdu.hdrs, list) {
-                  rwnx_amsdu_del_subframe_header(amsdu_txhdr);
-                  rwnx_ipc_buf_a2e_release(rwnx_hw, &amsdu_txhdr->ipc_data);
-#if (defined(CONFIG_RWNX_PCIE_MODE))
-                  rwnx_ipc_sta_buffer(rwnx_hw, txq->sta, txq->tid,
-                                      -amsdu_txhdr->msdu_len);
+#ifdef CONFIG_RWNX_AMSDUS_TX
+        if (!cfm.status.acknowledged) {
+          if (sw_txhdr->desc.api.host.flags & TXU_CNTRL_AMSDU)
+              rwnx_hw->stats.amsdus[sw_txhdr->amsdu.nb - 1].failed++;
+          else if (!sw_txhdr->rwnx_sta || !is_multicast_sta(sw_txhdr->rwnx_sta->sta_idx))
+              rwnx_hw->stats.amsdus[0].failed++;
+        }
+        //rwnx_amsdu_update_len(rwnx_hw, txq, cfm.amsdu_size);
 #endif
-            rwnx_tx_statistic(sw_txhdr->rwnx_vif, txq, cfm.status, amsdu_txhdr->msdu_len);
-                          consume_skb(amsdu_txhdr->skb);
-                    }
-          }
-    #endif /* CONFIG_RWNX_AMSDUS_TX */
+
+  /* Release SKBs */
+#ifdef CONFIG_RWNX_AMSDUS_TX
+        if (sw_txhdr->desc.api.host.flags & TXU_CNTRL_AMSDU) {
+            struct rwnx_amsdu_txhdr *amsdu_txhdr, *tmp;
+            list_for_each_entry_safe(amsdu_txhdr, tmp, &sw_txhdr->amsdu.hdrs, list) {
+                rwnx_amsdu_del_subframe_header(amsdu_txhdr);
+                rwnx_ipc_buf_a2e_release(rwnx_hw, &amsdu_txhdr->ipc_data);
+                if (aml_bus_type == PCIE_MODE) {
+                rwnx_ipc_sta_buffer(rwnx_hw, txq->sta, txq->tid,
+                    -amsdu_txhdr->msdu_len);
+                }
+                rwnx_tx_statistic(sw_txhdr->rwnx_vif, txq, cfm.status, amsdu_txhdr->msdu_len);
+                consume_skb(amsdu_txhdr->skb);
+            }
+        }
+#endif /* CONFIG_RWNX_AMSDUS_TX */
 
         rwnx_ipc_buf_a2e_release(rwnx_hw, &sw_txhdr->ipc_data);
-#if (defined(CONFIG_RWNX_PCIE_MODE))
-        rwnx_ipc_sta_buffer(rwnx_hw, txq->sta, txq->tid, -sw_txhdr->frame_len);
-#endif
-          rwnx_tx_statistic(sw_txhdr->rwnx_vif, txq, cfm.status, sw_txhdr->frame_len);
-
-          kmem_cache_free(rwnx_hw->sw_txhdr_cache, sw_txhdr);
-          skb_pull(skb, RWNX_TX_HEADROOM);
-          consume_skb(skb);
-
+        if (aml_bus_type == PCIE_MODE) {
+            rwnx_ipc_sta_buffer(rwnx_hw, txq->sta, txq->tid, -sw_txhdr->frame_len);
         }
+        rwnx_tx_statistic(sw_txhdr->rwnx_vif, txq, cfm.status, sw_txhdr->frame_len);
+
+        kmem_cache_free(rwnx_hw->sw_txhdr_cache, sw_txhdr);
+        skb_pull(skb, RWNX_TX_HEADROOM);
+        consume_skb(skb);
     }
-     return 0;
-
-}
-
-
-int rwnx_txdatacfm(void *pthis, void *arg)
-{
-    struct rwnx_hw *rwnx_hw = pthis;
-
-    up(&rwnx_hw->rwnx_tx_cfm_sem);
     return 0;
 }
-#else
+
+
 /**
  * rwnx_txdatacfm - FW callback for TX confirmation
  *
@@ -1548,7 +1609,7 @@ int rwnx_txdatacfm(void *pthis, void *arg)
  * Called with tx_lock hold
  *
  */
-int rwnx_txdatacfm(void *pthis, void *arg)
+int rwnx_pci_txdatacfm(void *pthis, void *arg)
 {
     struct rwnx_hw *rwnx_hw = pthis;
     struct rwnx_ipc_buf *ipc_cfm = arg;
@@ -1632,10 +1693,10 @@ int rwnx_txdatacfm(void *pthis, void *arg)
         list_for_each_entry_safe(amsdu_txhdr, tmp, &sw_txhdr->amsdu.hdrs, list) {
             rwnx_amsdu_del_subframe_header(amsdu_txhdr);
             rwnx_ipc_buf_a2e_release(rwnx_hw, &amsdu_txhdr->ipc_data);
-#if defined(CONFIG_RWNX_PCIE_MODE)
-            rwnx_ipc_sta_buffer(rwnx_hw, txq->sta, txq->tid,
-                                -amsdu_txhdr->msdu_len);
-#endif
+            if (aml_bus_type == PCIE_MODE) {
+                rwnx_ipc_sta_buffer(rwnx_hw, txq->sta, txq->tid,
+                                    -amsdu_txhdr->msdu_len);
+            }
             rwnx_tx_statistic(sw_txhdr->rwnx_vif, txq, cfm->status, amsdu_txhdr->msdu_len);
             consume_skb(amsdu_txhdr->skb);
         }
@@ -1643,9 +1704,9 @@ int rwnx_txdatacfm(void *pthis, void *arg)
 #endif /* CONFIG_RWNX_AMSDUS_TX */
 
     rwnx_ipc_buf_a2e_release(rwnx_hw, &sw_txhdr->ipc_data);
-#if defined(CONFIG_RWNX_PCIE_MODE)
-    rwnx_ipc_sta_buffer(rwnx_hw, txq->sta, txq->tid, -sw_txhdr->frame_len);
-#endif
+    if (aml_bus_type == PCIE_MODE) {
+        rwnx_ipc_sta_buffer(rwnx_hw, txq->sta, txq->tid, -sw_txhdr->frame_len);
+    }
     rwnx_tx_statistic(sw_txhdr->rwnx_vif, txq, cfm->status, sw_txhdr->frame_len);
 
     kmem_cache_free(rwnx_hw->sw_txhdr_cache, sw_txhdr);
@@ -1654,7 +1715,16 @@ int rwnx_txdatacfm(void *pthis, void *arg)
 
     return 0;
 }
-#endif
+
+int rwnx_txdatacfm(void *pthis, void *arg)
+{
+    if (aml_bus_type != PCIE_MODE) {
+        return rwnx_sdio_txdatacfm(pthis, arg);
+    } else {
+        return rwnx_pci_txdatacfm(pthis, arg);
+    }
+}
+
 /**
  * rwnx_txq_credit_update - Update credit for one txq
  *

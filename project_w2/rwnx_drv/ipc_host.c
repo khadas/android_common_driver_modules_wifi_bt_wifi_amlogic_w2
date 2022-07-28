@@ -124,15 +124,16 @@ static void ipc_host_unsup_rx_vec_handler(struct ipc_host_env_tag *env)
  */
 static void ipc_host_msg_handler(struct ipc_host_env_tag *env)
 {
-#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
-    env->cb.recv_msg_ind(env->pthis, env->msgbuf[env->msgbuf_idx]);
-#else
-    while (env->cb.recv_msg_ind(env->pthis, env->msgbuf[env->msgbuf_idx]) == 0)
-        ;
-#endif
+    if (aml_bus_type != PCIE_MODE) {
+        env->cb.recv_msg_ind(env->pthis, env->msgbuf[env->msgbuf_idx]);
+    } else {
+        while (env->cb.recv_msg_ind(env->pthis, env->msgbuf[env->msgbuf_idx]) == 0) {
+            ;
+        }
+    }
 }
-#if defined(CONFIG_RWNX_USB_MODE)
-static void ipc_host_msgack_handler(struct ipc_host_env_tag *env)
+
+static void ipc_usb_host_msgack_handler(struct ipc_host_env_tag *env)
 {
     void *hostid = env->msga2e_hostid;
     struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)env->pthis;
@@ -147,13 +148,13 @@ static void ipc_host_msgack_handler(struct ipc_host_env_tag *env)
     env->msga2e_cnt++;
     env->cb.recv_msgack_ind(env->pthis, hostid);
 }
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-static void ipc_host_msgack_handler(struct ipc_host_env_tag *env)
+
+static void ipc_sdio_host_msgack_handler(struct ipc_host_env_tag *env)
 {
     void *hostid = env->msga2e_hostid;
     struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)env->pthis;
     volatile struct ipc_a2e_msg msg_a2e_buf = {0};
-    rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)&msg_a2e_buf, (unsigned char *)&env->shared->msg_a2e_buf, sizeof(struct ipc_a2e_msg));
+    rwnx_hw->plat->hif_sdio_ops->hi_random_ram_read((unsigned char *)&msg_a2e_buf, (unsigned char *)&env->shared->msg_a2e_buf, sizeof(struct ipc_a2e_msg));
     ASSERT_ERR(hostid);
     ASSERT_ERR(env->msga2e_cnt == (((struct lmac_msg *)(&msg_a2e_buf.msg))->src_id & 0xFF));
 
@@ -162,7 +163,7 @@ static void ipc_host_msgack_handler(struct ipc_host_env_tag *env)
     env->msga2e_cnt++;
     env->cb.recv_msgack_ind(env->pthis, hostid);
 }
-#else
+
 /**
  * ipc_host_msgack_handler() - Handle the reception of message acknowledgement
  *
@@ -170,14 +171,23 @@ static void ipc_host_msgack_handler(struct ipc_host_env_tag *env)
  *
  * Called from general IRQ handler when status %IPC_IRQ_E2A_MSG_ACK is set
  */
-static void ipc_host_msgack_handler(struct ipc_host_env_tag *env)
+static void ipc_pci_host_msgack_handler(struct ipc_host_env_tag *env)
 {
     void *hostid = env->msga2e_hostid;
 
     RWNX_INFO("a2e msg hostid=0x%lx count=%d\n",
             env->msga2e_hostid, env->msga2e_cnt);
     if (!hostid) {
+        struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)env->pthis;
+        struct rwnx_vif *rwnx_vif = rwnx_hw->vif_table[0];
         RWNX_INFO("error: a2e msg hostid is null\n");
+        if (rwnx_vif != NULL) {
+            struct net_device * dev = rwnx_hw->vif_table[0]->ndev;
+            RWNX_INFO("0x6080001c 0x%x\n",aml_read_reg(dev, 0x6080001c));
+            RWNX_INFO("0x60800100 0x%x\n",aml_read_reg(dev, 0x60800100));
+            RWNX_INFO("0x6080000c 0x%x\n",aml_read_reg(dev, 0x6080000c));
+            RWNX_INFO("0x60000004 0x%x\n",aml_read_reg(dev, 0x60000004));
+        }
         return;
     }
 
@@ -185,7 +195,18 @@ static void ipc_host_msgack_handler(struct ipc_host_env_tag *env)
     env->msga2e_cnt++;
     env->cb.recv_msgack_ind(env->pthis, hostid);
 }
-#endif
+
+static void ipc_host_msgack_handler(struct ipc_host_env_tag *env)
+{
+    if (aml_bus_type == USB_MODE) {
+        ipc_usb_host_msgack_handler(env);
+    } else if (aml_bus_type == SDIO_MODE) {
+        ipc_sdio_host_msgack_handler(env);
+    } else {
+        ipc_pci_host_msgack_handler(env);
+    }
+}
+
 /**
  * ipc_host_dbg_handler() - Handle the reception of Debug event
  *
@@ -195,12 +216,12 @@ static void ipc_host_msgack_handler(struct ipc_host_env_tag *env)
  */
 static void ipc_host_dbg_handler(struct ipc_host_env_tag *env)
 {
-#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
-    env->cb.recv_dbg_ind(env->pthis, env->dbgbuf[env->dbgbuf_idx]);
-#else
-    while(env->cb.recv_dbg_ind(env->pthis,
-        env->dbgbuf[env->dbgbuf_idx]) == 0);
-#endif
+    if (aml_bus_type != PCIE_MODE) {
+       env->cb.recv_dbg_ind(env->pthis, env->dbgbuf[env->dbgbuf_idx]);
+    } else {
+        while(env->cb.recv_dbg_ind(env->pthis,
+            env->dbgbuf[env->dbgbuf_idx]) == 0);
+    }
 }
 
 /**
@@ -218,20 +239,13 @@ static void ipc_host_dbg_handler(struct ipc_host_env_tag *env)
 static void ipc_host_tx_cfm_handler(struct ipc_host_env_tag *env,
                                     const int queue_idx, const int user_pos)
 {
-#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
-    env->cb.send_data_cfm(env->pthis, NULL);
-
-#else
-    while (!list_empty(&env->tx_hostid_pushed))
-    {
+    while (!list_empty(&env->tx_hostid_pushed)) {
         if (env->cb.send_data_cfm(env->pthis, env->txcfm[env->txcfm_idx]))
             break;
-
         env->txcfm_idx++;
         if (env->txcfm_idx == IPC_TXCFM_CNT)
             env->txcfm_idx = 0;
     }
-#endif
 }
 
 /**
@@ -276,14 +290,13 @@ void ipc_host_init(struct ipc_host_env_tag *env,
     memset(shared_env_ptr, 0, sizeof(struct ipc_shared_env_tag));
 #else
     // Reset the IPC Shared memory
-#if (!defined(CONFIG_RWNX_USB_MODE) && !defined(CONFIG_RWNX_SDIO_MODE))
-    unsigned int size = (unsigned int)sizeof(struct ipc_shared_env_tag);
-    unsigned int *dst = (unsigned int *)shared_env_ptr;
-
-    for (i=0; i < size; i+=4) {
-        writel(0, dst++);
+    if (aml_bus_type == PCIE_MODE) {
+        unsigned int size = (unsigned int)sizeof(struct ipc_shared_env_tag);
+        unsigned int *dst = (unsigned int *)shared_env_ptr;
+        for (i=0; i < size; i+=4) {
+            writel(0, dst++);
+        }
     }
-#endif
 #endif
 
     // Reset the IPC Host environment
@@ -340,6 +353,12 @@ int ipc_host_rxbuf_push(struct ipc_host_env_tag *env, struct rwnx_ipc_buf *buf)
         || (shared_env->host_rxbuf[env->rxbuf_idx].hostid > RWNX_RXBUFF_MAX)) {
         RWNX_INFO("hostid invalid:%x\n",shared_env->host_rxbuf[env->rxbuf_idx].hostid);
     }
+#ifdef DEBUG_CODE
+    if (addr_null_happen)
+    {
+        printk("push rxbuf,idx:%d,buf:%08x,addr:%08x,dma_addr:%08x \n",env->rxbuf_idx,buf,buf->addr,buf->dma_addr);
+    }
+#endif
 #else
     shared_env->host_rxbuf[env->rxbuf_idx] = buf->dma_addr;
     env->rxbuf[env->rxbuf_idx] = buf;
@@ -472,22 +491,22 @@ void ipc_host_dbginfo_push(struct ipc_host_env_tag *env, struct rwnx_ipc_buf *bu
  */
 void ipc_host_txdesc_push(struct ipc_host_env_tag *env, struct rwnx_ipc_buf *buf)
 {
-#if defined(CONFIG_RWNX_PCIE_MODE)
-    uint32_t dma_idx = env->txdmadesc_idx;
-    volatile struct dma_desc *dmadesc_pushed;
+    if (aml_bus_type == PCIE_MODE) {
+        uint32_t dma_idx = env->txdmadesc_idx;
+        volatile struct dma_desc *dmadesc_pushed;
 
-    dmadesc_pushed = &env->txdmadesc[dma_idx++];
+        dmadesc_pushed = &env->txdmadesc[dma_idx++];
 
-    // Write DMA address to the descriptor
-    dmadesc_pushed->src = buf->dma_addr;
+        // Write DMA address to the descriptor
+        dmadesc_pushed->src = buf->dma_addr;
 
-    wmb();
+        wmb();
 
-    if (dma_idx == IPC_TXDMA_DESC_CNT)
-        env->txdmadesc_idx = 0;
-    else
-        env->txdmadesc_idx = dma_idx;
-#endif
+        if (dma_idx == IPC_TXDMA_DESC_CNT)
+            env->txdmadesc_idx = 0;
+        else
+            env->txdmadesc_idx = dma_idx;
+    }
 
     // trigger interrupt to firmware
     ipc_app2emb_trigger_setf(env->pthis, IPC_IRQ_A2E_TXDESC);
@@ -551,7 +570,8 @@ void *ipc_host_tx_host_id_to_ptr(struct ipc_host_env_tag *env, uint32_t hostid)
 void ipc_host_irq(struct ipc_host_env_tag *env, uint32_t status)
 {
     // Acknowledge the pending interrupts
-    ipc_emb2app_ack_clear(env->pthis, status);
+    if (aml_bus_type == PCIE_MODE)
+        ipc_emb2app_ack_clear(env->pthis, status);
 
     // Optimized for only one IRQ at a time
     if (status & IPC_IRQ_E2A_RXDESC)
@@ -563,7 +583,8 @@ void ipc_host_irq(struct ipc_host_env_tag *env, uint32_t status)
     {
         ipc_host_msgack_handler(env);
     }
-    if (status & IPC_IRQ_E2A_MSG)
+    if (((status & IPC_IRQ_E2A_MSG) && (aml_bus_type == PCIE_MODE))
+        || ((status & SDIO_IRQ_E2A_MSG) && (aml_bus_type != PCIE_MODE)))
     {
         ipc_host_msg_handler(env);
     }
@@ -571,25 +592,33 @@ void ipc_host_irq(struct ipc_host_env_tag *env, uint32_t status)
     {
         int i;
 
-        spin_lock(&((struct rwnx_hw *)env->pthis)->tx_lock);
-        // handle the TX confirmation reception
-        for (i = 0; i < IPC_TXQUEUE_CNT; i++)
-        {
-            int j = 0;
-#ifdef CONFIG_RWNX_MUMIMO_TX
-            for (; j < nx_txuser_cnt[i]; j++)
-#endif
-            {
-                uint32_t q_bit = CO_BIT(j + i * CONFIG_USER_MAX + IPC_IRQ_E2A_TXCFM_POS);
-                if (status & q_bit)
+        if (aml_bus_type != PCIE_MODE) {
+            rwnx_update_tx_cfm(env->pthis);
+            spin_lock_bh(&((struct rwnx_hw *)env->pthis)->tx_lock);
+            env->cb.send_data_cfm(env->pthis, NULL);
+            spin_unlock_bh(&((struct rwnx_hw *)env->pthis)->tx_lock);
+            rwnx_clear_tx_cfm(env->pthis);
+
+        } else {
+            // handle the TX confirmation reception
+            spin_lock(&((struct rwnx_hw *)env->pthis)->tx_lock);
+            for (i = 0; i < IPC_TXQUEUE_CNT; i++) {
+                int j = 0;
+                #ifdef CONFIG_RWNX_MUMIMO_TX
+                for (; j < nx_txuser_cnt[i]; j++)
+                #endif
                 {
-                    // handle the confirmation
-                    ipc_host_tx_cfm_handler(env, i, j);
+                    uint32_t q_bit = CO_BIT(j + i * CONFIG_USER_MAX + IPC_IRQ_E2A_TXCFM_POS);
+                    if (status & q_bit) {
+                        // handle the confirmation
+                        ipc_host_tx_cfm_handler(env, i, j);
+                    }
                 }
             }
+            spin_unlock(&((struct rwnx_hw *)env->pthis)->tx_lock);
         }
-        spin_unlock(&((struct rwnx_hw *)env->pthis)->tx_lock);
     }
+
     if (status & IPC_IRQ_E2A_RADAR)
     {
         // handle the radar event reception
@@ -602,7 +631,8 @@ void ipc_host_irq(struct ipc_host_env_tag *env, uint32_t status)
         ipc_host_unsup_rx_vec_handler(env);
     }
 
-    if (status & IPC_IRQ_E2A_DBG)
+    if (((status & IPC_IRQ_E2A_DBG) && (aml_bus_type == PCIE_MODE))
+        || ((status & SDIO_IRQ_E2A_DBG) && (aml_bus_type != PCIE_MODE)))
     {
         ipc_host_dbg_handler(env);
     }
@@ -613,12 +643,9 @@ void ipc_host_irq(struct ipc_host_env_tag *env, uint32_t status)
  */
 int ipc_host_msg_push(struct ipc_host_env_tag *env, void *msg_buf, uint16_t len)
 {
-    uint32_t *src;
-#if defined(CONFIG_RWNX_PCIE_MODE)
-    int i; uint32_t *dst;
-#else
+    uint8_t *src;
+    int i; uint8_t *dst;
     struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)env->pthis;
-#endif
 
     REG_SW_SET_PROFILING(env->pthis, SW_PROF_IPC_MSGPUSH);
 
@@ -626,20 +653,19 @@ int ipc_host_msg_push(struct ipc_host_env_tag *env, void *msg_buf, uint16_t len)
     ASSERT_ERR(round_up(len, 4) <= sizeof(env->shared->msg_a2e_buf.msg));
 
     // Copy the message into the IPC MSG buffer
-    src = (uint32_t*)((struct rwnx_cmd *)msg_buf)->a2e_msg;
-#if defined(CONFIG_RWNX_PCIE_MODE)
-    dst = (uint32_t*)&(env->shared->msg_a2e_buf.msg);
-#endif
+    src = (uint8_t*)((struct rwnx_cmd *)msg_buf)->a2e_msg;
+    dst = (uint8_t*)&(env->shared->msg_a2e_buf.msg);
 
     // Copy the message in the IPC queue
-#if defined(CONFIG_RWNX_USB_MODE)
-    rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)src, (unsigned char *)&(env->shared->msg_a2e_buf.msg), len, USB_EP4);
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-    rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)src, (unsigned char *)&(env->shared->msg_a2e_buf.msg), len);
-#else
-    for (i=0; i<len; i+=4)
-        *dst++ = *src++;
-#endif
+    if (aml_bus_type == USB_MODE) {
+        rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)src, (unsigned char *)&(env->shared->msg_a2e_buf.msg), len, USB_EP4);
+    } else if (aml_bus_type == SDIO_MODE) {
+        rwnx_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)src, (unsigned char *)&(env->shared->msg_a2e_buf.msg), len);
+    } else {
+        for (i = 0; i < len; i ++ ) {
+            *dst++ = *src++;
+        }
+    }
 
     RWNX_INFO("a2e msg hostid=0x%lx\n", msg_buf);
     env->msga2e_hostid = msg_buf;

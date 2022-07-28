@@ -1220,10 +1220,10 @@ int rwnx_txq_queue_skb(struct sk_buff *skb, struct rwnx_txq *txq,
 
 #ifdef CONFIG_RWNX_FULLMAC
         // to update for SOFTMAC
-#if (defined(CONFIG_RWNX_PCIE_MODE))
-        rwnx_ipc_sta_buffer(rwnx_hw, txq->sta, txq->tid,
-            ((struct rwnx_txhdr *)skb->data)->sw_hdr->frame_len);
-#endif
+        if (aml_bus_type == PCIE_MODE) {
+            rwnx_ipc_sta_buffer(rwnx_hw, txq->sta, txq->tid,
+                ((struct rwnx_txhdr *)skb->data)->sw_hdr->frame_len);
+        }
         rwnx_txq_start_cleanup_timer(rwnx_hw, txq->sta);
 #endif
     } else {

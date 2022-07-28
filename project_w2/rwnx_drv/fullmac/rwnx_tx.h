@@ -51,6 +51,8 @@
 #define SRAM_TXCFM_START_ADDR  0xa10080
 #define SRAM_TXCFM_CNT         128
 
+#define TXCFM_RESET_CNT   42
+
 extern const int rwnx_tid2hwq[IEEE80211_NUM_TIDS];
 
 /**
@@ -122,6 +124,7 @@ struct rwnx_sw_txhdr {
     struct rwnx_ipc_buf ipc_desc;
     unsigned long jiffies;
     struct txdesc_host desc;
+    struct list_head list;
 };
 
 /**
@@ -241,5 +244,7 @@ int rwnx_dbgfs_print_sta(char *buf, size_t size, struct rwnx_sta *sta,
 void rwnx_txq_credit_update(struct rwnx_hw *rwnx_hw, int sta_idx, u8 tid,
                             s8 update);
 void rwnx_tx_push(struct rwnx_hw *rwnx_hw, struct rwnx_txhdr *txhdr, int flags);
+int rwnx_update_tx_cfm(void *pthis);
+int rwnx_clear_tx_cfm(void *pthis);
 
 #endif /* _RWNX_TX_H_ */

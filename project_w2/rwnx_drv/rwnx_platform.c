@@ -27,7 +27,9 @@
 #include "wifi_intf_addr.h"
 #include "../common/wifi_top_addr.h"
 #include "rwnx_utils.h"
-
+#include <linux/interrupt.h>
+#include <uapi/linux/sched/types.h>
+#include "rwnx_prealloc.h"
 
 extern unsigned char auc_driver_insmoded;
 extern struct usb_device *g_udev;
@@ -43,10 +45,8 @@ extern struct pcie_mem_map_struct pcie_ep_addr_range[PCIE_TABLE_NUM];
 
 struct pci_dev *g_pci_dev = NULL;
 
-#ifdef CONFIG_RWNX_USB_MODE
 int wifi_fw_download(char *firmware_filename);
 int start_wifi(void);
-#endif
 
 #ifdef CONFIG_RWNX_TL4
 /**
@@ -144,9 +144,7 @@ static int rwnx_plat_bin_fw_upload(struct rwnx_plat *rwnx_plat, u8* fw_addr,
     int err = 0;
     unsigned int size;
     u32 *src, *dst;
-#if (!defined(CONFIG_RWNX_USB_MODE) && !defined(CONFIG_RWNX_SDIO_MODE))
     unsigned int i;
-#endif
 
     printk("%s:%d\n", __func__, __LINE__);
 
@@ -166,18 +164,15 @@ static int rwnx_plat_bin_fw_upload(struct rwnx_plat *rwnx_plat, u8* fw_addr,
     printk("%s:%d, src %x\n", __func__, __LINE__, *src);
 
     /* check potential platform bug on multiple stores vs memcpy */
-#if (defined(CONFIG_RWNX_USB_MODE))
-    rwnx_plat->hif_ops->hi_write_sram((unsigned char *)src, (unsigned char *)dst, size, USB_EP4);
-
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-    rwnx_plat->hif_ops->hi_write_ipc_sram((unsigned char *)src, (unsigned char *)dst, size);
-
-#else
-    for (i = 0; i < size; i += 4) {
-        *dst++ = *src++;
+    if (aml_bus_type == USB_MODE) {
+        rwnx_plat->hif_ops->hi_write_sram((unsigned char *)src, (unsigned char *)dst, size, USB_EP4);
+    } else if (aml_bus_type == SDIO_MODE) {
+        rwnx_plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)src, (unsigned char *)dst, size);
+    } else {
+        for (i = 0; i < size; i += 4) {
+            *dst++ = *src++;
+        }
     }
-#endif
-
     release_firmware(fw);
 
     return err;
@@ -186,7 +181,7 @@ static int rwnx_plat_bin_fw_upload(struct rwnx_plat *rwnx_plat, u8* fw_addr,
 #define ICCM_ROM_LEN (256 * 1024)
 #define ICCM_RAM_LEN (256 * 1024)
 #define ICCM_ALL_LEN (ICCM_ROM_LEN + ICCM_RAM_LEN)
-#define DCCM_ALL_LEN (160 * 1024)
+#define DCCM_ALL_LEN (256 * 1024)
 #define ICCM_ROM_ADDR (0x00100000)
 #define ICCM_RAM_ADDR (0x00100000 + ICCM_ROM_LEN)
 #define DCCM_RAM_ADDR (0x00d00000)
@@ -206,7 +201,6 @@ static int rwnx_plat_bin_fw_upload(struct rwnx_plat *rwnx_plat, u8* fw_addr,
         src += BYTE_IN_LINE;                                 \
     }
 
-#if (!defined(CONFIG_RWNX_USB_MODE) && !defined(CONFIG_RWNX_SDIO_MODE))
 static int rwnx_plat_fw_upload(struct rwnx_plat *rwnx_plat, u8* fw_addr,
                                char *filename)
 {
@@ -282,7 +276,6 @@ end:
     release_firmware(fw);
     return err;
 }
-#endif
 
 #ifndef CONFIG_RWNX_TL4
 #define IHEX_REC_DATA           0
@@ -720,8 +713,6 @@ static int rwnx_ldpc_load(struct rwnx_hw *rwnx_hw)
 }
 #endif
 
-
-#if (!defined(CONFIG_RWNX_USB_MODE) && !defined(CONFIG_RWNX_SDIO_MODE))
 /**
  * rwnx_plat_lmac_load() - Load FW code
  *
@@ -743,7 +734,7 @@ static int rwnx_plat_lmac_load(struct rwnx_plat *rwnx_plat)
 
     return ret;
 }
-#endif
+
 /**
  * rwnx_rf_fw_load() - Load RF FW if any
  *
@@ -958,8 +949,7 @@ static void rwnx_term_restore_config(struct rwnx_plat *rwnx_plat,
 }
 
 #ifndef CONFIG_RWNX_FHOST
-#if defined(CONFIG_RWNX_USB_MODE)
-int rwnx_check_fw_compatibility(struct rwnx_hw *rwnx_hw)
+int rwnx_usb_check_fw_compatibility(struct rwnx_hw *rwnx_hw)
 {
     struct ipc_shared_env_tag *shared = NULL;
 
@@ -1104,9 +1094,7 @@ int rwnx_check_fw_compatibility(struct rwnx_hw *rwnx_hw)
     return res;
 }
 
-
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-int rwnx_check_fw_compatibility(struct rwnx_hw *rwnx_hw)
+int rwnx_sdio_check_fw_compatibility(struct rwnx_hw *rwnx_hw)
 {
     struct ipc_shared_env_tag *shared = NULL;
     #ifdef CONFIG_RWNX_SOFTMAC
@@ -1127,7 +1115,7 @@ int rwnx_check_fw_compatibility(struct rwnx_hw *rwnx_hw)
         return -ENOMEM;
     }
 
-    rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)&(shared->comp_info), (unsigned char *)&(rwnx_hw->ipc_env->shared->comp_info),
+    rwnx_hw->plat->hif_sdio_ops->hi_random_ram_read((unsigned char *)&(shared->comp_info), (unsigned char *)&(rwnx_hw->ipc_env->shared->comp_info),
         sizeof(struct compatibility_tag));
 
     if (shared->comp_info.ipc_shared_version != ipc_shared_version)
@@ -1248,9 +1236,7 @@ int rwnx_check_fw_compatibility(struct rwnx_hw *rwnx_hw)
     return res;
 }
 
-
-#else
-static int rwnx_check_fw_compatibility(struct rwnx_hw *rwnx_hw)
+static int rwnx_pci_check_fw_compatibility(struct rwnx_hw *rwnx_hw)
 {
     struct ipc_shared_env_tag *shared = rwnx_hw->ipc_env->shared;
     #ifdef CONFIG_RWNX_SOFTMAC
@@ -1381,7 +1367,18 @@ static int rwnx_check_fw_compatibility(struct rwnx_hw *rwnx_hw)
 
     return res;
 }
-#endif
+
+int rwnx_check_fw_compatibility(struct rwnx_hw *rwnx_hw)
+{
+    if (aml_bus_type == USB_MODE) {
+        return rwnx_usb_check_fw_compatibility(rwnx_hw);
+    } else if (aml_bus_type == SDIO_MODE) {
+        return rwnx_sdio_check_fw_compatibility(rwnx_hw);
+    } else {
+        return rwnx_pci_check_fw_compatibility(rwnx_hw);
+    }
+}
+
 #endif /* !CONFIG_RWNX_FHOST */
 
 unsigned int bbpll_init(struct rwnx_plat *rwnx_plat)
@@ -1493,12 +1490,9 @@ void rwnx_tx_rx_buf_init(struct rwnx_plat *rwnx_plat)
     }
 }
 
-#if !defined(CONFIG_RWNX_PCIE_MODE)
 extern int rwnx_tx_task(void *data);
-extern int rwnx_tx_cfm_task(void *data);
 extern int rwnx_msg_task(void *data);
 
-#if defined(CONFIG_RWNX_USB_MODE)
 void usb_stor_control_msg(struct rwnx_hw *rwnx_hw, struct urb *urb)
 {
     int ret;
@@ -1518,7 +1512,7 @@ void usb_stor_control_msg(struct rwnx_hw *rwnx_hw, struct urb *urb)
         (unsigned char *)(rwnx_hw->g_cr),
         rwnx_hw->g_buffer,
         2 * sizeof(int),
-        (usb_complete_t)rwnx_irq_hdlr,
+        (usb_complete_t)rwnx_irq_usb_hdlr,
         rwnx_hw);
 
     /*submit urb*/
@@ -1527,7 +1521,6 @@ void usb_stor_control_msg(struct rwnx_hw *rwnx_hw, struct urb *urb)
         ERROR_DEBUG_OUT("usb_submit_urb failed %d\n", ret);
     }
 }
-#endif
 
 int rwnx_create_thread(struct rwnx_hw *rwnx_hw)
 {
@@ -1551,20 +1544,11 @@ int rwnx_create_thread(struct rwnx_hw *rwnx_hw)
         return -1;
     }
 
-    rwnx_hw->rwnx_tx_cfm_task = kthread_run(rwnx_tx_cfm_task, rwnx_hw, "rwnx_tx_cfm_task");
-    if (IS_ERR(rwnx_hw->rwnx_tx_cfm_task)) {
-        kthread_stop(rwnx_hw->rwnx_task);
-        kthread_stop(rwnx_hw->rwnx_tx_task);
-        rwnx_hw->rwnx_tx_cfm_task = NULL;
-        ERROR_DEBUG_OUT("create rwnx_tx_cfm_task error!!!!\n");
-        return -1;
-    }
 
-    rwnx_hw->rwnx_msg_task = kthread_run(rwnx_msg_task, rwnx_hw, "rwnx_tx_cfm_task");
+    rwnx_hw->rwnx_msg_task = kthread_run(rwnx_msg_task, rwnx_hw, "rwnx_msg_task");
     if (IS_ERR(rwnx_hw->rwnx_msg_task)) {
         kthread_stop(rwnx_hw->rwnx_task);
         kthread_stop(rwnx_hw->rwnx_tx_task);
-        kthread_stop(rwnx_hw->rwnx_tx_cfm_task);
         rwnx_hw->rwnx_msg_task = NULL;
         ERROR_DEBUG_OUT("create rwnx_msg_task error!!!!\n");
         return -1;
@@ -1573,7 +1557,7 @@ int rwnx_create_thread(struct rwnx_hw *rwnx_hw)
     return 0;
 }
 
-int rwnx_platform_on(struct rwnx_hw *rwnx_hw, void *config)
+int rwnx_sdio_platform_on(struct rwnx_hw *rwnx_hw, void *config)
 {
     u8 *shared_ram;
     struct rwnx_plat *rwnx_plat = rwnx_hw->plat;
@@ -1617,20 +1601,18 @@ int rwnx_platform_on(struct rwnx_hw *rwnx_hw, void *config)
     if ((ret = rwnx_plat_agc_load(rwnx_plat)))
         return ret;
 
-#if defined(CONFIG_RWNX_USB_MODE)
-    if ((ret = wifi_fw_download(RWNX_MAC_FW_NAME3)))
-        return ret;
+    if (aml_bus_type == USB_MODE) {
+        if ((ret = wifi_fw_download(RWNX_MAC_FW_NAME3)))
+            return ret;
 
-    if ((ret = start_wifi()))
-        return ret;
-#else
-    aml_download_wifi_fw_img(RWNX_MAC_FW_NAME3);
-#endif
+        if ((ret = start_wifi()))
+            return ret;
+    } else {
+        aml_sdio_calibration();
+        aml_download_wifi_fw_img(RWNX_MAC_FW_NAME3);
+    }
 
-    if ((ret = hal_host_init()))
-        return ret;
-
-    shared_ram = (u8 *)SHARED_RAM_START_ADDR;
+    shared_ram = (u8 *)SHARED_RAM_SDIO_START_ADDR;
     if ((ret = rwnx_ipc_init(rwnx_hw, shared_ram)))
         return ret;
 
@@ -1663,57 +1645,130 @@ int rwnx_platform_on(struct rwnx_hw *rwnx_hw, void *config)
 
     rwnx_ipc_start(rwnx_hw);
 
-#if defined(CONFIG_RWNX_USB_MODE)
-    rwnx_hw->g_buffer = ZMALLOC(2 * sizeof(int), "fw_stat",GFP_DMA | GFP_ATOMIC);
-    if (!rwnx_hw->g_buffer) {
-        ERROR_DEBUG_OUT("malloc fail!\n");
-        return -ENOMEM;
-    }
+    if (aml_bus_type == USB_MODE) {
+        rwnx_hw->g_buffer = ZMALLOC(2 * sizeof(int), "fw_stat",GFP_DMA | GFP_ATOMIC);
+        if (!rwnx_hw->g_buffer) {
+            ERROR_DEBUG_OUT("malloc fail!\n");
+            return -ENOMEM;
+        }
 
-    rwnx_hw->g_cr =  ZMALLOC(sizeof(struct usb_ctrlrequest), "fw_stat",GFP_DMA | GFP_ATOMIC);
-    if (!rwnx_hw->g_cr) {
-        FREE(rwnx_hw->g_buffer, "fw_stat");
-        ERROR_DEBUG_OUT("malloc fail!\n");
-        return -ENOMEM;
-    }
+        rwnx_hw->g_cr =  ZMALLOC(sizeof(struct usb_ctrlrequest), "fw_stat",GFP_DMA | GFP_ATOMIC);
+        if (!rwnx_hw->g_cr) {
+            FREE(rwnx_hw->g_buffer, "fw_stat");
+            ERROR_DEBUG_OUT("malloc fail!\n");
+            return -ENOMEM;
+        }
 
-    rwnx_hw->g_urb = usb_alloc_urb(0, GFP_ATOMIC);
-    if (!rwnx_hw->g_urb) {
-        FREE(rwnx_hw->g_buffer, "fw_stat");
-        FREE(rwnx_hw->g_cr, "fw_stat");
-        ERROR_DEBUG_OUT("error,no urb!\n");
-        return -ENOMEM;
+        rwnx_hw->g_urb = usb_alloc_urb(0, GFP_ATOMIC);
+        if (!rwnx_hw->g_urb) {
+            FREE(rwnx_hw->g_buffer, "fw_stat");
+            FREE(rwnx_hw->g_cr, "fw_stat");
+            ERROR_DEBUG_OUT("error,no urb!\n");
+            return -ENOMEM;
+        }
     }
-#endif
 
     if (rwnx_create_thread(rwnx_hw)) {
-#if defined(CONFIG_RWNX_USB_MODE)
-        FREE(rwnx_hw->g_buffer, "fw_stat");
-        FREE(rwnx_hw->g_cr, "fw_stat");
-        usb_free_urb(rwnx_hw->g_urb);
-#endif
+        if (aml_bus_type == USB_MODE) {
+            FREE(rwnx_hw->g_buffer, "fw_stat");
+            FREE(rwnx_hw->g_cr, "fw_stat");
+            usb_free_urb(rwnx_hw->g_urb);
+        }
         return -ENOMEM;
     }
-    INIT_LIST_HEAD(&rwnx_hw->tx_desc_save);
 
     rwnx_txbuf_list_init(rwnx_hw);
+    rwnx_tx_cfmed_list_init(rwnx_hw);
 
-#if defined(CONFIG_RWNX_SDIO_MODE)
-    if ((ret = rwnx_plat->enable(rwnx_hw)))
-        return ret;
-#endif
-
-#if defined(CONFIG_RWNX_USB_MODE)
-    usb_stor_control_msg(rwnx_hw, rwnx_hw->g_urb);
-#endif
+    if (aml_bus_type == SDIO_MODE) {
+        if ((ret = rwnx_plat->enable(rwnx_hw))) {
+            return ret;
+        }
+    }
+    if (aml_bus_type == USB_MODE) {
+        usb_stor_control_msg(rwnx_hw, rwnx_hw->g_urb);
+    }
     rwnx_plat->enabled = true;
 
     printk("%s %d end\n", __func__, __LINE__);
     return 0;
 }
 
+#ifdef CONFIG_RWNX_USE_PREALLOC_BUF
+int rwnx_prealloc_rxbuf_task(void *data)
+{
+    struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)data;
+    struct sched_param sparam;
+    struct rwnx_prealloc_rxbuf *prealloc_rxbuf = NULL;
+    struct sk_buff *skb = NULL;
+    uint32_t i = 0;
 
-#else
+    sparam.sched_priority = 91;
+    sched_setscheduler(current, SCHED_RR, &sparam);
+
+    while (!rwnx_hw->prealloc_task_quit) {
+        if (down_interruptible(&rwnx_hw->prealloc_rxbuf_sem) != 0) {
+            RWNX_INFO("prealloc: wait semaphore failed");
+            break;
+        }
+        if (rwnx_hw->prealloc_task_quit) {
+            RWNX_INFO("prealloc: task quit");
+            break;
+        }
+
+        while (!list_empty(&rwnx_hw->prealloc_rxbuf_used)) {
+            skb = dev_alloc_skb(rwnx_hw->ipc_env->rxbuf_sz);
+            if (unlikely(!skb)) {
+                if ((i++ % 10) == 0)
+                    RWNX_INFO("prealloc: new skb failed(=%u)", i);
+                continue;
+            }
+            prealloc_rxbuf = rwnx_prealloc_get_used_rxbuf(rwnx_hw);
+            if (!prealloc_rxbuf) {
+                RWNX_INFO("prealloc: rxbuf is null");
+                dev_kfree_skb(skb);
+                continue;
+            }
+            prealloc_rxbuf->skb = skb;
+            spin_lock_bh(&rwnx_hw->prealloc_rxbuf_lock);
+            RWNX_INFO("prealloc: new skb(%d)=%p", rwnx_hw->prealloc_rxbuf_count, skb);
+            rwnx_hw->prealloc_rxbuf_count--;
+            spin_unlock_bh(&rwnx_hw->prealloc_rxbuf_lock);
+        }
+    }
+    complete_and_exit(&rwnx_hw->prealloc_completion, 0);
+    return 0;
+}
+
+int rwnx_pci_create_thread(struct rwnx_hw *rwnx_hw)
+{
+    sema_init(&rwnx_hw->prealloc_rxbuf_sem, 0);
+
+    rwnx_hw->prealloc_task_quit = 0;
+    rwnx_hw->prealloc_rxbuf_task =
+        kthread_run(rwnx_prealloc_rxbuf_task, rwnx_hw, "prealloc_rxbuf_task");
+    if (IS_ERR(rwnx_hw->prealloc_rxbuf_task)) {
+        rwnx_hw->prealloc_rxbuf_task = NULL;
+        RWNX_INFO("prealloc: create task failed!");
+        return -1;
+    }
+    return 0;
+}
+
+void rwnx_pci_destroy_thread(struct rwnx_hw *rwnx_hw)
+{
+    if (rwnx_hw->prealloc_rxbuf_task) {
+        RWNX_INFO("prealloc: destroy task");
+        init_completion(&rwnx_hw->prealloc_completion);
+        rwnx_hw->prealloc_task_quit = 1;
+        up(&rwnx_hw->prealloc_rxbuf_sem);
+        kthread_stop(rwnx_hw->prealloc_rxbuf_task);
+        wait_for_completion(&rwnx_hw->prealloc_completion);
+        rwnx_hw->prealloc_rxbuf_task = NULL;
+    }
+}
+#endif
+
 /**
  * rwnx_platform_on() - Start the platform
  *
@@ -1728,7 +1783,7 @@ int rwnx_platform_on(struct rwnx_hw *rwnx_hw, void *config)
  *
  * Called by 802.11 part
  */
-int rwnx_platform_on(struct rwnx_hw *rwnx_hw, void *config)
+int rwnx_pci_platform_on(struct rwnx_hw *rwnx_hw, void *config)
 {
     u8 *shared_ram;
     struct rwnx_plat *rwnx_plat = rwnx_hw->plat;
@@ -1789,7 +1844,7 @@ int rwnx_platform_on(struct rwnx_hw *rwnx_hw, void *config)
     if ((ret = rwnx_plat_lmac_load(rwnx_plat)))
         return ret;
 
-    shared_ram = (u8 *)RWNX_ADDR(rwnx_plat, RWNX_ADDR_SYSTEM, SHARED_RAM_START_ADDR);
+    shared_ram = (u8 *)RWNX_ADDR(rwnx_plat, RWNX_ADDR_SYSTEM, SHARED_RAM_PCI_START_ADDR);
     if ((ret = rwnx_ipc_init(rwnx_hw, shared_ram)))
         return ret;
 
@@ -1807,6 +1862,10 @@ int rwnx_platform_on(struct rwnx_hw *rwnx_hw, void *config)
 
     //start firmware cpu
     RWNX_REG_WRITE(0x00070000, rwnx_plat, RWNX_ADDR_AON, RG_PMU_A22);
+
+    //check W2 fw whether is ready
+    aml_get_vid(rwnx_plat);
+
     printk("%s:%d, value %x", __func__, __LINE__, readl(rwnx_plat->get_address(rwnx_plat, RWNX_ADDR_MAC_PHY, 0x00a070b4)));
     rwnx_fw_trace_config_filters(rwnx_get_shared_trace_buf(rwnx_hw),
                                  rwnx_ipc_fw_trace_desc_get(rwnx_hw),
@@ -1828,11 +1887,28 @@ int rwnx_platform_on(struct rwnx_hw *rwnx_hw, void *config)
 
     rwnx_ipc_start(rwnx_hw);
 
+#ifdef CONFIG_RWNX_USE_PREALLOC_BUF
+    if (rwnx_pci_create_thread(rwnx_hw)) {
+        RWNX_INFO("create thread failed");
+        return -1;
+    }
+#endif
     rwnx_plat->enabled = true;
 
     return 0;
 }
-#endif
+
+int rwnx_platform_on(struct rwnx_hw *rwnx_hw, void *config)
+{
+    int ret;
+    if (aml_bus_type != PCIE_MODE) {
+        ret = rwnx_sdio_platform_on(rwnx_hw, config);
+    } else {
+        ret = rwnx_pci_platform_on(rwnx_hw, config);
+    }
+    return ret;
+}
+
 /**
  * rwnx_platform_off() - Stop the platform
  *
@@ -1862,11 +1938,14 @@ void rwnx_platform_off(struct rwnx_hw *rwnx_hw, void **config)
     tasklet_kill(&rwnx_hw->task);
 
     rwnx_ipc_deinit(rwnx_hw);
+#ifdef CONFIG_RWNX_USE_PREALLOC_BUF
+    rwnx_pci_destroy_thread(rwnx_hw);
+#endif
 
     rwnx_platform_reset(rwnx_hw->plat);
-#if !defined(CONFIG_RWNX_PCIE_MODE)
-    rwnx_txbuf_list_deinit(rwnx_hw);
-#endif
+    if (aml_bus_type != PCIE_MODE) {
+        rwnx_txbuf_list_deinit(rwnx_hw);
+    }
     rwnx_hw->plat->enabled = false;
 }
 
@@ -1915,7 +1994,6 @@ void rwnx_platform_deinit(struct rwnx_hw *rwnx_hw)
 #endif
 }
 
-#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
 #define RWNX_BASE_ADDR  0x60000000
 static unsigned char *rwnx_get_address(struct rwnx_plat *rwnx_plat, int addr_name,
                                unsigned int offset)
@@ -1930,16 +2008,27 @@ static unsigned char *rwnx_get_address(struct rwnx_plat *rwnx_plat, int addr_nam
 
     return addr;
 }
-#endif
 
-#if defined(CONFIG_RWNX_USB_MODE)
-
-static void rwnx_pci_ack_irq(struct rwnx_plat *rwnx_plat)
+static u32 rwnx_pci_ack_irq(struct rwnx_plat *rwnx_plat)
 {
-    ;
+    unsigned int reg_data = 0;
+
+    if (aml_bus_type == USB_MODE) {
+        reg_data = rwnx_plat->hif_ops->hi_read_word(RG_WIFI_IF_HOST_IRQ_ST, USB_EP4);
+
+    } else if (aml_bus_type == SDIO_MODE) {
+        reg_data = rwnx_plat->hif_sdio_ops->hi_random_word_read(RG_WIFI_IF_HOST_IRQ_ST);
+
+    } else {
+       reg_data = RWNX_REG_READ(rwnx_plat, RWNX_ADDR_MAC_PHY, ISTATUS_HOST);
+       // clean pci irq status
+       RWNX_REG_WRITE(reg_data, rwnx_plat, RWNX_ADDR_MAC_PHY, ISTATUS_HOST);
+    }
+
+    return reg_data;
 }
 
-int rwnx_platform_register_drv(void)
+int rwnx_platform_register_usb_drv(void)
 {
     int ret = 0;
     struct rwnx_plat *rwnx_plat;
@@ -1968,7 +2057,7 @@ int rwnx_platform_register_drv(void)
     return ret;
 }
 
-void rwnx_platform_unregister_drv(void)
+void rwnx_platform_unregister_usb_drv(void)
 {
     struct rwnx_hw *rwnx_hw;
     struct rwnx_plat *rwnx_plat;
@@ -1983,35 +2072,41 @@ void rwnx_platform_unregister_drv(void)
 
     dev_set_drvdata(&g_udev->dev, NULL);
 }
-#elif defined(CONFIG_RWNX_SDIO_MODE)
+
 extern int wifi_irq_num(void);
 static int rwnx_pci_platform_enable(struct rwnx_hw *rwnx_hw)
 {
     int ret;
     unsigned int irq_flag = 0;
 
-    rwnx_hw->irq = wifi_irq_num();
-    irq_flag = IORESOURCE_IRQ | IORESOURCE_IRQ_LOWLEVEL | IORESOURCE_IRQ_SHAREABLE;
-    printk("%s(%d) irq_flag=0x%x  irq=%d\n", __func__, __LINE__, irq_flag,  rwnx_hw->irq);
+    if (aml_bus_type == SDIO_MODE) {
+        rwnx_hw->irq = wifi_irq_num();
+        irq_flag = IORESOURCE_IRQ | IORESOURCE_IRQ_LOWLEVEL | IORESOURCE_IRQ_SHAREABLE;
+        printk("%s(%d) irq_flag=0x%x  irq=%d\n", __func__, __LINE__, irq_flag,  rwnx_hw->irq);
 
-    ret = request_irq(rwnx_hw->irq, rwnx_irq_hdlr, irq_flag, "rwnx", rwnx_hw);
-    printk("%s(%d) request_irq ret=%d\n",__func__,__LINE__, ret);
-
+        ret = request_irq(rwnx_hw->irq, rwnx_irq_sdio_hdlr, irq_flag, "rwnx", rwnx_hw);
+        printk("%s(%d) request_irq ret=%d\n",__func__,__LINE__, ret);
+    } else if (aml_bus_type == PCIE_MODE) {
+        /* sched_setscheduler on ONESHOT threaded irq handler for BCNs ? */
+        ret = request_irq(rwnx_hw->plat->pci_dev->irq, rwnx_irq_pcie_hdlr, 0,
+                          "rwnx", rwnx_hw);
+    } else {
+        ret = -1;
+    }
     return ret;
 }
 
 static int rwnx_pci_platform_disable(struct rwnx_hw *rwnx_hw)
 {
-    free_irq(rwnx_hw->irq, rwnx_hw);
+    if (aml_bus_type == SDIO_MODE) {
+        free_irq(rwnx_hw->irq, rwnx_hw);
+    } else if (aml_bus_type == PCIE_MODE) {
+        free_irq(rwnx_hw->plat->pci_dev->irq, rwnx_hw);
+    }
     return 0;
 }
 
-static void rwnx_pci_ack_irq(struct rwnx_plat *rwnx_plat)
-{
-    rwnx_plat->hif_ops->hi_read_ipc_word(RG_WIFI_IF_HOST_IRQ_ST);
-}
-
-int rwnx_platform_register_drv(void)
+int rwnx_platform_register_sdio_drv(void)
 {
     int ret = 0;
     struct rwnx_plat *rwnx_plat;
@@ -2032,7 +2127,7 @@ int rwnx_platform_register_drv(void)
     rwnx_plat->ack_irq = rwnx_pci_ack_irq;
 
     rwnx_plat->dev = &func->dev;
-    rwnx_plat->hif_ops = &g_hif_sdio_ops;
+    rwnx_plat->hif_sdio_ops = &g_hif_sdio_ops;
 
     ipc_basic_address = (u8 *)IPC_BASIC_ADDRESS;
     rwnx_plat->get_address = rwnx_get_address;
@@ -2043,7 +2138,7 @@ int rwnx_platform_register_drv(void)
     return ret;
 }
 
-void rwnx_platform_unregister_drv(void)
+void rwnx_platform_unregister_sdio_drv(void)
 {
     struct rwnx_hw *rwnx_hw;
     struct rwnx_plat *rwnx_plat;
@@ -2060,7 +2155,7 @@ void rwnx_platform_unregister_drv(void)
     dev_set_drvdata(&func->dev, NULL);
 }
 
-#else
+
 u8* rwnx_pci_get_map_address(struct net_device *dev, unsigned int offset)
 {
     struct rwnx_vif *rwnx_vif = netdev_priv(dev);
@@ -2181,23 +2276,6 @@ u8* rwnx_pci_get_map_address(struct net_device *dev, unsigned int offset)
     return NULL;
 #endif
 }
-
-static int rwnx_pci_platform_enable(struct rwnx_hw *rwnx_hw)
-{
-    int ret;
-
-    /* sched_setscheduler on ONESHOT threaded irq handler for BCNs ? */
-    ret = request_irq(rwnx_hw->plat->pci_dev->irq, rwnx_irq_hdlr, 0,
-                      "rwnx", rwnx_hw);
-    return ret;
-}
-
-static int rwnx_pci_platform_disable(struct rwnx_hw *rwnx_hw)
-{
-    free_irq(rwnx_hw->plat->pci_dev->irq, rwnx_hw);
-    return 0;
-}
-
 static u8* rwnx_pci_get_address(struct rwnx_plat *rwnx_plat, int addr_name,
                                unsigned int offset)
 {
@@ -2280,14 +2358,6 @@ static u8* rwnx_pci_get_address(struct rwnx_plat *rwnx_plat, int addr_name,
 #endif //CONFIG_RWNX_FPGA_PCIE
 }
 
-static void rwnx_pci_ack_irq(struct rwnx_plat *rwnx_plat)
-{
-   unsigned int reg_data;
-   reg_data = RWNX_REG_READ(rwnx_plat, RWNX_ADDR_MAC_PHY, ISTATUS_HOST);
-   // clean pci irq status
-   RWNX_REG_WRITE(reg_data, rwnx_plat, RWNX_ADDR_MAC_PHY, ISTATUS_HOST);
-}
-
 static const u32 rwnx_pci_config_reg[] = {
     NXMAC_DEBUG_PORT_SEL_ADDR,
     SYSCTRL_DIAG_CONF_ADDR,
@@ -2323,7 +2393,7 @@ static int rwnx_pci_get_config_reg(struct rwnx_plat *rwnx_plat, const u32 **list
 /**
  * rwnx_platform_register_drv() - Register all possible platform drivers
  */
-int rwnx_platform_register_drv(void)
+int rwnx_platform_register_pcie_drv(void)
 {
     int ret = 0;
     struct rwnx_plat *rwnx_plat = NULL;
@@ -2361,7 +2431,7 @@ int rwnx_platform_register_drv(void)
 /**
  * rwnx_platform_unregister_drv() - Unegister all platform drivers
  */
-void rwnx_platform_unregister_drv(void)
+void rwnx_platform_unregister_pcie_drv(void)
 {
     struct rwnx_hw *rwnx_hw;
     struct rwnx_plat *rwnx_plat;
@@ -2377,7 +2447,17 @@ void rwnx_platform_unregister_drv(void)
 
     pci_set_drvdata(g_pci_dev, NULL);
 }
-#endif
+
+void aml_get_vid(struct rwnx_plat *rwnx_plat)
+{
+    printk("%s:%d, vendor_id : %x", __func__, __LINE__, readl(rwnx_plat->get_address(rwnx_plat, RWNX_ADDR_MAC_PHY, REG_OF_VENDOR_ID )));
+    while (!(RWNX_REG_READ(rwnx_plat, RWNX_ADDR_MAC_PHY, REG_OF_VENDOR_ID) == W2p_VENDOR_AMLOGIC_EFUSE))
+    {
+        msleep(10);
+    }
+    printk("%s:%d, vendor_id : %x", __func__, __LINE__, readl(rwnx_plat->get_address(rwnx_plat, RWNX_ADDR_MAC_PHY, REG_OF_VENDOR_ID )));
+}
+
 
 #ifndef CONFIG_RWNX_SDM
 MODULE_FIRMWARE(RWNX_AGC_FW_NAME);

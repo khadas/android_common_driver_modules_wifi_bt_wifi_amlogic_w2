@@ -14,13 +14,11 @@
 #include "ipc_host.h"
 #include "rwnx_prof.h"
 
-#if !defined(CONFIG_RWNX_PCIE_MODE)
-#if defined(CONFIG_RWNX_USB_MODE)
-int rwnx_irq_hdlr(struct urb *urb)
+int rwnx_irq_usb_hdlr(struct urb *urb)
 {
     int ret = 0;
     struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)(urb->context);
-
+    up(&rwnx_hw->rwnx_task_sem);
     /*submit urb*/
     ret = usb_submit_urb(rwnx_hw->g_urb, GFP_ATOMIC);
     if (ret < 0) {
@@ -28,21 +26,16 @@ int rwnx_irq_hdlr(struct urb *urb)
         return ret;
     }
 
-    up(&rwnx_hw->rwnx_task_sem);
     return IRQ_HANDLED;
 }
 
-#else
-
-irqreturn_t rwnx_irq_hdlr(int irq, void *dev_id)
+irqreturn_t rwnx_irq_sdio_hdlr(int irq, void *dev_id)
 {
     struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)dev_id;
     disable_irq_nosync(irq);
     up(&rwnx_hw->rwnx_task_sem);
     return IRQ_HANDLED;
 }
-
-#endif
 
 int rwnx_task(void *data)
 {
@@ -61,21 +54,19 @@ int rwnx_task(void *data)
         }
 
         REG_SW_SET_PROFILING(rwnx_hw, SW_PROF_RWNX_IPC_IRQ_HDLR);
-        rwnx_hw->plat->ack_irq(rwnx_hw->plat);
-
-        while ((status = ipc_host_get_status(rwnx_hw->ipc_env))) {
-            /* All kinds of IRQs will be handled in one shot (RX, MSG, DBG, ...)
-             * this will ack IPC irqs not the cfpga irqs */
-            ipc_host_irq(rwnx_hw->ipc_env, status);
+        if (aml_bus_type != PCIE_MODE) {
+            while ((status = rwnx_hw->plat->ack_irq(rwnx_hw->plat))) {
+                ipc_host_irq(rwnx_hw->ipc_env, status);
+            }
         }
 
         spin_lock_bh(&rwnx_hw->tx_lock);
         rwnx_hwq_process_all(rwnx_hw);
         spin_unlock_bh(&rwnx_hw->tx_lock);
 
-#if defined(CONFIG_RWNX_SDIO_MODE)
-        enable_irq(rwnx_hw->irq);
-#endif
+        if (aml_bus_type == SDIO_MODE) {
+            enable_irq(rwnx_hw->irq);
+        }
 
         REG_SW_CLEAR_PROFILING(rwnx_hw, SW_PROF_RWNX_IPC_IRQ_HDLR);
     }
@@ -83,13 +74,13 @@ int rwnx_task(void *data)
     return 0;
 }
 
-#else
+
 /**
  * rwnx_irq_hdlr - IRQ handler
  *
  * Handler registerd by the platform driver
  */
-irqreturn_t rwnx_irq_hdlr(int irq, void *dev_id)
+irqreturn_t rwnx_irq_pcie_hdlr(int irq, void *dev_id)
 {
     struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)dev_id;
     disable_irq_nosync(irq);
@@ -102,7 +93,7 @@ irqreturn_t rwnx_irq_hdlr(int irq, void *dev_id)
  *
  * Read irq status and process accordingly
  */
-void rwnx_task(unsigned long data)
+void rwnx_pcie_task(unsigned long data)
 {
     struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)data;
     struct rwnx_plat *rwnx_plat = rwnx_hw->plat;
@@ -129,4 +120,3 @@ void rwnx_task(unsigned long data)
 
     REG_SW_CLEAR_PROFILING(rwnx_hw, SW_PROF_RWNX_IPC_IRQ_HDLR);
 }
-#endif

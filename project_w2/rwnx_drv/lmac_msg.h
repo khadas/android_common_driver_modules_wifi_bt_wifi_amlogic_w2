@@ -385,7 +385,8 @@ enum priv_e2a_tag {
     PRIV_SUB_E2A_MAX,
 };
 
-
+/// bypass a2e cmd before netdev open
+#define MM_MSG_BYPASS_ID (LMAC_FIRST_MSG(TASK_MM + 1) - 1)
 enum mm_sub_a2e_tag {
     MM_SUB_RF_READ,
     MM_SUB_RF_WRITE,
@@ -417,6 +418,7 @@ enum mm_sub_a2e_tag {
     MM_SUB_CALIBRATION,
     MM_SUB_TX_BUFFER,
     MM_SUB_READ_EFUSE,
+    MM_SUB_SET_TEMP_START,
     /// the MAX
     MM_SUB_A2E_MAX,
     /// New members cannot be added below

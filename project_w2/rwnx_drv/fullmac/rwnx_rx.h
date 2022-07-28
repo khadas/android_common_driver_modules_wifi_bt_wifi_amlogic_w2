@@ -16,7 +16,7 @@
 #include "ipc_shared.h"
 
 #define RXBUF_START_ADDR  0x60016404
-#define RXBUF_END_ADDR    0x6001C4DF
+#define RXBUF_END_ADDR    (0x600263E0)
 
 #define RXDESC_CNT_READ_ONCE 32
 

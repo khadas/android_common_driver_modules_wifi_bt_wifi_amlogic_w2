@@ -5,6 +5,7 @@
 #include "rwnx_main.h"
 #include "rwnx_msg_tx.h"
 #include "rwnx_platform.h"
+#include "reg_access.h"
 
 #define RC_AUTO_RATE_INDEX -1
 #define MAX_CHAR_SIZE 40
@@ -12,6 +13,8 @@
 #define LA_BUF_SIZE 2048
 #define LA_MEMORY_BASE_ADDRESS 0x60830000
 static char *mactrace_path = "/data/la_dump/mactrace";
+static char *reg_path = "/data/dumpinfo";
+#define REG_DUMP_SIZE 2048
 
 /** To calculate the index:
 # NON-HT CCK : idx = (RATE_INDEX*2) + pre_type
@@ -160,11 +163,12 @@ static int aml_set_legacy_rate_ofdm(struct net_device *dev, int legacy)
 static int aml_set_scan_hang(struct net_device *dev, int scan_hang)
 {
     struct rwnx_vif *rwnx_vif = netdev_priv(dev);
-
+/*
     if (rwnx_vif->sta.scan_hang == scan_hang) {
-        return 0;
+       return 0;
     }
 
+*/
     rwnx_vif->sta.scan_hang = scan_hang;
 
     aml_scan_hang(rwnx_vif, scan_hang);
@@ -186,25 +190,26 @@ int aml_get_reg(struct net_device *dev, char *str_addr, union iwreq_data *wrqu, 
 {
     unsigned int addr = 0;
     unsigned int reg_val = 0;
-#if (!defined(CONFIG_RWNX_USB_MODE) && !defined(CONFIG_RWNX_SDIO_MODE))
-    u8 *map_address = NULL;
-#else
-    struct rwnx_vif *rwnx_vif = netdev_priv(dev);
-    struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
-    struct rwnx_plat *rwnx_plat = rwnx_hw->plat;
-#endif
 
     addr = simple_strtol(str_addr, NULL, 0);
 
-#if (!defined(CONFIG_RWNX_USB_MODE) && !defined(CONFIG_RWNX_SDIO_MODE))
-    map_address = rwnx_pci_get_map_address(dev, addr);
-
-    if (map_address) {
-       reg_val = readl(map_address);
+    if (aml_bus_type == PCIE_MODE) {
+        u8 *map_address = NULL;
+        if (addr & 3) {
+            reg_val = 0xdead5555;
+        }
+        else {
+            map_address = rwnx_pci_get_map_address(dev, addr);
+            if (map_address) {
+                reg_val = readl(map_address);
+            }
+        }
+    } else {
+        struct rwnx_vif *rwnx_vif = netdev_priv(dev);
+        struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
+        struct rwnx_plat *rwnx_plat = rwnx_hw->plat;
+        reg_val = RWNX_REG_READ(rwnx_plat, 0, addr);
     }
-#else
-    reg_val = RWNX_REG_READ(rwnx_plat, 0, addr);
-#endif
 
     wrqu->data.length = scnprintf(extra, IW_PRIV_SIZE_MASK, "&0x%08x", reg_val);
     wrqu->data.length++;
@@ -215,29 +220,28 @@ int aml_get_reg(struct net_device *dev, char *str_addr, union iwreq_data *wrqu, 
 
 int aml_set_reg(struct net_device *dev, int addr, int val)
 {
-#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
-    struct rwnx_vif *rwnx_vif = netdev_priv(dev);
-    struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
-    struct rwnx_plat *rwnx_plat = rwnx_hw->plat;
-#endif
 
-#if (!defined(CONFIG_RWNX_USB_MODE) && !defined(CONFIG_RWNX_SDIO_MODE))
-    u8* map_address = NULL;
-    map_address = rwnx_pci_get_map_address(dev, addr);
-
-    if (map_address) {
-        writel(val, map_address);
+    if (aml_bus_type != PCIE_MODE) {
+        struct rwnx_vif *rwnx_vif = netdev_priv(dev);
+        struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
+        struct rwnx_plat *rwnx_plat = rwnx_hw->plat;
+        RWNX_REG_WRITE(val, rwnx_plat, 0, addr);
+    } else {
+        u8* map_address = NULL;
+        if (addr & 3) {
+            printk("Set Fail addr error: 0x%08x\n", addr);
+            return -1;
+        }
+        map_address = rwnx_pci_get_map_address(dev, addr);
+        if (map_address) {
+            writel(val, map_address);
+        }
     }
-
-#else
-    RWNX_REG_WRITE(val, rwnx_plat, 0, addr);
-#endif
 
     printk("Set reg addr: 0x%08x value:0x%08x\n", addr, val);
     return 0;
 }
 
-#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
 int aml_sdio_start_test(struct net_device *dev)
 {
     struct rwnx_vif *rwnx_vif = netdev_priv(dev);
@@ -253,28 +257,28 @@ int aml_sdio_start_test(struct net_device *dev)
     printk("sdio stress testing start\n");
 
     while (1) {
-#if defined(CONFIG_RWNX_USB_MODE)
-        rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)set_buf, (unsigned char *)0x6000f4f4, 100, USB_EP4);
-        rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)get_buf, (unsigned char *)0x6000f4f4, 100, USB_EP4); //RXU_STAT_DESC_POOL
-#else
-        rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)set_buf, (unsigned char *)0x6000f4f4, 100); //RXU_STAT_DESC_POOL
-        rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)get_buf, (unsigned char *)0x6000f4f4, 100); //RXU_STAT_DESC_POOL
-#endif
+        if (aml_bus_type == USB_MODE) {
+            rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)set_buf, (unsigned char *)0x6000f4f4, 100, USB_EP4);
+            rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)get_buf, (unsigned char *)0x6000f4f4, 100, USB_EP4); //RXU_STAT_DESC_POOL
+        } else if (aml_bus_type == SDIO_MODE) {
+            rwnx_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)set_buf, (unsigned char *)0x6000f4f4, 100); //RXU_STAT_DESC_POOL
+            rwnx_hw->plat->hif_sdio_ops->hi_random_ram_read((unsigned char *)get_buf, (unsigned char *)0x6000f4f4, 100); //RXU_STAT_DESC_POOL
+        }
 
         if (memcmp(set_buf, get_buf, 100)) {
-#if defined(CONFIG_RWNX_USB_MODE)
-            temperature = rwnx_hw->plat->hif_ops->hi_read_word(0x00a04940, USB_EP4);
-#else
-            temperature = rwnx_hw->plat->hif_ops->hi_read_ipc_word(0x00a04940);
-#endif
+            if (aml_bus_type == USB_MODE) {
+                temperature = rwnx_hw->plat->hif_ops->hi_read_word(0x00a04940, USB_EP4);
+            } else if (aml_bus_type == SDIO_MODE) {
+                temperature = rwnx_hw->plat->hif_sdio_ops->hi_random_word_read(0x00a04940);
+            }
             printk(" test NG, temperature is 0x%08x\n", temperature & 0x0000ffff);
-
         } else {
-#if defined(CONFIG_RWNX_USB_MODE)
-            temperature = rwnx_hw->plat->hif_ops->hi_read_word(0x00a04940,USB_EP4);
-#else
-            temperature = rwnx_hw->plat->hif_ops->hi_read_ipc_word(0x00a04940);
-#endif
+            if (aml_bus_type == USB_MODE) {
+                temperature = rwnx_hw->plat->hif_ops->hi_read_word(0x00a04940,USB_EP4);
+            } else if (aml_bus_type == SDIO_MODE) {
+                temperature = rwnx_hw->plat->hif_sdio_ops->hi_random_word_read(0x00a04940);
+            }
+
             i++;
             if (i == 1000) {
                 printk(" test OK, temperature is 0x%08x\n", temperature & 0x0000ffff);
@@ -282,17 +286,16 @@ int aml_sdio_start_test(struct net_device *dev)
             }
         }
         memset(get_buf, 0x77, 100);
-#if defined(CONFIG_RWNX_USB_MODE)
-        rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)rst_buf, (unsigned char *)0x6000f4f4, 100, USB_EP4); //RXU_STAT_DESC_POOL
-#else
-        rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)rst_buf, (unsigned char *)0x6000f4f4, 100); //RXU_STAT_DESC_POOL
-#endif
+        if (aml_bus_type == USB_MODE) {
+            rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)rst_buf, (unsigned char *)0x6000f4f4, 100, USB_EP4); //RXU_STAT_DESC_POOL
+        } else if (aml_bus_type == SDIO_MODE) {
+            rwnx_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)rst_buf, (unsigned char *)0x6000f4f4, 100); //RXU_STAT_DESC_POOL
+        }
     }
 
     printk("sdio stress testing end\n");
     return 0;
 }
-#endif
 
 int aml_get_efuse(struct net_device *dev, int addr)
 {
@@ -313,6 +316,18 @@ int aml_set_efuse(struct net_device *dev, int addr, int val)
 
     rwnx_set_efuse(rwnx_vif, addr, val);
 
+    return 0;
+}
+
+int reg_cca_cond_get(struct rwnx_hw *rwnx_hw)
+{
+    struct rwnx_plat *rwnx_plat = rwnx_hw->plat;
+
+    printk("CCA Check [%d], CCA BUSY: Prim20: %08d Second20: %08d Second40: %08d\n",
+        RWNX_REG_READ(rwnx_plat, RWNX_ADDR_SYSTEM, AGCCCCACAL0_ADDR_CT) & 0xfffff,
+        RWNX_REG_READ(rwnx_plat, RWNX_ADDR_SYSTEM, AGCCCCACAL1_ADDR_CT) & 0xffff,
+        RWNX_REG_READ(rwnx_plat, RWNX_ADDR_SYSTEM, AGCCCCACAL1_ADDR_CT) >> 16 & 0xffff,
+        RWNX_REG_READ(rwnx_plat, RWNX_ADDR_SYSTEM, AGCCCCACAL2_ADDR_CT) & 0xffff);
     return 0;
 }
 
@@ -847,6 +862,14 @@ static int aml_get_rate_info(struct net_device *dev)
     return 0;
 }
 
+static int aml_cca_check(struct net_device *dev)
+{
+    struct rwnx_vif *rwnx_vif = netdev_priv(dev);
+    struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
+    reg_cca_cond_get(rwnx_hw);
+    return 0;
+}
+
 static int aml_get_stats(struct net_device *dev)
 {
     struct rwnx_vif *rwnx_vif = netdev_priv(dev);
@@ -1108,7 +1131,7 @@ static int aml_get_stbc(struct net_device *dev)
     return 0;
 }
 
-static int aml_emb_la_dump(struct net_device *dev)
+static int aml_dump_reg(struct net_device *dev, int addr, int size)
 {
     struct file *fp = NULL;
     mm_segment_t old_fs;
@@ -1116,18 +1139,73 @@ static int aml_emb_la_dump(struct net_device *dev)
     int len = 0, i = 0;
     char *la_buf = NULL;
 
-#if (!defined(CONFIG_RWNX_USB_MODE) && !defined(CONFIG_RWNX_SDIO_MODE))
+    u8 *map_address = NULL;
+    u8 *address = (u8 *)(unsigned long)addr;
+    map_address = rwnx_pci_get_map_address(dev, addr);
+    if (!map_address) {
+        printk("%s: map_address erro\n", __func__);
+        return 0;
+    }
+
+    la_buf = kmalloc(REG_DUMP_SIZE, GFP_ATOMIC);
+    if (!la_buf) {
+         printk("%s: malloc buf erro\n", __func__);
+         return 0;
+    }
+
+    old_fs = get_fs();
+    set_fs(KERNEL_DS);
+
+    fp = filp_open(reg_path, O_CREAT | O_WRONLY | O_TRUNC | O_SYNC, 0644);
+    if (IS_ERR(fp)) {
+        printk("%s: mactrace file open failed: PTR_ERR(fp) = %d\n", __func__, PTR_ERR(fp));
+        goto err;
+    }
+    fp->f_pos = 0;
+
+    memset(la_buf, 0, REG_DUMP_SIZE);
+    len += scnprintf(&la_buf[len], (REG_DUMP_SIZE - len), "========dump range [0x%x ---- 0x%x], Size 0x%x========\n",
+            address, address + size, size);
+    for (i=0; i < size / 4; i++) {
+        len += scnprintf(&la_buf[len], (REG_DUMP_SIZE - len), "addr 0x%x ----- value 0x%x\n",
+            address + i * 4, readl(map_address+ i*4));
+
+        if ((REG_DUMP_SIZE - len) < 38) {
+            vfs_write(fp, la_buf, len, &fp->f_pos);
+
+            len = 0;
+            memset(la_buf, 0, REG_DUMP_SIZE);
+        }
+    }
+
+    if (len != 0) {
+        vfs_write(fp, la_buf, len, &fp->f_pos);
+    }
+
+    filp_close(fp, NULL);
+
+err:
+    set_fs(old_fs);
+    kfree(la_buf);
+    return 0;
+}
+
+static int aml_emb_la_dump(struct net_device *dev)
+{
+    struct file *fp = NULL;
+    mm_segment_t old_fs;
+    struct rwnx_vif *rwnx_vif = netdev_priv(dev);
+    struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
+    struct rwnx_plat *rwnx_plat = rwnx_hw->plat;
+
+    int len = 0, i = 0;
+    char *la_buf = NULL;
     u8 *map_address = NULL;
     map_address = rwnx_pci_get_map_address(dev, LA_MEMORY_BASE_ADDRESS);
     if (!map_address) {
         printk("%s: map_address erro\n", __func__);
         return 0;
     }
-#else
-    struct rwnx_vif *rwnx_vif = netdev_priv(dev);
-    struct rwnx_hw *rwnx_hw = rwnx_vif->rwnx_hw;
-    struct rwnx_plat *rwnx_plat = rwnx_hw->plat;
-#endif
 
     la_buf = kmalloc(LA_BUF_SIZE, GFP_ATOMIC);
     if (!la_buf) {
@@ -1147,40 +1225,40 @@ static int aml_emb_la_dump(struct net_device *dev)
 
     memset(la_buf, 0, LA_BUF_SIZE);
 
-#if (!defined(CONFIG_RWNX_USB_MODE) && !defined(CONFIG_RWNX_SDIO_MODE))
-    for (i=0; i < 0x3fff; i+=2) {
-        len += scnprintf(&la_buf[len], (LA_BUF_SIZE - len), "%08x%08x\n",
-            readl(map_address+((1+i)*4)), readl(map_address+(i*4)));
+    if (aml_bus_type == PCIE_MODE) {
+        for (i=0; i < 0x3fff; i+=2) {
+            len += scnprintf(&la_buf[len], (LA_BUF_SIZE - len), "%08x%08x\n",
+                readl(map_address+((1+i)*4)), readl(map_address+(i*4)));
 
-        if ((LA_BUF_SIZE - len) < 20) {
-            vfs_write(fp, la_buf, len, &fp->f_pos);
+            if ((LA_BUF_SIZE - len) < 20) {
+                vfs_write(fp, la_buf, len, &fp->f_pos);
 
-            len = 0;
-            memset(la_buf, 0, LA_BUF_SIZE);
+                len = 0;
+                memset(la_buf, 0, LA_BUF_SIZE);
+            }
         }
-    }
 
-    if (len != 0) {
-        vfs_write(fp, la_buf, len, &fp->f_pos);
-    }
-#else
-    for (i=0; i < 0x3fff; i+=2) {
-        len += scnprintf(&la_buf[len], (LA_BUF_SIZE - len), "%08x%08x\n",
-            RWNX_REG_READ(rwnx_plat, 0, LA_MEMORY_BASE_ADDRESS+((1+i)*4)),
-            RWNX_REG_READ(rwnx_plat, 0, LA_MEMORY_BASE_ADDRESS+(i*4)));
-
-        if ((LA_BUF_SIZE - len) < 20) {
+        if (len != 0) {
             vfs_write(fp, la_buf, len, &fp->f_pos);
-
-            len = 0;
-            memset(la_buf, 0, LA_BUF_SIZE);
         }
-    }
+    } else {
+         for (i=0; i < 0x3fff; i+=2) {
+             len += scnprintf(&la_buf[len], (LA_BUF_SIZE - len), "%08x%08x\n",
+                 RWNX_REG_READ(rwnx_plat, 0, LA_MEMORY_BASE_ADDRESS+((1+i)*4)),
+                 RWNX_REG_READ(rwnx_plat, 0, LA_MEMORY_BASE_ADDRESS+(i*4)));
 
-    if (len != 0) {
-        vfs_write(fp, la_buf, len, &fp->f_pos);
+             if ((LA_BUF_SIZE - len) < 20) {
+                 vfs_write(fp, la_buf, len, &fp->f_pos);
+
+                 len = 0;
+                 memset(la_buf, 0, LA_BUF_SIZE);
+             }
+         }
+
+         if (len != 0) {
+             vfs_write(fp, la_buf, len, &fp->f_pos);
+         }
     }
-#endif
 
     filp_close(fp, NULL);
 
@@ -1279,6 +1357,12 @@ static int aml_iwpriv_send_para2(struct net_device *dev,
          case AML_IWP_SET_EFUSE:
             aml_set_efuse(dev, set1, set2);
             break;
+         if (aml_bus_type == PCIE_MODE)
+         {
+             case AML_MEM_DUMP:
+             aml_dump_reg(dev, set1, set2);
+             break;
+         }
     }
 
     return 0;
@@ -1406,14 +1490,17 @@ static int aml_iwpriv_get(struct net_device *dev,
          case AML_LA_DUMP:
             aml_emb_la_dump(dev);
             break;
+         case AML_IWP_CCA_CHECK:
+            aml_cca_check(dev);
+            break;
          case AML_IWP_GET_CHAN_LIST:
             aml_get_chan_list_info(dev);
             break;
-#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
-        case AML_IWP_BUS_START_TEST:
-            aml_sdio_start_test(dev);
-            break;
-#endif
+        if (aml_bus_type != PCIE_MODE) {
+            case AML_IWP_BUS_START_TEST:
+                aml_sdio_start_test(dev);
+                break;
+        }
         default:
             printk("%s %d param err\n", __func__, __LINE__);
             break;
@@ -1538,15 +1625,15 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_LA_DUMP,
         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "la_dump"},
-#if defined(CONFIG_RWNX_USB_MODE)
+    {
+        AML_IWP_CCA_CHECK,
+        0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "cca_check"},
     {
         AML_IWP_BUS_START_TEST,
         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "usb_start_test"},
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-   {
-         AML_IWP_BUS_START_TEST,
-         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "sdio_start_test"},
-#endif
+    {
+        AML_IWP_BUS_START_TEST,
+        0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "sdio_start_test"},
     {
         SIOCIWFIRSTPRIV + 1,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, ""},
@@ -1602,7 +1689,9 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_IWP_SET_EFUSE,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 2, 0, "set_efuse"},
-
+    {
+        AML_MEM_DUMP,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 2, 0, "mem_dump"},
     {
         SIOCIWFIRSTPRIV + 3,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 3, 0, ""},

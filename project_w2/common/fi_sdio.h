@@ -1,5 +1,3 @@
-
-#if (defined(CONFIG_SDIO_IF) || defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
 /*
  *****************************************************************************************
  *
@@ -62,6 +60,8 @@
 #define   CMD_UP_FIFO_FDH_ADDR  (CMD_UP_FIFO_CTRL_ADDR+8)
 #define   CMD_UP_FIFO_FDT_ADDR  (CMD_UP_FIFO_CTRL_ADDR+12)
 #define   CMD_UP_FIFO_BASE_ADDR  (MAC_SRAM_BASE+0x0000d0)
+
+#define   APP2EMB_RXDESC_IDX (MAC_SRAM_BASE + 0x1000)
 
 /*wifi operate mode */
 #define MODE_IBSS 0
@@ -1062,5 +1062,4 @@ typedef struct RekeyDataCmd
 #define WOW_FILTER_OPTION_GTK_ERROR BIT(6)
 
 #endif// _FI_AHB_H
-#endif// #ifdef CONFIG_SDIO_IF
 

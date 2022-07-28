@@ -219,6 +219,7 @@ int rwnx_set_amsdu_tx(struct rwnx_hw *rwnx_hw, u8 amsdu_tx);
 int rwnx_set_tx_lft(struct rwnx_hw *rwnx_hw, u32 tx_lft);
 int rwnx_set_ldpc_tx(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif);
 int rwnx_set_stbc(struct rwnx_hw *rwnx_hw, u8 vif_idx, u8 stbc_on);
+int rwnx_set_temp_start(struct rwnx_hw *rwnx_hw);
 int aml_coex_cmd(struct net_device *dev, u32_l coex_cmd, u32_l cmd_ctxt_1, u32_l cmd_ctxt_2);
 int rwnx_tko_activate(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif, u8 active);
 int rwnx_set_pt_calibration(struct rwnx_vif *rwnx_vif, int pt_cali_val);

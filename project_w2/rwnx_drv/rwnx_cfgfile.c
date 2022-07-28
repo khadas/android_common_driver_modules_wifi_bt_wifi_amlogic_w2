@@ -203,21 +203,24 @@ out:
     return;
 }
 
-static void rwnx_cfgfile_store_chipid(struct rwnx_hw *rwnx_hw, struct file *fp)
+static void rwnx_get_chip_id_from_efuse(struct rwnx_hw *rwnx_hw, char *chipid_buf)
 {
     unsigned int chipid_low = 0;
     unsigned int chipid_high = 0;
-    char chipid_buf[RWNX_CFGFILE_LBUF_MAXLEN];
 
     chipid_low = aml_efuse_read(rwnx_hw, RWNX_CFGFILE_CHIPID_LOW);
     chipid_high = aml_efuse_read(rwnx_hw, RWNX_CFGFILE_CHIPID_HIGH);
     sprintf(chipid_buf, "%04x%08x", chipid_high & 0xffff, chipid_low);
+}
+
+static void rwnx_cfgfile_store_chipid(struct rwnx_hw *rwnx_hw, struct file *fp, char *chipid_buf)
+{
     rwnx_cfgfile_store_tag(fp, "CHIP_ID", chipid_buf);
 }
 
-
 static void rwnx_cfgfile_store_randmac(struct file *fp)
 {
+#define RWNX_CFGFILE_TOGGLE_BIT(b, n) (b ^= (1 << n))
     u8 vif0_mac[ETH_ALEN] = { 0x1c, 0xa4, 0x10, 0x00, 0x00, 0x00 };
     u8 vif1_mac[ETH_ALEN] = { 0x1c, 0xa4, 0x10, 0x00, 0x00, 0x00 };
     char mac_str[strlen("00:00:00:00:00:00") + 1];
@@ -231,9 +234,10 @@ static void rwnx_cfgfile_store_randmac(struct file *fp)
     sprintf(mac_str, MACFMT, MACARG(vif0_mac));
     rwnx_cfgfile_store_tag(fp, "VIF0_MACADDR", mac_str);
 
-    vif1_mac[3] = ((rand_num >> 24) & 0xff);
-    vif1_mac[4] = ((rand_num >> 32) & 0xff);
-    vif1_mac[5] = ((rand_num >> 40) & 0xff);
+
+    memcpy(vif1_mac, vif0_mac, ETH_ALEN);
+    RWNX_CFGFILE_TOGGLE_BIT(vif1_mac[5], 0);
+    RWNX_CFGFILE_TOGGLE_BIT(vif1_mac[5], 1);
     sprintf(mac_str, MACFMT, MACARG(vif1_mac));
     rwnx_cfgfile_store_tag(fp, "VIF1_MACADDR", mac_str);
 }
@@ -247,6 +251,7 @@ int rwnx_cfgfile_parse(struct rwnx_hw *rwnx_hw, struct rwnx_cfgfile *cfg)
     u8 fbuf[RWNX_CFGFILE_FBUF_MAXLEN] = {0};
     const u8 *tag_ptr;
     int ret = -1;
+    char chipid_buf[RWNX_CFGFILE_LBUF_MAXLEN];
 
     ret = rwnx_cfgfile_create(path, &fp);
     if (ret == RWNX_CFGFILE_ERROR) {
@@ -254,8 +259,9 @@ int rwnx_cfgfile_parse(struct rwnx_hw *rwnx_hw, struct rwnx_cfgfile *cfg)
         return -1;
     }
 
+    rwnx_get_chip_id_from_efuse(rwnx_hw, chipid_buf);
     if (ret == RWNX_CFGFILE_CREATE) {
-        rwnx_cfgfile_store_chipid(rwnx_hw, fp);
+        rwnx_cfgfile_store_chipid(rwnx_hw, fp, chipid_buf);
         rwnx_cfgfile_store_randmac(fp);
     }
     rwnx_cfgfile_close(fp);
@@ -264,6 +270,19 @@ int rwnx_cfgfile_parse(struct rwnx_hw *rwnx_hw, struct rwnx_cfgfile *cfg)
     if (ret >= RWNX_CFGFILE_FBUF_MAXLEN) {
         RWNX_INFO("retrieve file data error\n");
         return -1;
+    }
+
+    /* update chip_id */
+    tag_ptr = rwnx_cfgfile_find_tag(fbuf, strlen(fbuf),
+            "CHIP_ID=", RWNX_CFGFILE_CHIPID_LEN);
+    if (tag_ptr && strncmp(tag_ptr, chipid_buf, RWNX_CFGFILE_CHIPID_LEN)) {
+        memcpy((char *)tag_ptr, chipid_buf, RWNX_CFGFILE_CHIPID_LEN);
+        fp = rwnx_cfgfile_open(path, O_RDWR, 0666);
+        if (!fp) {
+            return RWNX_CFGFILE_ERROR;
+        }
+        rwnx_cfgfile_write(fp, fbuf, strlen(fbuf));
+        rwnx_cfgfile_close(fp);
     }
 
     /* Get vif0 mac address */

@@ -23,20 +23,16 @@
  * Addresses within RWNX_ADDR_SYSTEM
  *****************************************************************************/
 /* Shard RAM */
-#if defined(CONFIG_RWNX_USB_MODE)
-#define SHARED_RAM_START_ADDR          0x60000000
+#define SHARED_RAM_SDIO_START_ADDR     0x60000000
 #define IPC_BASIC_ADDRESS              0x60800000
-
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-#define SHARED_RAM_START_ADDR          0x60000000
-#define IPC_BASIC_ADDRESS              0x60800000
-
-#else
-#define SHARED_RAM_START_ADDR          0x00000000
-#endif
+#define SHARED_RAM_PCI_START_ADDR      0x00000000
 
 /* IPC registers */
 #define IPC_REG_BASE_ADDR              0x00800000
+
+#define AGCCCCACAL0_ADDR_CT 0x00c0b7e0
+#define AGCCCCACAL1_ADDR_CT 0x00c0b7e4
+#define AGCCCCACAL2_ADDR_CT 0x00c0b7e8
 
 /* System Controller Registers */
 #if 0  // old pcie(total 3 bar)
@@ -189,49 +185,38 @@
 
 #endif
 
-
-#if defined(CONFIG_RWNX_USB_MODE)
 extern u8 * ipc_basic_address;
-#define REG_IPC_APP_RD(env, INDEX)        \
-    (((struct rwnx_hw *)env)->plat->hif_ops->hi_read_word((unsigned int)ipc_basic_address + 4 * (INDEX), USB_EP4))
 
-#define REG_IPC_APP_WR(env, INDEX, value)        \
-    (((struct rwnx_hw *)env)->plat->hif_ops->hi_write_word((unsigned int)ipc_basic_address + 4 * (INDEX), value, USB_EP4))
-
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-extern u8 * ipc_basic_address;
-__INLINE u32 REG_IPC_APP_RD (void *env, unsigned int INDEX)
+__INLINE u32 reg_ipc_app_rd(void *env, unsigned int INDEX)
 {
     struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)env;
-    return rwnx_hw->plat->hif_ops->hi_read_ipc_word((unsigned long)(IPC_BASIC_ADDRESS + 4 * INDEX));
+
+    if (aml_bus_type == USB_MODE) {
+        return (((struct rwnx_hw *)env)->plat->hif_ops->hi_read_word((unsigned int)ipc_basic_address + 4 * (INDEX), USB_EP4));
+    } else if (aml_bus_type == SDIO_MODE) {
+        return rwnx_hw->plat->hif_sdio_ops->hi_random_word_read((unsigned long)(IPC_BASIC_ADDRESS + 4 * INDEX));
+    } else {
+        return (*(volatile u32*)(ipc_basic_address + 4*(INDEX)));
+    }
+
 }
 
-__INLINE void REG_IPC_APP_WR (void *env, unsigned int INDEX, u32 value)
+__INLINE void reg_ipc_app_wr(void *env, unsigned int INDEX, u32 value)
 {
     struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)env;
-    rwnx_hw->plat->hif_ops->hi_write_ipc_word((unsigned long)(IPC_BASIC_ADDRESS + 4 * INDEX), value);
+
+    if (aml_bus_type == USB_MODE) {
+        (((struct rwnx_hw *)env)->plat->hif_ops->hi_write_word((unsigned int)ipc_basic_address + 4 * (INDEX), value, USB_EP4));
+    } else if (aml_bus_type == SDIO_MODE) {
+        rwnx_hw->plat->hif_sdio_ops->hi_random_word_write((unsigned long)(IPC_BASIC_ADDRESS + 4 * INDEX), value);
+    } else {
+        (*(volatile u32*)(ipc_basic_address + 4*(INDEX)) = value);
+    }
 }
-#else
-/*****************************************************************************
- * Macros for generated register files
- *****************************************************************************/
-/* Macros for IPC registers access (used in reg_ipc_app.h) */
 
-#if 0 /*2BAR*/
-#define REG_IPC_APP_RD(env, INDEX)                                      \
-    (*(volatile u32*)((u8*)env + IPC_REG_BASE_ADDR + 4*(INDEX)))
-
-#define REG_IPC_APP_WR(env, INDEX, value)                               \
-    (*(volatile u32*)((u8*)env + IPC_REG_BASE_ADDR + 4*(INDEX)) = value)
-#else /*6BAR*/
-extern u8* ipc_basic_address;
-
-#define REG_IPC_APP_RD(env, INDEX)                                      \
-    (*(volatile u32*)(ipc_basic_address + 4*(INDEX)))
-
-#define REG_IPC_APP_WR(env, INDEX, value)                               \
-    (*(volatile u32*)(ipc_basic_address + 4*(INDEX)) = value)
-#endif
-#endif
+#define REG_IPC_APP_RD(env, INDEX)       \
+    reg_ipc_app_rd(env, INDEX)
+#define REG_IPC_APP_WR(env, INDEX, value)         \
+    reg_ipc_app_wr(env, INDEX, value)
 
 #endif /* REG_ACCESS_H_ */

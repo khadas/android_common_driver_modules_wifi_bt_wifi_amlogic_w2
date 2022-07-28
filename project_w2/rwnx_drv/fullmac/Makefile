@@ -62,14 +62,6 @@ obj-m += w2_comm.o
         rwnx_pci.o\
         rwnx_v7.o
 
-ifeq ($(INTERFACE_TYPE), usb)
-  CONFIG_RWNX_USB_MODE := y
-else ifeq ($(INTERFACE_TYPE), sdio)
-  CONFIG_RWNX_SDIO_MODE := y
-else
-  CONFIG_RWNX_PCIE_MODE := y
-endif
-
 w2-$(CONFIG_RWNX_RADAR)       += rwnx_radar.o
 w2-$(CONFIG_DEBUG_FS)         += rwnx_debugfs.o
 w2-$(CONFIG_DEBUG_FS)         += rwnx_fw_dump.o
@@ -109,10 +101,6 @@ else
 ccflags-y += -DNX_TXQ_CNT=4
 endif
 
-ccflags-$(CONFIG_RWNX_USB_MODE) += -DCONFIG_RWNX_USB_MODE
-ccflags-$(CONFIG_RWNX_SDIO_MODE) += -DCONFIG_RWNX_SDIO_MODE
-ccflags-$(CONFIG_RWNX_PCIE_MODE) += -DCONFIG_RWNX_PCIE_MODE
-
 # For old kernel (<=3.19)
 ifeq ($(shell test $(VERSION) -lt 4 -a "$(CONFIG_VENDOR_RWNX)" = y ; echo $$?),0)
 ccflags-y += -DCONFIG_VENDOR_RWNX_VHT_NO80
@@ -130,7 +118,6 @@ $(obj)/rwnx_main.o: $(obj)/rwnx_version_gen.h
 # regenerate rwnx_version_gen.h if dependency of only rwnx_main.c is changed.
 # This is OK as, currently, the only such dependency is rwnx_version.h
 $(obj)/rwnx_version_gen.h: $(addprefix $(obj)/,$(filter-out rwnx_main.o, $(rwnx_fdrv-y))) $(src)/rwnx_main.c
-	@echo "    interface type:$(INTERFACE_TYPE)"
 	$(call cmd,genvers)
 
 clean-files := rwnx_version_gen.h

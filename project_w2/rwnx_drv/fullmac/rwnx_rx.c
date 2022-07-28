@@ -21,6 +21,7 @@
 #include "rwnx_events.h"
 #include "rwnx_compat.h"
 #include "share_mem_map.h"
+#include "reg_ipc_app.h"
 
 struct vendor_radiotap_hdr {
     u8 oui[3];
@@ -339,13 +340,13 @@ static bool rwnx_rx_data_skb(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
                 skip_after_eth_hdr = 0;
             }
 
+            /* Update statistics */
+            rwnx_vif->net_stats.rx_packets++;
+            rwnx_vif->net_stats.rx_bytes += rx_skb->len;
             REG_SW_SET_PROFILING(rwnx_hw, SW_PROF_IEEE80211RX);
             netif_receive_skb(rx_skb);
             REG_SW_CLEAR_PROFILING(rwnx_hw, SW_PROF_IEEE80211RX);
 
-            /* Update statistics */
-            rwnx_vif->net_stats.rx_packets++;
-            rwnx_vif->net_stats.rx_bytes += rx_skb->len;
         }
     }
 
@@ -988,7 +989,7 @@ u8 rwnx_unsup_rx_vec_ind(void *pthis, void *arg) {
     rwnx_ipc_unsuprxvec_alloc(rwnx_hw, ipc_buf);
     return 0;
 }
-#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
+
 /**
  * rwnx_rxdataind - Process rx buffer
  *
@@ -999,8 +1000,6 @@ u8 rwnx_unsup_rx_vec_ind(void *pthis, void *arg) {
  * This function is called for each buffer received by the fw
  *
  */
-uint32_t g_exit_cnt;
-
 struct list_head rxdata_list;
 struct list_head free_rxdata_list;
 
@@ -1050,7 +1049,7 @@ void rwnx_put_rxdata_back_to_free_list(struct rxdata *rxdata)
     list_add_tail(&rxdata->list, &free_rxdata_list);
 }
 
-u8 rwnx_rxdataind(void *pthis, void *arg)
+s8 rwnx_sdio_rxdataind(void *pthis, void *arg)
 {
     struct rwnx_hw *rwnx_hw = pthis;
     struct hw_rxhdr *hw_rxhdr;
@@ -1066,9 +1065,10 @@ u8 rwnx_rxdataind(void *pthis, void *arg)
     u8 result = 0;
     u8 rxdesc_read_cnt = 0;
     static u8 rxdesc_cur_idx = 0;
+    u8 rxdesc_start_idx = 0;
+    u8 rxdesc_handle_cnt = 0;
     struct drv_stat_desc rx_stat_desc[RXDESC_CNT_READ_ONCE] = {0};
     struct drv_stat_desc *rx_stat_desc_addr = (struct drv_stat_desc *)RXU_STAT_DESC_POOL;
-    static u8 last_fail_idx = 0xFF;
     uint32_t upload_len = 0;
 
     REG_SW_SET_PROFILING(rwnx_hw, SW_PROF_RWNXDATAIND);
@@ -1079,37 +1079,26 @@ u8 rwnx_rxdataind(void *pthis, void *arg)
         rxdesc_read_cnt = IPC_RXDESC_CNT - rxdesc_cur_idx;
     }
 
-#if defined(CONFIG_RWNX_USB_MODE)
-    rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)rx_stat_desc, (unsigned char *)(unsigned long)&rx_stat_desc_addr[rxdesc_cur_idx], sizeof(struct drv_stat_desc) * rxdesc_read_cnt, USB_EP4);
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-    rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)rx_stat_desc, (unsigned char *)(unsigned long)&rx_stat_desc_addr[rxdesc_cur_idx], sizeof(struct drv_stat_desc) * rxdesc_read_cnt);
-#endif
+    rxdesc_start_idx = rxdesc_cur_idx;
+    if (aml_bus_type == USB_MODE) {
+        rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)rx_stat_desc,
+            (unsigned char *)(unsigned long)&rx_stat_desc_addr[rxdesc_cur_idx], sizeof(struct drv_stat_desc) * rxdesc_read_cnt, USB_EP4);
+
+    } else if (aml_bus_type == SDIO_MODE) {
+        rwnx_hw->plat->hif_sdio_ops->hi_desc_read((unsigned char *)rx_stat_desc,
+            (unsigned char *)(unsigned long)&rx_stat_desc_addr[rxdesc_cur_idx], sizeof(struct drv_stat_desc) * rxdesc_read_cnt);
+    }
 
     for (i = 0; i < rxdesc_read_cnt; i++, rxdesc_cur_idx = (rxdesc_cur_idx + 1) % IPC_RXDESC_CNT) {
         status = rx_stat_desc[i].rx_stat_val.status;
+        rx_stat_desc[i].rx_stat_val.status = 0;
 
         if (!status) {
-            if (last_fail_idx == 0xff) {
-                last_fail_idx = rxdesc_cur_idx;
-            } else {
-                if (last_fail_idx == rxdesc_cur_idx) {
-                    g_exit_cnt++;
-                    if (g_exit_cnt > 3) {
-                        printk("--%s, %d: rx err!!! idx: %d\n", __func__, __LINE__, last_fail_idx);
-                        g_exit_cnt = 0;
-                        rxdesc_cur_idx = (rxdesc_cur_idx + 1) % IPC_RXDESC_CNT;
-                        break;
-                    }
-                } else {
-                    g_exit_cnt = 0;
-                    last_fail_idx = rxdesc_cur_idx;
-                }
-            }
-
             result = -1;
             break;
         }
 
+        rxdesc_handle_cnt++;
         /* Check if we need to delete the buffer */
         if (status & RX_STAT_DELETE) {
             list_for_each_entry_safe(rxdata, rxdata_tmp, &rxdata_list, list) {
@@ -1120,59 +1109,12 @@ u8 rwnx_rxdataind(void *pthis, void *arg)
                     break;
                 }
             }
-#if defined(CONFIG_RWNX_USB_MODE)
-            rwnx_hw->plat->hif_ops->hi_write_word((unsigned int)&rx_stat_desc_addr[rxdesc_cur_idx].rx_stat_val.status, 0, USB_EP4);
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-            rwnx_hw->plat->hif_ops->hi_write_ipc_word((unsigned int)&rx_stat_desc_addr[rxdesc_cur_idx].rx_stat_val.status, 0);
-#endif
             continue;
         }
 
         eth_hdr_offset = rx_stat_desc[i].rx_stat_val.frame_len & 0xff;
         rx_stat_desc[i].rx_stat_val.frame_len >>= 8;
         msdu_offset = RX_HEADER_TO_PAYLOAD_LEN + eth_hdr_offset;
-
-        if (status != RX_STAT_FORWARD) {
-            skb = dev_alloc_skb(rx_stat_desc[i].rx_stat_val.frame_len + msdu_offset);
-
-            if (skb == NULL) {
-                printk("%s,%d, skb == NULL\n", __func__, __LINE__);
-                return -ENOMEM;
-            }
-
-            if (rx_stat_desc[i].rx_stat_val.host_id + RX_HEADER_OFFSET + msdu_offset + rx_stat_desc[i].rx_stat_val.frame_len > RXBUF_END_ADDR) {
-                upload_len = RXBUF_END_ADDR - rx_stat_desc[i].rx_stat_val.host_id - RX_HEADER_OFFSET + 1;
-
-#if defined(CONFIG_RWNX_USB_MODE)
-                rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)skb->data, (unsigned char *)(unsigned long)rx_stat_desc[i].rx_stat_val.host_id + RX_HEADER_OFFSET, upload_len, USB_EP4);
-                rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)skb->data + upload_len, (unsigned char *)RXBUF_START_ADDR, msdu_offset + rx_stat_desc[i].rx_stat_val.frame_len - upload_len, USB_EP4);
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-                rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)skb->data, (unsigned char *)(unsigned long)rx_stat_desc[i].rx_stat_val.host_id + RX_HEADER_OFFSET, upload_len);
-                rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)skb->data + upload_len, (unsigned char *)RXBUF_START_ADDR, msdu_offset + rx_stat_desc[i].rx_stat_val.frame_len - upload_len);
-#endif
-            } else {
-#if defined(CONFIG_RWNX_USB_MODE)
-            rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)skb->data, (unsigned char *)(unsigned long)rx_stat_desc[i].rx_stat_val.host_id + RX_HEADER_OFFSET, msdu_offset + rx_stat_desc[i].rx_stat_val.frame_len, USB_EP4);
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-            rwnx_hw->plat->hif_ops->hi_read_ipc_sram((unsigned char *)skb->data, (unsigned char *)(unsigned long)rx_stat_desc[i].rx_stat_val.host_id + RX_HEADER_OFFSET, msdu_offset + rx_stat_desc[i].rx_stat_val.frame_len);
-#endif
-            }
-        }
-
-        if (status == RX_STAT_ALLOC) {
-            rxdata = rwnx_get_rxdata_from_free_list();
-            rxdata->host_id = rx_stat_desc[i].rx_stat_val.host_id;
-            rxdata->frame_len = rx_stat_desc[i].rx_stat_val.frame_len;
-            rxdata->skb = skb;
-            list_add_tail(&rxdata->list, &rxdata_list);
-
-#if defined(CONFIG_RWNX_USB_MODE)
-            rwnx_hw->plat->hif_ops->hi_write_word((unsigned int)&rx_stat_desc_addr[rxdesc_cur_idx].rx_stat_val.status, 0, USB_EP4);
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-            rwnx_hw->plat->hif_ops->hi_write_ipc_word((unsigned int)&rx_stat_desc_addr[rxdesc_cur_idx].rx_stat_val.status, 0);
-#endif
-            continue;
-        }
 
         if (status == RX_STAT_FORWARD) {
             list_for_each_entry_safe(rxdata, rxdata_tmp, &rxdata_list, list) {
@@ -1184,14 +1126,44 @@ u8 rwnx_rxdataind(void *pthis, void *arg)
                     break;
                 }
             }
+
+        } else {
+            skb = dev_alloc_skb(rx_stat_desc[i].rx_stat_val.frame_len + msdu_offset);
+
+            if (skb == NULL) {
+                printk("%s,%d, skb == NULL\n", __func__, __LINE__);
+                return -ENOMEM;
+            }
+
+            printk("%s rx_stat_val.host_id:%08x, status:%d\n", __func__, rx_stat_desc[i].rx_stat_val.host_id, rx_stat_desc[i].rx_stat_val.status);
+            if (rx_stat_desc[i].rx_stat_val.host_id + RX_HEADER_OFFSET + msdu_offset + rx_stat_desc[i].rx_stat_val.frame_len > RXBUF_END_ADDR) {
+                upload_len = RXBUF_END_ADDR - rx_stat_desc[i].rx_stat_val.host_id - RX_HEADER_OFFSET + 1;
+                if (aml_bus_type == USB_MODE) {
+                    rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)skb->data, (unsigned char *)(unsigned long)rx_stat_desc[i].rx_stat_val.host_id + RX_HEADER_OFFSET, upload_len, USB_EP4);
+                    rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)skb->data + upload_len, (unsigned char *)RXBUF_START_ADDR, msdu_offset + rx_stat_desc[i].rx_stat_val.frame_len - upload_len, USB_EP4);
+                } else if (aml_bus_type == SDIO_MODE) {
+                    rwnx_hw->plat->hif_sdio_ops->hi_rx_buffer_read((unsigned char *)skb->data, (unsigned char *)(unsigned long)rx_stat_desc[i].rx_stat_val.host_id + RX_HEADER_OFFSET, upload_len);
+                    rwnx_hw->plat->hif_sdio_ops->hi_rx_buffer_read((unsigned char *)skb->data + upload_len, (unsigned char *)RXBUF_START_ADDR, msdu_offset + rx_stat_desc[i].rx_stat_val.frame_len - upload_len);
+                }
+            } else {
+                if (aml_bus_type == USB_MODE) {
+                    rwnx_hw->plat->hif_ops->hi_read_sram((unsigned char *)skb->data, (unsigned char *)(unsigned long)rx_stat_desc[i].rx_stat_val.host_id + RX_HEADER_OFFSET, msdu_offset + rx_stat_desc[i].rx_stat_val.frame_len, USB_EP4);
+                } else if (aml_bus_type == SDIO_MODE) {
+                    rwnx_hw->plat->hif_sdio_ops->hi_rx_buffer_read((unsigned char *)skb->data, (unsigned char *)(unsigned long)rx_stat_desc[i].rx_stat_val.host_id + RX_HEADER_OFFSET, msdu_offset + rx_stat_desc[i].rx_stat_val.frame_len);
+                }
+            }
         }
 
-#if defined(CONFIG_RWNX_USB_MODE)
-        rwnx_hw->plat->hif_ops->hi_write_word((unsigned int)&rx_stat_desc_addr[rxdesc_cur_idx].rx_stat_val.status, 0, USB_EP4);
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-        rwnx_hw->plat->hif_ops->hi_write_ipc_word((unsigned int)&rx_stat_desc_addr[rxdesc_cur_idx].rx_stat_val.status, 0);
-#endif
+        if (status == RX_STAT_ALLOC) {
+            rxdata = rwnx_get_rxdata_from_free_list();
+            rxdata->host_id = rx_stat_desc[i].rx_stat_val.host_id;
+            rxdata->frame_len = rx_stat_desc[i].rx_stat_val.frame_len;
+            rxdata->skb = skb;
+            list_add_tail(&rxdata->list, &rxdata_list);
+            continue;
+        }
 
+        spin_lock_bh(&rwnx_hw->rx_lock);
         hw_rxhdr = (struct hw_rxhdr *)skb->data;
 
         /* Check if we need to forward the buffer coming from a monitor interface */
@@ -1318,6 +1290,7 @@ check_len_update:
             }
 
             dev_kfree_skb(skb);
+            spin_unlock_bh(&rwnx_hw->rx_lock);
             continue;
         }
 
@@ -1337,6 +1310,7 @@ check_len_update:
             }
 
             dev_kfree_skb(skb);
+            spin_unlock_bh(&rwnx_hw->rx_lock);
             continue;
         }
 
@@ -1372,6 +1346,7 @@ check_len_update:
                     dev_err(rwnx_hw->dev, "Frame received but no active vif (%d)",
                             hw_rxhdr->flags_vif_idx);
                     dev_kfree_skb(skb);
+                    spin_unlock_bh(&rwnx_hw->rx_lock);
                     continue;
                 }
 
@@ -1380,6 +1355,7 @@ check_len_update:
                         rwnx_vif = rwnx_hw->vif_table[sta->vlan_idx];
                         if (!rwnx_vif) {
                             dev_kfree_skb(skb);
+                            spin_unlock_bh(&rwnx_hw->rx_lock);
                             continue;
                         }
                     }
@@ -1396,16 +1372,42 @@ check_len_update:
                     dev_kfree_skb(skb);
             }
         }
+
+        spin_unlock_bh(&rwnx_hw->rx_lock);
     }
 
+    printk("rxdesc_cur_idx:%x, rxdesc_handle_cnt:%x, rxdesc_start_idx:%x, rxdesc_read_cnt=%x, addr:%08x\n",
+        rxdesc_cur_idx, rxdesc_handle_cnt, rxdesc_start_idx, rxdesc_read_cnt, &rx_stat_desc_addr[rxdesc_start_idx]);
+ #if 0
+    if (rxdesc_handle_cnt != 0) {
+        if (aml_bus_type == USB_MODE) {
+            rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)rx_stat_desc,
+                (unsigned char *)(unsigned long)&rx_stat_desc_addr[rxdesc_start_idx], sizeof(struct drv_stat_desc) * rxdesc_handle_cnt, USB_EP4);
+
+        } else if (aml_bus_type == SDIO_MODE) {
+            rwnx_hw->plat->hif_sdio_ops->hi_write_ipc_sram((unsigned char *)rx_stat_desc,
+                (unsigned char *)(unsigned long)&rx_stat_desc_addr[rxdesc_start_idx], sizeof(struct drv_stat_desc) * rxdesc_handle_cnt);
+        }
+    }
+#endif
+
+
+    if (aml_bus_type == USB_MODE) {
+        rwnx_hw->plat->hif_ops->hi_write_word((unsigned int)APP2EMB_RXDESC_IDX, rxdesc_cur_idx, USB_EP4);
+    } else if (aml_bus_type == SDIO_MODE) {
+        rwnx_hw->plat->hif_sdio_ops->hi_random_word_write((unsigned int)APP2EMB_RXDESC_IDX, rxdesc_cur_idx);
+    }
+    ipc_app2emb_trigger_set(rwnx_hw, IPC_IRQ_A2E_RXDESC_BACK);
+
     REG_SW_CLEAR_PROFILING(rwnx_hw, SW_PROF_RWNXDATAIND);
+
+    if (rxdesc_handle_cnt == rxdesc_read_cnt) {
+        result = 1;
+    }
 
     return result;
 }
 
-
-
-#else
 /**
  * rwnx_rxdataind - Process rx buffer
  *
@@ -1416,7 +1418,7 @@ check_len_update:
  * This function is called for each buffer received by the fw
  *
  */
-u8 rwnx_rxdataind(void *pthis, void *arg)
+u8 rwnx_pci_rxdataind(void *pthis, void *arg)
 {
     struct rwnx_hw *rwnx_hw = pthis;
     struct rwnx_ipc_buf *ipc_desc = arg;
@@ -1668,7 +1670,21 @@ end:
 
     return 0;
 }
-#endif
+
+u8 rwnx_rxdataind(void *pthis, void *arg)
+{
+    s8 ret;
+
+    if (aml_bus_type != PCIE_MODE) {
+        do {
+            ret = rwnx_sdio_rxdataind(pthis, arg);
+        } while(ret > 0);
+
+    } else {
+        ret = rwnx_pci_rxdataind(pthis, arg);
+    }
+    return ret;
+}
 
 /**
  * rwnx_rx_deferred - Work function to defer processing of buffer that cannot be

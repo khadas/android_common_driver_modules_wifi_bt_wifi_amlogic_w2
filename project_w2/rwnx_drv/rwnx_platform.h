@@ -100,6 +100,9 @@
 #define PCIE_BAR4_TABLE6_OFFSET 0x001b0000
 #define PCIE_BAR4_TABLE7_OFFSET 0x001c0000
 
+#define W2p_VENDOR_AMLOGIC_EFUSE  0X1F35
+#define REG_OF_VENDOR_ID  0x00a10004
+
 enum
 {
     PCIE_BAR0,
@@ -121,6 +124,12 @@ struct pcie_mem_map_struct
 };
 #endif
 
+enum interface_type {
+    SDIO_MODE,
+    USB_MODE,
+    PCIE_MODE
+};
+
 /**
  * Type of memory to access (cf rwnx_plat.get_address)
  *
@@ -136,6 +145,8 @@ enum rwnx_platform_addr {
     RWNX_ADDR_SYSTEM,
     RWNX_ADDR_MAX,
 };
+extern unsigned int aml_bus_type;
+extern char * aml_wifi_get_bus_type(void);
 
 struct rwnx_hw;
 
@@ -158,15 +169,13 @@ struct rwnx_hw;
  * @priv Private data for the link driver
  */
 struct rwnx_plat {
-#if defined(CONFIG_RWNX_USB_MODE)
     struct usb_device *usb_dev;
     struct auc_hif_ops *hif_ops;
-#elif defined(CONFIG_RWNX_SDIO_MODE)
+
     struct device *dev;
-    struct aml_hif_sdio_ops *hif_ops;
-#else
+    struct aml_hif_sdio_ops *hif_sdio_ops;
+
     struct pci_dev *pci_dev;
-#endif
 
     bool enabled;
 
@@ -175,51 +184,41 @@ struct rwnx_plat {
     void (*deinit)(struct rwnx_plat *rwnx_plat);
     u8 *(*get_address)(struct rwnx_plat *rwnx_plat, int addr_name,
                        unsigned int offset);
-    void (*ack_irq)(struct rwnx_plat *rwnx_plat);
+    u32 (*ack_irq)(struct rwnx_plat *rwnx_plat);
     int (*get_config_reg)(struct rwnx_plat *rwnx_plat, const u32 **list);
     u8 priv[0] __aligned(sizeof(void *));
 };
 
-#if defined(CONFIG_RWNX_USB_MODE)
+
 #define RWNX_ADDR(plat, base, offset)           \
     plat->get_address(plat, base, offset)
 
-#define RWNX_REG_READ(plat, base, offset)               \
-    plat->hif_ops->hi_read_word((unsigned int)(unsigned long)RWNX_ADDR(plat, base, offset), USB_EP4)
-
-#define RWNX_REG_WRITE(val, plat, base, offset)         \
-    plat->hif_ops->hi_write_word((unsigned int)(unsigned long)RWNX_ADDR(plat, base, offset), val, USB_EP4)
-
-static inline struct device *rwnx_platform_get_dev(struct rwnx_plat *rwnx_plat)
+static inline u32 rwnx_reg_read(struct rwnx_plat *plat, u32 base, u32 offset)
 {
-    return &(rwnx_plat->usb_dev->dev);
+    if (aml_bus_type == USB_MODE) {
+        return plat->hif_ops->hi_read_word((unsigned int)(unsigned long)RWNX_ADDR(plat, base, offset), USB_EP4);
+    } else if (aml_bus_type == SDIO_MODE) {
+       return plat->hif_sdio_ops->hi_random_word_read((unsigned int)(unsigned long)RWNX_ADDR(plat, base, offset));
+    } else {
+        return readl(plat->get_address(plat, base, offset));
+    }
 }
 
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-
-#define RWNX_ADDR(plat, base, offset)           \
-    plat->get_address(plat, base, offset)
-
-#define RWNX_REG_READ(plat, base, offset)               \
-    plat->hif_ops->hi_read_ipc_word((unsigned int)(unsigned long)RWNX_ADDR(plat, base, offset))
-
-#define RWNX_REG_WRITE(val, plat, base, offset)         \
-    plat->hif_ops->hi_write_ipc_word((unsigned int)(unsigned long)RWNX_ADDR(plat, base, offset), val)
-
-static inline struct device *rwnx_platform_get_dev(struct rwnx_plat *rwnx_plat)
+static inline void rwnx_reg_write(u32 val, struct rwnx_plat *plat, u32 base, u32 offset)
 {
-    return rwnx_plat->dev;
+    if (aml_bus_type == USB_MODE) {
+        plat->hif_ops->hi_write_word((unsigned int)(unsigned long)RWNX_ADDR(plat, base, offset), val, USB_EP4);
+    } else if (aml_bus_type == SDIO_MODE) {
+        plat->hif_sdio_ops->hi_random_word_write((unsigned int)(unsigned long)RWNX_ADDR(plat, base, offset), val);
+    } else {
+        writel(val, plat->get_address(plat, base, offset));
+    }
 }
-#else
 
-#define RWNX_ADDR(plat, base, offset)           \
-    plat->get_address(plat, base, offset)
-
-#define RWNX_REG_READ(plat, base, offset)               \
-    readl(plat->get_address(plat, base, offset))
-
+#define RWNX_REG_READ(plat, base, offset)       \
+    rwnx_reg_read(plat, base, offset)
 #define RWNX_REG_WRITE(val, plat, base, offset)         \
-    writel(val, plat->get_address(plat, base, offset))
+    rwnx_reg_write(val, plat, base, offset)
 
 struct rwnx_pci
 {
@@ -233,14 +232,19 @@ struct rwnx_pci
 
 static inline struct device *rwnx_platform_get_dev(struct rwnx_plat *rwnx_plat)
 {
-    return &(rwnx_plat->pci_dev->dev);
+    if (aml_bus_type == USB_MODE) {
+        return &(rwnx_plat->usb_dev->dev);
+    } else if (aml_bus_type == SDIO_MODE) {
+        return rwnx_plat->dev;
+    } else {
+        return &(rwnx_plat->pci_dev->dev);
+    }
 }
 static inline unsigned int rwnx_platform_get_irq(struct rwnx_plat *rwnx_plat)
 {
     return rwnx_plat->pci_dev->irq;
 }
 u8* rwnx_pci_get_map_address(struct net_device *dev, unsigned int offset);
-#endif
 
 
 int rwnx_platform_init(struct rwnx_plat *rwnx_plat, void **platform_data);
@@ -249,7 +253,15 @@ void rwnx_platform_deinit(struct rwnx_hw *rwnx_hw);
 int rwnx_platform_on(struct rwnx_hw *rwnx_hw, void *config);
 void rwnx_platform_off(struct rwnx_hw *rwnx_hw, void **config);
 
-int rwnx_platform_register_drv(void);
-void rwnx_platform_unregister_drv(void);
+int rwnx_platform_register_pcie_drv(void);
+void rwnx_platform_unregister_pcie_drv(void);
+
+int rwnx_platform_register_usb_drv(void);
+void rwnx_platform_unregister_usb_drv(void);
+
+
+int rwnx_platform_register_sdio_drv(void);
+void rwnx_platform_unregister_sdio_drv(void);
+void aml_get_vid(struct rwnx_plat *rwnx_plat);
 
 #endif /* _RWNX_PLAT_H_ */

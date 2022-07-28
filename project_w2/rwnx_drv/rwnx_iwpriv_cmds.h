@@ -50,9 +50,9 @@ enum aml_iwpriv_subcmd
     AML_LA_DUMP = 42,
     AML_IWP_SET_PT_CALIBRATION = 43,
     AML_IWP_GET_CHAN_LIST = 44,
-#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
     AML_IWP_BUS_START_TEST = 45,
-#endif
+    AML_MEM_DUMP = 46,
+    AML_IWP_CCA_CHECK = 47,
 };
 
 

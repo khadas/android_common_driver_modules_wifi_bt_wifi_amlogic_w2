@@ -46,9 +46,9 @@
 
 /// Maximum size of a beacon frame
 #define NX_BCNFRAME_LEN 512
-
 #define BCN_TXLBUF_TAG_LEN 252
 
+#define TXCFM_READ_CNT 128
 
 // Maximum number of AP_VLAN interfaces allowed.
 // At max we can have one AP_VLAN per station, but we also limit the
@@ -60,7 +60,7 @@
 #define NX_ITF_MAX (NX_VIRT_DEV_MAX + MAX_AP_VLAN_ITF)
 #define WIFI_CONF_PATH "/vendor/etc/wifi/w2"
 
-#define TXBUF_START_ADDR   0x6001c760
+#define TXBUF_START_ADDR   0x60026660
 #define TXDESC_START_ADDR  0x6001134C
 
 #define STRUCT_BUFF_LEN   252
@@ -69,6 +69,8 @@
 #define CO_ALIGN4_HI(val) (((val)+3)&~3)
 #define TX_BUFFER_POOL_SIZE  0x4dc8
 
+#define AMSDU_RX_DISABLED    1
+#define AMSDU_RX_DISABLED_SKB_SIZE   (4 * 1024)
 
 enum wifi_module_sn {
       MODULE_ITON = 0X1,
@@ -711,6 +713,18 @@ struct rwnx_hw {
     // RX path
     struct rwnx_defer_rx defer_rx;
 
+#ifdef CONFIG_RWNX_USE_PREALLOC_BUF
+    spinlock_t prealloc_rxbuf_lock;
+    u16 prealloc_rxbuf_count;
+    struct list_head prealloc_rxbuf_free;
+    struct list_head prealloc_rxbuf_used;
+
+    struct semaphore prealloc_rxbuf_sem;
+    struct task_struct *prealloc_rxbuf_task;
+    struct completion prealloc_completion;
+    int prealloc_task_quit;
+#endif
+
     // IRQ
     struct tasklet_struct task;
 
@@ -731,22 +745,28 @@ struct rwnx_hw {
     struct rwnx_ipc_buf unsuprxvecs[IPC_UNSUPRXVECBUF_CNT];
     struct rwnx_ipc_buf scan_ie;
     struct rwnx_ipc_buf_pool txcfm_pool;
+    struct txdesc_host txdesc_host_list[TX_LIST_CNT];
 
-#if !defined(CONFIG_RWNX_PCIE_MODE)
+    struct rwnx_tx_cfmed tx_cfmed[TXCFM_READ_CNT];
+    struct tx_cfm_tag read_cfm[TXCFM_READ_CNT];
+    struct tx_cfm_tag reset_cfm[TXCFM_READ_CNT];
+
     u32 irq;
     struct ipc_e2a_msg g_msg;
     struct ipc_dbg_msg g_dbg_msg;
     struct radar_pulse_array_desc g_pulses;
-    struct list_head tx_desc_save;
     int radar_pulse_index;
+
+    struct list_head tx_desc_save;
     struct list_head tx_buf_free_list;
     struct list_head tx_buf_used_list;
-    spinlock_t tx_buf_free_lock;
-    spinlock_t tx_buf_used_lock;
+    struct list_head tx_cfmed_list;
+    spinlock_t tx_buf_lock;
+    spinlock_t tx_desc_lock;
+    spinlock_t rx_lock;
 
     struct task_struct *rwnx_task;
     struct task_struct *rwnx_tx_task;
-    struct task_struct *rwnx_tx_cfm_task;
     struct task_struct *rwnx_msg_task;
 
     struct semaphore rwnx_tx_cfm_sem;
@@ -754,12 +774,9 @@ struct rwnx_hw {
     struct semaphore rwnx_task_sem;
     struct semaphore rwnx_tx_task_sem;
 
-#if defined(CONFIG_RWNX_USB_MODE)
     struct urb *g_urb;
     struct usb_ctrlrequest *g_cr;
     unsigned char *g_buffer;
-#endif
-#endif
 
     // Debug FS and stats
     struct rwnx_debugfs debugfs;
@@ -800,13 +817,5 @@ static inline void *rwnx_get_shared_trace_buf(struct rwnx_hw *rwnx_hw)
 
 void rwnx_external_auth_enable(struct rwnx_vif *vif);
 void rwnx_external_auth_disable(struct rwnx_vif *vif);
-
-enum interface_type{
-    SDIO_MODE,
-    USB_MODE,
-    PCIE_MODE
-};
-
-extern unsigned int aml_bus_type;
 
 #endif /* _RWNX_DEFS_H_ */

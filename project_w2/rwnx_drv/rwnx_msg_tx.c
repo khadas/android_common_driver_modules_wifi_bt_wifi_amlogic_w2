@@ -325,10 +325,11 @@ static inline void *rwnx_msg_zalloc(lmac_msg_id_t const id,
     else
         flags = GFP_KERNEL;
 
-#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
-    if (id == ME_TRAFFIC_IND_REQ)
-        flags = GFP_ATOMIC;
-#endif
+    if (aml_bus_type != PCIE_MODE) {
+        if (id == ME_TRAFFIC_IND_REQ) {
+            flags = GFP_ATOMIC;
+        }
+    }
 
     msg = (struct lmac_msg *)kzalloc(sizeof(struct lmac_msg) + param_len,
                                      flags);
@@ -412,10 +413,10 @@ static int rwnx_send_msg(struct rwnx_hw *rwnx_hw, const void *msg_params,
         kfree(msg);
         return -EBUSY;
     }
-
     if (!test_bit(RWNX_DEV_STARTED, (void*)&rwnx_hw->flags) &&
         reqid != MM_RESET_CFM && reqid != MM_VERSION_CFM &&
         reqid != MM_START_CFM && reqid != MM_SET_IDLE_CFM &&
+        reqid != MM_MSG_BYPASS_ID &&
         reqid != ME_CONFIG_CFM && reqid != MM_SET_PS_MODE_CFM &&
         reqid != ME_CHAN_CONFIG_CFM && reqid != PRIV_EFUSE_READ_RESULT) {
         printk(KERN_CRIT "%s: bypassing (RWNX_DEV_RESTARTING set) 0x%02x\n",
@@ -2220,9 +2221,7 @@ int rwnx_send_apm_start_req(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif,
     int var_offset = offsetof(struct ieee80211_mgmt, u.beacon.variable);
     const u8 *var_pos;
     int len, i, error;
-#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
     unsigned int addr;
-#endif
 
     RWNX_DBG(RWNX_FN_ENTRY_STR);
 
@@ -2268,23 +2267,21 @@ int rwnx_send_apm_start_req(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif,
 #undef IS_BASIC_RATE
 
     // Sync buffer for FW
-#if defined(CONFIG_RWNX_PCIE_MODE)
-    if ((error = rwnx_ipc_buf_a2e_init(rwnx_hw, &buf, bcn_buf, bcn->len))) {
-        netdev_err(vif->ndev, "Failed to allocate IPC buf for AP Beacon\n");
-        kfree(bcn_buf);
-        rwnx_msg_free(rwnx_hw, req);
-        /* coverity[leaked_storage] - req have already freed */
-        return -EIO;
+    if (aml_bus_type == PCIE_MODE) {
+        if ((error = rwnx_ipc_buf_a2e_init(rwnx_hw, &buf, bcn_buf, bcn->len))) {
+            netdev_err(vif->ndev, "Failed to allocate IPC buf for AP Beacon\n");
+            kfree(bcn_buf);
+            rwnx_msg_free(rwnx_hw, req);
+            /* coverity[leaked_storage] - req have already freed */
+            return -EIO;
+        }
+    } else if (aml_bus_type == USB_MODE) {
+        addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
+        rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len, USB_EP4);
+    } else if (aml_bus_type == SDIO_MODE) {
+        addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
+        rwnx_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len);
     }
-
-#elif defined(CONFIG_RWNX_USB_MODE)
-    addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
-    rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len, USB_EP4);
-
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-    addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
-    rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len);
-#endif
 
     /* Set parameters for the APM_START_REQ message */
     req->vif_idx = vif->vif_index;
@@ -2397,23 +2394,23 @@ int rwnx_send_scanu_req(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
     }
 
     if (param->ie) {
-#if ((!defined(CONFIG_RWNX_USB_MODE)) && (!defined(CONFIG_RWNX_SDIO_MODE)))
-        if (rwnx_ipc_buf_a2e_alloc(rwnx_hw, &rwnx_hw->scan_ie,
-                                   param->ie_len, param->ie)) {
-            netdev_err(rwnx_vif->ndev, "Failed to allocate IPC buf for SCAN IEs\n");
-            goto error;
+        if (aml_bus_type == PCIE_MODE) {
+            if (rwnx_ipc_buf_a2e_alloc(rwnx_hw, &rwnx_hw->scan_ie,
+                                      param->ie_len, param->ie)) {
+                netdev_err(rwnx_vif->ndev, "Failed to allocate IPC buf for SCAN IEs\n");
+                goto error;
+            }
         }
-#endif
 
         req->add_ie_len = param->ie_len;
         req->add_ies = rwnx_hw->scan_ie.dma_addr;
 
-#ifdef CONFIG_RWNX_USB_MODE
-        rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)param->ie, (unsigned char *)SCANU_ADD_IE, param->ie_len, USB_EP4);
-#endif
-#ifdef CONFIG_RWNX_SDIO_MODE
-        rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)param->ie, (unsigned char *)SCANU_ADD_IE, param->ie_len);
-#endif
+        if (aml_bus_type == USB_MODE) {
+            rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)param->ie, (unsigned char *)SCANU_ADD_IE, param->ie_len, USB_EP4);
+        }
+        if (aml_bus_type == SDIO_MODE) {
+            rwnx_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)param->ie, (unsigned char *)SCANU_ADD_IE, param->ie_len);
+        }
 
     } else {
         req->add_ie_len = 0;
@@ -2433,11 +2430,9 @@ int rwnx_send_scanu_req(struct rwnx_hw *rwnx_hw, struct rwnx_vif *rwnx_vif,
     /* coverity[leaked_storage] - req will be freed later */
     return rwnx_send_msg(rwnx_hw, req, 0, 0, NULL);
 
-#if ((!defined(CONFIG_RWNX_USB_MODE)) && (!defined(CONFIG_RWNX_SDIO_MODE)))
 error:
     if (req != NULL)
         rwnx_msg_free(rwnx_hw, req);
-#endif
 
     /* coverity[leaked_storage] - req have already freed */
     return -ENOMEM;
@@ -3707,6 +3702,16 @@ int rwnx_set_stbc(struct rwnx_hw *rwnx_hw, u8 vif_idx, u8 stbc_on)
 
     /* coverity[leaked_storage] - req will be freed later */
     return rwnx_priv_send_msg(rwnx_hw, req, 0, 0, NULL);
+}
+
+int rwnx_set_temp_start(struct rwnx_hw *rwnx_hw)
+{
+    void *void_param;
+    void_param = rwnx_priv_msg_zalloc(MM_SUB_SET_TEMP_START, 0);
+    if (!void_param)
+        return -ENOMEM;
+    /* coverity[leaked_storage] - req will be freed later */
+    return rwnx_priv_send_msg(rwnx_hw, void_param ,0 ,MM_MSG_BYPASS_ID, NULL);
 }
 
 int rwnx_tko_activate(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif, u8 active)

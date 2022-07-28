@@ -35,6 +35,21 @@ enum bcmdhd_mem_type {
     BCMDHD_MEM_DUMP_RAM = 11,
 };
 extern void *bcmdhd_mem_prealloc(int section, unsigned long size);
+
+/* prealloc rxbuf definition and structure */
+#define PREALLOC_RXBUF_SIZE     (128 + 32)
+#define PREALLOC_RXBUF_FACTOR   (32)
+
+struct rwnx_prealloc_rxbuf {
+    struct list_head list;
+    struct sk_buff *skb;
+};
+
+void rwnx_prealloc_rxbuf_init(struct rwnx_hw *rwnx_hw, uint32_t rxbuf_sz);
+void rwnx_prealloc_rxbuf_deinit(struct rwnx_hw *rwnx_hw);
+struct rwnx_prealloc_rxbuf *rwnx_prealloc_get_free_rxbuf(struct rwnx_hw *rwnx_hw);
+struct rwnx_prealloc_rxbuf *rwnx_prealloc_get_used_rxbuf(struct rwnx_hw *rwnx_hw);
+
 #endif
 
 #endif

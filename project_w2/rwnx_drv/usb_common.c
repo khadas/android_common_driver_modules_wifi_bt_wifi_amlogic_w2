@@ -11,7 +11,7 @@
 #define ICCM_ROM_LEN (256 * 1024)
 #define ICCM_RAM_LEN (256 * 1024)
 #define ICCM_ALL_LEN (ICCM_ROM_LEN + ICCM_RAM_LEN)
-#define DCCM_ALL_LEN (160 * 1024)
+#define DCCM_ALL_LEN (256 * 1024)
 #define ICCM_ROM_ADDR (0x00100000)
 #define ICCM_RAM_ADDR (0x00100000 + ICCM_ROM_LEN)
 #define DCCM_RAM_ADDR (0x00d00000)
@@ -927,9 +927,9 @@ int wifi_iccm_download(unsigned char* addr, unsigned int len)
     return 0;
 }
 
-int wifi_dccm_download(unsigned char* addr, unsigned int len)
+int wifi_dccm_download(unsigned char* addr, unsigned int len, unsigned int start)
 {
-    unsigned int base_addr = 0x00d00000;
+    unsigned int base_addr = 0x00d00000 + start;
     unsigned int offset = 0;
     unsigned int trans_len = 0;
     int ret = 0;
@@ -972,8 +972,8 @@ int wifi_dccm_download(unsigned char* addr, unsigned int len)
 
     USB_END_LOCK();
 
-        hif_ops->hi_read_sram(buf_tmp,
-                        (unsigned char*)(SYS_TYPE)base_addr, len, USB_EP4);
+    hif_ops->hi_read_sram(buf_tmp,
+            (unsigned char*)(SYS_TYPE)base_addr, len, USB_EP4);
 
 
     if(memcmp(buf_tmp, addr, len)) {
@@ -1031,7 +1031,7 @@ int wifi_fw_download(char * firmware_filename)
         strncpy(tmp_buf, (char *)src, 8);
         if ((err = kstrtouint(tmp_buf, 16, &tmp_val))) {
             release_firmware(fw);
-            FREE(kmalloc_buf, "sdio_write");
+            FREE(kmalloc_buf, "usb_write");
             return err;
         }
         *(unsigned int *)&kmalloc_buf[4 * i] = __swab32(tmp_val);
@@ -1043,14 +1043,21 @@ int wifi_fw_download(char * firmware_filename)
 
     memset(kmalloc_buf, 0, len);
     src = (unsigned char *)fw->data + (ICCM_ALL_LEN / 4) * BYTE_IN_LINE;
+
+    /* download dccm section1, 0 - usb_data_start */
+#define USB_ROM_DATA_LEN (2 * 1024)
+#define STACK_LEN (6 * 1024)
+#define DCCM_SECTION1_LEN (160 * 1024 - (STACK_LEN + USB_ROM_DATA_LEN))
+#define DCCM_SECTION2_LEN (96 * 1024)
+
     //len = ALIGN(DCCM_ALL_LEN, 4) - (6 * 1024/*stack*/ + 2 * 1024/*usb data*/);
-    len = DCCM_ALL_LEN - (6 * 1024/*stack*/ + 2 * 1024/*usb data*/);
-    for (i = 0; i < len /4; i++) {
+    len = DCCM_SECTION1_LEN;
+    for (i = 0; i < len / 4; i++) {
         tmp_buf[8] = 0;
         strncpy(tmp_buf, (char *)src, 8);
         if ((err = kstrtouint(tmp_buf, 16, &tmp_val))) {
             release_firmware(fw);
-            FREE(kmalloc_buf, "sdio_write");
+            FREE(kmalloc_buf, "usb_write");
             return err;
         }
         *(unsigned int *)&kmalloc_buf[4 * i] = __swab32(tmp_val);
@@ -1058,15 +1065,34 @@ int wifi_fw_download(char * firmware_filename)
     }
 
     printk("start dccm download!\n");
-    wifi_dccm_download(kmalloc_buf, len);
+    wifi_dccm_download(kmalloc_buf, len, 0);
+
+    /* download dccm section2, stack end to dccm end */
+    memset(kmalloc_buf, 0, len);
+    src += ((USB_ROM_DATA_LEN + STACK_LEN) / 4) * BYTE_IN_LINE;
+    offset = len + USB_ROM_DATA_LEN + STACK_LEN;
+    len = DCCM_SECTION2_LEN;
+
+    for (i = 0; i < len / 4; i++) {
+        tmp_buf[8] = 0;
+        strncpy(tmp_buf, (char *)src, 8);
+        if ((err = kstrtouint(tmp_buf, 16, &tmp_val))) {
+            release_firmware(fw);
+            FREE(kmalloc_buf, "usb_write");
+            return err;
+        }
+        *(unsigned int *)&kmalloc_buf[4 * i] = __swab32(tmp_val);
+        src += BYTE_IN_LINE;
+    }
+
+    wifi_dccm_download(kmalloc_buf, len, offset);
 
     release_firmware(fw);
     FREE(kmalloc_buf, "usb_write");
 
     printk("finished fw downloading!\n");
     return 0;
- }
-
+}
 
 int start_wifi(void)
 {

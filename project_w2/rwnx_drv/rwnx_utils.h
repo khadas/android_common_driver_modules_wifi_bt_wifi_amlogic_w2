@@ -13,7 +13,6 @@
 #include <linux/skbuff.h>
 
 #include "lmac_msg.h"
-#include "rwnx_prealloc.h"
 
 #ifndef CONFIG_RWNX_DBG
 /*  #define RWNX_DBG(format, arg...) pr_warn(format, ## arg) */
@@ -93,8 +92,15 @@ struct rwnx_txbuf {
     uint32_t index;
     struct sk_buff *skb;
 };
-#define TX_BUF_CNT    128
 
+struct rwnx_tx_cfmed {
+    struct list_head list;
+    uint32_t tx_cfmed_idx;
+};
+
+#define TX_BUF_CNT    127
+#define TX_LIST_CNT   64
+#define TXDESC_WRITE_ONCE_CNT  15
 static const u32 rwnx_tx_pattern = 0xCAFEFADE;
 
 /*
@@ -269,11 +275,12 @@ const char* ssid_sprintf(const unsigned char *ssid, unsigned char ssid_len);
 u32 aml_ieee80211_chan_to_freq(u32 chan, u32 band);
 u32 aml_ieee80211_freq_to_chan(u32 freq, u32 band);
 
-#if !defined(CONFIG_RWNX_PCIE_MODE)
 void rwnx_txbuf_list_init(struct rwnx_hw *rwnx_hw);
+void rwnx_tx_cfmed_list_init(struct rwnx_hw *rwnx_hw);
+
 struct rwnx_txbuf *rwnx_get_from_free_txbuf(struct rwnx_hw *rwnx_hw);
 void rwnx_txbuf_list_deinit(struct rwnx_hw *rwnx_hw);
 struct sk_buff *rwnx_get_skb_from_used_txbuf(struct rwnx_hw *rwnx_hw, u32_l hostid);
-#endif
+uint32_t aml_read_reg(struct net_device *dev,uint32_t reg_addr);
 
 #endif /* _RWNX_IPC_UTILS_H_ */

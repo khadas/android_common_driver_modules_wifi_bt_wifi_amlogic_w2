@@ -751,6 +751,10 @@ extern struct ipc_shared_env_tag ipc_shared_env;
 #define IPC_IRQ_E2A_MSG             CO_BIT(1)
 #define IPC_IRQ_E2A_DBG             CO_BIT(0)
 
+#define SDIO_IRQ_E2A_MSG             CO_BIT(13)
+#define SDIO_IRQ_E2A_DBG             CO_BIT(12)
+
+
 #define IPC_IRQ_E2A_ALL         ( IPC_IRQ_E2A_TXCFM         \
                                 | IPC_IRQ_E2A_RXDESC        \
                                 | IPC_IRQ_E2A_MSG_ACK       \

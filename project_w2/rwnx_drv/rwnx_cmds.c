@@ -21,6 +21,7 @@
 #include "rwnx_events.h"
 
 unsigned int aml_bus_type;
+extern char *bus_type;
 
 /**
  *
@@ -65,7 +66,6 @@ static void cmd_complete(struct rwnx_cmd_mgr *cmd_mgr, struct rwnx_cmd *cmd)
     }
 }
 
-#if !defined(CONFIG_RWNX_PCIE_MODE)
 int rwnx_msg_task(void *data)
 {
     struct rwnx_hw *rwnx_hw = (struct rwnx_hw *)data;
@@ -106,7 +106,7 @@ int rwnx_msg_task(void *data)
     return 0;
 }
 
-static int cmd_mgr_queue(struct rwnx_cmd_mgr *cmd_mgr, struct rwnx_cmd *cmd)
+static int cmd_sdio_mgr_queue(struct rwnx_cmd_mgr *cmd_mgr, struct rwnx_cmd *cmd)
 {
     struct rwnx_hw *rwnx_hw = container_of(cmd_mgr, struct rwnx_hw, cmd_mgr);
     bool defer_push = false;
@@ -212,11 +212,10 @@ static int cmd_mgr_queue(struct rwnx_cmd_mgr *cmd_mgr, struct rwnx_cmd *cmd)
     return 0;
 }
 
-#else
 /**
  *
  */
-static int cmd_mgr_queue(struct rwnx_cmd_mgr *cmd_mgr, struct rwnx_cmd *cmd)
+static int cmd_pci_mgr_queue(struct rwnx_cmd_mgr *cmd_mgr, struct rwnx_cmd *cmd)
 {
     struct rwnx_hw *rwnx_hw = container_of(cmd_mgr, struct rwnx_hw, cmd_mgr);
     bool defer_push = false;
@@ -317,7 +316,15 @@ static int cmd_mgr_queue(struct rwnx_cmd_mgr *cmd_mgr, struct rwnx_cmd *cmd)
 
     return 0;
 }
-#endif
+
+static int cmd_mgr_queue(struct rwnx_cmd_mgr *cmd_mgr, struct rwnx_cmd *cmd)
+{
+    if (aml_bus_type != PCIE_MODE) {
+        return cmd_sdio_mgr_queue(cmd_mgr, cmd);
+    } else {
+        return cmd_pci_mgr_queue(cmd_mgr, cmd);
+    }
+}
 
 /**
  *
@@ -356,13 +363,13 @@ static int cmd_mgr_llind(struct rwnx_cmd_mgr *cmd_mgr, struct rwnx_cmd *cmd)
     }
 
     if (next) {
-#if !defined(CONFIG_RWNX_PCIE_MODE)
-        up(&rwnx_hw->rwnx_msg_sem);
-#else
-        next->flags &= ~RWNX_CMD_FLAG_WAIT_PUSH;
-        rwnx_ipc_msg_push(rwnx_hw, next, RWNX_CMD_A2EMSG_LEN(next->a2e_msg));
-        kfree(next->a2e_msg);
-#endif
+        if (aml_bus_type != PCIE_MODE) {
+            up(&rwnx_hw->rwnx_msg_sem);
+        } else {
+            next->flags &= ~RWNX_CMD_FLAG_WAIT_PUSH;
+            rwnx_ipc_msg_push(rwnx_hw, next, RWNX_CMD_A2EMSG_LEN(next->a2e_msg));
+            kfree(next->a2e_msg);
+        }
     }
 
     spin_unlock(&cmd_mgr->lock);
@@ -506,21 +513,20 @@ void rwnx_cmd_mgr_deinit(struct rwnx_cmd_mgr *cmd_mgr)
     memset(cmd_mgr, 0, sizeof(*cmd_mgr));
 }
 
-#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
-
 int hal_host_init(void)
 {
     int ret = 0;
 
-#if defined(CONFIG_RWNX_USB_MODE)
-    aml_bus_type = USB_MODE;
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-    aml_bus_type = SDIO_MODE;
-#else
-    aml_bus_type = PCIE_MODE;
-#endif
+    if (strncmp(bus_type, "usb", 3) == 0) {
+        aml_bus_type = USB_MODE;
+    } else if (strncmp(bus_type, "sdio", 4) == 0) {
+        aml_bus_type = SDIO_MODE;
+    } else if (strncmp(bus_type, "pci", 3) == 0) {
+        aml_bus_type = PCIE_MODE;
+    } else {
+        ret = -1;
+    }
 
     return ret;
 }
 
-#endif

@@ -13,14 +13,12 @@
 #include <linux/interrupt.h>
 
 /* IRQ handler to be registered by platform driver */
-#if defined(CONFIG_RWNX_USB_MODE)
-int rwnx_irq_hdlr(void *data);
+int rwnx_irq_usb_hdlr(void *data);
 int rwnx_task(void *data);
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-irqreturn_t rwnx_irq_hdlr(int irq, void *dev_id);
-int rwnx_task(void *data);
-#else
-irqreturn_t rwnx_irq_hdlr(int irq, void *dev_id);
-void rwnx_task(unsigned long data);
-#endif
+
+irqreturn_t rwnx_irq_sdio_hdlr(int irq, void *dev_id);
+
+
+irqreturn_t rwnx_irq_pcie_hdlr(int irq, void *dev_id);
+void rwnx_pcie_task(unsigned long data);
 #endif /* _RWNX_IRQS_H_ */

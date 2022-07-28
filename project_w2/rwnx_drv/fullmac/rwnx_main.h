@@ -14,6 +14,8 @@
 #include "rwnx_defs.h"
 #include "rwnx_tx.h"
 
+#define DEBUG_CODE
+
 int rwnx_cfg80211_init(struct rwnx_plat *rwnx_plat, void **platform_data);
 void rwnx_cfg80211_deinit(struct rwnx_hw *rwnx_hw);
 int rwnx_cfg80211_change_iface(struct wiphy *wiphy,
@@ -24,5 +26,6 @@ int rwnx_cfg80211_change_iface(struct wiphy *wiphy,
 void rwnx_get_version(void);
 void rwnx_cfg80211_sched_scan_results(struct wiphy *wiphy, uint64_t reqid);
 int rwnx_cancel_scan(struct rwnx_hw *rwnx_hw, struct rwnx_vif *vif);
+void rwnx_config_cali_param(struct rwnx_hw *rwnx_hw);
 
 #endif /* _RWNX_MAIN_H_ */

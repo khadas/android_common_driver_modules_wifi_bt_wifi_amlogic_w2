@@ -468,7 +468,7 @@ static const int rwnx_hwq2uapsd[NL80211_NUM_ACS] = {
     [RWNX_HWQ_BK] = IEEE80211_WMM_IE_STA_QOSINFO_AC_BK,
 };
 
-//static char *rf_conf_path = WIFI_CONF_PATH;
+static char *rf_conf_path = WIFI_CONF_PATH;
 
 extern void rwnx_print_version(void);
 
@@ -688,19 +688,15 @@ static void rwnx_csa_finish(struct work_struct *ws)
     struct rwnx_vif *vif = csa->vif;
     struct rwnx_hw *rwnx_hw = vif->rwnx_hw;
     int error = csa->status;
-#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
     unsigned int addr;
-#endif
 
-
-#if defined(CONFIG_RWNX_USB_MODE)
-    addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
-    rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)csa->buf.addr, (unsigned char *)(unsigned long)addr, csa->buf.size, USB_EP4);
-
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-    addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
-    rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)csa->buf.addr, (unsigned char *)(unsigned long)addr, csa->buf.size);
-#endif
+    if (aml_bus_type == USB_MODE) {
+        addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
+        rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)csa->buf.addr, (unsigned char *)(unsigned long)addr, csa->buf.size, USB_EP4);
+    } else if (aml_bus_type == SDIO_MODE) {
+        addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
+        rwnx_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)csa->buf.addr, (unsigned char *)(unsigned long)addr, csa->buf.size);
+    }
 
     if (!error)
         error = rwnx_send_bcn_change(rwnx_hw, vif->vif_index, csa->buf.dma_addr,
@@ -971,6 +967,9 @@ static int rwnx_open(struct net_device *dev)
     }
 
     netif_carrier_off(dev);
+
+    /*get cali param from txt*/
+    rwnx_config_cali_param(rwnx_hw);
 
     return error;
 }
@@ -2260,9 +2259,7 @@ static int rwnx_cfg80211_change_beacon(struct wiphy *wiphy, struct net_device *d
     struct rwnx_ipc_buf buf;
     u8 *bcn_buf;
     int error = 0;
-#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
     unsigned int addr;
-#endif
 
     RWNX_DBG(RWNX_FN_ENTRY_STR);
 
@@ -2272,20 +2269,19 @@ static int rwnx_cfg80211_change_beacon(struct wiphy *wiphy, struct net_device *d
         return -ENOMEM;
 
     // Sync buffer for FW
-#if defined(CONFIG_RWNX_PCIE_MODE)
-    if ((error = rwnx_ipc_buf_a2e_init(rwnx_hw, &buf, bcn_buf, bcn->len))) {
-        netdev_err(dev, "Failed to allocate IPC buf for new beacon\n");
-        kfree(bcn_buf);
-        return error;
+    if (aml_bus_type == PCIE_MODE) {
+        if ((error = rwnx_ipc_buf_a2e_init(rwnx_hw, &buf, bcn_buf, bcn->len))) {
+            netdev_err(dev, "Failed to allocate IPC buf for new beacon\n");
+            kfree(bcn_buf);
+            return error;
+        }
+    } else if (aml_bus_type == USB_MODE) {
+        addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
+        rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len, USB_EP4);
+    } else if (aml_bus_type == SDIO_MODE) {
+        addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
+        rwnx_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len);
     }
-#elif defined(CONFIG_RWNX_USB_MODE)
-    addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
-    rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len, USB_EP4);
-
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-    addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
-    rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len);
-#endif
 
     // Forward the information to the LMAC
     error = rwnx_send_bcn_change(rwnx_hw, vif->vif_index, buf.dma_addr,
@@ -2775,12 +2771,14 @@ static int rwnx_cfg80211_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
                 return error;
 
             // internal RoC, no need to inform user space about it
-            rwnx_hw->roc->internal = true;
+            if (rwnx_hw->roc) {
+                rwnx_hw->roc->internal = true;
+            }
         }
     }
 
     res = rwnx_start_mgmt_xmit(rwnx_vif, rwnx_sta, params, offchan, cookie);
-    if (offchan) {
+    if (offchan && rwnx_hw->roc) {
         if (rwnx_hw->roc->tx_cnt < NX_ROC_TX)
             rwnx_hw->roc->tx_cookie[rwnx_hw->roc->tx_cnt] = *cookie;
         else
@@ -2810,6 +2808,8 @@ int rwnx_cfg80211_mgmt_tx_cancel_wait(struct wiphy *wiphy,
 {
     struct rwnx_hw *rwnx_hw = wiphy_priv(wiphy);
     int i, nb_tx_cookie = 0;
+
+    RWNX_DBG(RWNX_FN_ENTRY_STR);
 
     if (!rwnx_hw->roc || !rwnx_hw->roc->tx_cnt)
         return 0;
@@ -3061,9 +3061,7 @@ static int rwnx_cfg80211_channel_switch(struct wiphy *wiphy,
     u16 csa_oft[BCN_MAX_CSA_CPT];
     u8 *bcn_buf;
     int i, error = 0;
-#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
-        unsigned int addr;
-#endif
+    unsigned int addr;
 
     if (vif->ap.csa)
         return -EBUSY;
@@ -3092,21 +3090,20 @@ static int rwnx_cfg80211_channel_switch(struct wiphy *wiphy,
             bcn_buf[csa_oft[i]] = 2;
         }
     }
-#if defined(CONFIG_RWNX_PCIE_MODE)
-    if ((error = rwnx_ipc_buf_a2e_init(rwnx_hw, &buf, bcn_buf, bcn->len))) {
-        netdev_err(dev, "Failed to allocate IPC buf for CSA beacon\n");
-        kfree(bcn_buf);
-        return error;
+
+    if (aml_bus_type == PCIE_MODE) {
+        if ((error = rwnx_ipc_buf_a2e_init(rwnx_hw, &buf, bcn_buf, bcn->len))) {
+            netdev_err(dev, "Failed to allocate IPC buf for CSA beacon\n");
+            kfree(bcn_buf);
+            return error;
+        }
+    } else if (aml_bus_type == USB_MODE) {
+        addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
+        rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len, USB_EP4);
+    } else if (aml_bus_type == SDIO_MODE) {
+        addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
+        rwnx_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len);
     }
-#elif defined(CONFIG_RWNX_USB_MODE)
-    addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
-    rwnx_hw->plat->hif_ops->hi_write_sram((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len, USB_EP4);
-
-#elif defined(CONFIG_RWNX_SDIO_MODE)
-    addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
-    rwnx_hw->plat->hif_ops->hi_write_ipc_sram((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len);
-#endif
-
 
     /* Build the beacon to use after CSA. It will only be sent to fw once
        CSA is over, but do it before sending the beacon as it must be ready
@@ -4501,6 +4498,27 @@ unsigned char rwnx_parse_cali_param(char *varbuf, int len, struct Cali_Param *ca
     rwnx_get_s16_item(varbuf, len, "spur_freq", &cali_param->spur_freq);
     rwnx_get_s8_item(varbuf, len, "rf_count", &cali_param->rf_num);
 
+    rwnx_get_s8_item(varbuf, len, "cw2mod", &cali_param->cw2mod[0]);
+
+    rwnx_get_s8_item(varbuf, len, "wf2g_11b_tpwr", &cali_param->wf2g_11b_tpwr[0]);
+    rwnx_get_s8_item(varbuf, len, "wf2g_11g_tpwr", &cali_param->wf2g_11g_tpwr[0]);
+    rwnx_get_s8_item(varbuf, len, "wf2g_ht20_tpwr", &cali_param->wf2g_ht20_tpwr[0]);
+    rwnx_get_s8_item(varbuf, len, "wf2g_ht40_tpwr", &cali_param->wf2g_ht40_tpwr[0]);
+    rwnx_get_s8_item(varbuf, len, "wf2g_vht20_tpwr", &cali_param->wf2g_vht20_tpwr[0]);
+    rwnx_get_s8_item(varbuf, len, "wf2g_vht40_tpwr", &cali_param->wf2g_vht40_tpwr[0]);
+    rwnx_get_s8_item(varbuf, len, "wf2g_he20_tpwr", &cali_param->wf2g_he20_tpwr[0]);
+    rwnx_get_s8_item(varbuf, len, "wf2g_he40_tpwr", &cali_param->wf2g_he40_tpwr[0]);
+
+    rwnx_get_s8_item(varbuf, len, "wf5g_11a_tpwr", &cali_param->wf5g_11a_tpwr[0]);
+    rwnx_get_s8_item(varbuf, len, "wf5g_ht20_tpwr", &cali_param->wf5g_ht20_tpwr[0]);
+    rwnx_get_s8_item(varbuf, len, "wf5g_ht40_tpwr", &cali_param->wf5g_ht40_tpwr[0]);
+    rwnx_get_s8_item(varbuf, len, "wf5g_vht20_tpwr", &cali_param->wf5g_vht20_tpwr[0]);
+    rwnx_get_s8_item(varbuf, len, "wf5g_vht40_tpwr", &cali_param->wf5g_vht40_tpwr[0]);
+    rwnx_get_s8_item(varbuf, len, "wf5g_vht80_tpwr", &cali_param->wf5g_vht80_tpwr[0]);
+    rwnx_get_s8_item(varbuf, len, "wf5g_hesu20_tpwr", &cali_param->wf5g_he20_tpwr[0]);
+    rwnx_get_s8_item(varbuf, len, "wf5g_hesu40_tpwr", &cali_param->wf5g_he40_tpwr[0]);
+    rwnx_get_s8_item(varbuf, len, "wf5g_hesu80_tpwr", &cali_param->wf5g_he80_tpwr[0]);
+
     cali_param->version = version;
     cali_param->cali_config = cali_config;
 
@@ -4516,6 +4534,16 @@ unsigned char rwnx_parse_cali_param(char *varbuf, int len, struct Cali_Param *ca
     printk("======>>>>>> wf2g_spur_rmen = %d\n", cali_param->wf2g_spur_rmen);
     printk("======>>>>>> spur_freq = %d\n", cali_param->spur_freq);
     printk("======>>>>>> rf_count = %d\n", cali_param->rf_num);
+
+    printk("======>>>>>> cw2mod = %x\n", cali_param->cw2mod[0]);
+
+    printk("======>>>>>> wf2g_he20_tpwr = %d\n", cali_param->wf2g_he20_tpwr[0]);
+    printk("======>>>>>> wf2g_he40_tpwr = %d\n", cali_param->wf2g_he40_tpwr[0]);
+
+    printk("======>>>>>> wf5g_he20_tpwr = %d\n", cali_param->wf5g_he20_tpwr[0]);
+    printk("======>>>>>> wf5g_he40_tpwr = %d\n", cali_param->wf5g_he40_tpwr[0]);
+    printk("======>>>>>> wf5g_he80_tpwr = %d\n", cali_param->wf5g_he80_tpwr[0]);
+
 
     return 0;
 }
@@ -4596,7 +4624,7 @@ int rwnx_isFileReadable(const char *path, u32 *sz)
 
 unsigned char rwnx_get_cali_param(struct Cali_Param *cali_param)
 {
-#if 0 //TBD: coverity dead code, this api not used as of now.
+#if 1 //TBD: coverity dead code, this api not used as of now. //open it for test 20220711
     struct file *fp;
     struct kstat stat;
     int size, len;
@@ -4608,8 +4636,9 @@ unsigned char rwnx_get_cali_param(struct Cali_Param *cali_param)
     unsigned char chip_id_buf[100];
 
     //chip_id_l = efuse_manual_read(0xf);
-    chip_id_l = chip_id_l & 0xffff;
-    sprintf(chip_id_buf, "%s/aml_wifi_rf_%04x.txt", rf_conf_path, chip_id_l);
+    //chip_id_l = chip_id_l & 0xffff;
+    //sprintf(chip_id_buf, "%s/aml_wifi_rf_%04x.txt", rf_conf_path, chip_id_l);
+    sprintf(chip_id_buf, "%s/aml_wifi_rf.txt", rf_conf_path); //use default txt for test @aml_wifi_rf.txt
     if (rwnx_isFileReadable(chip_id_buf, NULL) != 0) {
         memset(chip_id_buf,'\0',sizeof(chip_id_buf));
         switch ((chip_id_l & 0xff00) >> 8) {
@@ -5090,9 +5119,9 @@ int rwnx_cfg80211_init(struct rwnx_plat *rwnx_plat, void **platform_data)
     wiphy->extended_capabilities_mask = rwnx_hw->ext_capa;
     wiphy->extended_capabilities_len = ARRAY_SIZE(rwnx_hw->ext_capa);
 
-#if defined(CONFIG_RWNX_PCIE_MODE)
-    tasklet_init(&rwnx_hw->task, rwnx_task, (unsigned long)rwnx_hw);
-#endif
+    if (aml_bus_type == PCIE_MODE) {
+        tasklet_init(&rwnx_hw->task, rwnx_pcie_task, (unsigned long)rwnx_hw);
+    }
 
     INIT_LIST_HEAD(&rwnx_hw->vifs);
 
@@ -5102,9 +5131,10 @@ int rwnx_cfg80211_init(struct rwnx_plat *rwnx_plat, void **platform_data)
 
     printk("%s:%d\n", __func__, __LINE__);
 
-#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
-    rwnx_rxdata_init();
-#endif
+    if (aml_bus_type != PCIE_MODE) {
+        rwnx_rxdata_init();
+    }
+
     if ((ret = rwnx_platform_on(rwnx_hw, NULL)))
         goto err_platon;
 
@@ -5194,20 +5224,20 @@ int rwnx_cfg80211_init(struct rwnx_plat *rwnx_plat, void **platform_data)
     }
 
     wiphy_info(wiphy, "New interface create %s", wdev->netdev->name);
-
     rtnl_lock();
 
     /* Add another interface, it will be use for p2p and softap */
     wdev = rwnx_interface_add(rwnx_hw, "ap%d", NET_NAME_UNKNOWN,
                NL80211_IFTYPE_STATION, NULL);
-
     rtnl_unlock();
-
     if (!wdev) {
         wiphy_err(wiphy, "Failed to add the second network device\n");
         ret = -ENOMEM;
         goto err_add_interface;
     }
+
+    //tempsensor interrupt enable
+    rwnx_set_temp_start(rwnx_hw);
 
     wiphy_info(wiphy, "New interface create %s", wdev->netdev->name);
 
@@ -5245,9 +5275,9 @@ void rwnx_cfg80211_deinit(struct rwnx_hw *rwnx_hw)
     wiphy_unregister(rwnx_hw->wiphy);
     rwnx_radar_detection_deinit(&rwnx_hw->radar);
     rwnx_platform_off(rwnx_hw, NULL);
-#if (defined(CONFIG_RWNX_USB_MODE) || defined(CONFIG_RWNX_SDIO_MODE))
-    rwnx_rxdata_deinit();
-#endif
+    if (aml_bus_type != PCIE_MODE) {
+        rwnx_rxdata_deinit();
+    }
     kmem_cache_destroy(rwnx_hw->sw_txhdr_cache);
     rwnx_wiphy_addresses_free(rwnx_hw->wiphy);
     wiphy_free(rwnx_hw->wiphy);
@@ -5258,15 +5288,25 @@ void rwnx_get_version(void)
     rwnx_print_version();
 }
 
-/**
- *
- */
 static int __init rwnx_mod_init(void)
 {
     RWNX_DBG(RWNX_FN_ENTRY_STR);
     rwnx_print_version();
+    if (hal_host_init()) {
+        printk("insmod w2 ko params err!\n");
+        return -1;
+    }
+    printk("aml_bus_type = %d.\n", aml_bus_type);
 
-    return rwnx_platform_register_drv();
+    if (aml_bus_type == USB_MODE) {
+         return rwnx_platform_register_usb_drv();
+    } else if (aml_bus_type == SDIO_MODE) {
+        return rwnx_platform_register_sdio_drv();
+    } else if (aml_bus_type == PCIE_MODE) {
+        return rwnx_platform_register_pcie_drv();
+    } else {
+        return -1;
+    }
 }
 
 /**
@@ -5276,7 +5316,13 @@ static void __exit rwnx_mod_exit(void)
 {
     RWNX_DBG(RWNX_FN_ENTRY_STR);
 
-    rwnx_platform_unregister_drv();
+    if (aml_bus_type == USB_MODE) {
+         rwnx_platform_unregister_usb_drv();
+    } else if (aml_bus_type == SDIO_MODE) {
+        rwnx_platform_unregister_sdio_drv();
+    } else if (aml_bus_type == PCIE_MODE) {
+        rwnx_platform_unregister_pcie_drv();
+    }
 }
 
 module_init(rwnx_mod_init);

@@ -8,12 +8,14 @@
 
 // bit2,bit3 keep r/w ptr after amlogic's self-definition reset
 #define RG_SCFG_RX_EN (0x74)
-#define RG_SCFG_SRAM_FUNC (0x8040)
-#define RG_SCFG_REG_FUNC (0x8044)
-#define RG_SCFG_EEPROM_FUNC (0x8048)
-#define RG_SCFG_SRAM_FUNC6 (0x8160)
+
+#define RG_SCFG_FUNC2_BADDR_A (0x8040)
 #define RG_SCFG_FUNC3_BADDR_A (0x8130)
+#define RG_SCFG_FUNC4_BADDR_A (0x8140)
 #define RG_SCFG_FUNC5_BADDR_A (0x8150)
+#define RG_SCFG_FUNC6_BADDR_A (0x8160)
+#define RG_SCFG_FUNC7_BADDR_A (0x8170)
+
 /* select reset sdio keep sdio slave in selected state*/
 #define RG_SCFG_SELECT_RST (0x9000)
 
