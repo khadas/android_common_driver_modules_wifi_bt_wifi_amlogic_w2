@@ -1,0 +1,1170 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<?fileVersion 4.0.0?>
+
+<cproject storage_type_id="org.eclipse.cdt.core.XmlProjectDescriptionStorage">
+	<storageModule moduleId="org.eclipse.cdt.core.settings">
+		<cconfiguration id="0.722284581">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="0.722284581" moduleId="org.eclipse.cdt.core.settings" name="RwnxDrv-3.9-V6">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.VCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GmakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.CWDLocator" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration buildProperties="" description="Build FullMAC and SoftMAC drivers for kernel 3.9 on V6 board" id="0.722284581" name="RwnxDrv-3.9-V6" parent="org.eclipse.cdt.build.core.prefbase.cfg">
+					<folderInfo id="0.722284581." name="/" resourcePath="">
+						<toolChain id="org.eclipse.cdt.build.core.prefbase.toolchain.344956845" name="No ToolChain" resourceTypeBasedDiscovery="false" superClass="org.eclipse.cdt.build.core.prefbase.toolchain">
+							<targetPlatform id="org.eclipse.cdt.build.core.prefbase.toolchain.344956845.492573266" name=""/>
+							<builder arguments="ARCH=arm CROSS_COMPILE=$(ARM_CROSS_COMPILE)" command="make" id="org.eclipse.cdt.build.core.settings.default.builder.123712801" keepEnvironmentInBuildfile="false" managedBuildOn="false" name="Gnu Make Builder" superClass="org.eclipse.cdt.build.core.settings.default.builder"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.libs.1581020366" name="holder for library settings" superClass="org.eclipse.cdt.build.core.settings.holder.libs"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.2032374048" name="Assembly" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.1889136120" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.835007255" languageId="org.eclipse.cdt.core.assembly" languageName="Assembly" sourceContentType="org.eclipse.cdt.core.asmSource" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.295545183" name="GNU C++" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.44580333" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.1155448725" languageId="org.eclipse.cdt.core.g++" languageName="GNU C++" sourceContentType="org.eclipse.cdt.core.cxxSource,org.eclipse.cdt.core.cxxHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.1750081427" name="GNU C" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.2061397019" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="__KERNEL__"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.4483880" languageId="org.eclipse.cdt.core.gcc" languageName="GNU C" sourceContentType="org.eclipse.cdt.core.cSource,org.eclipse.cdt.core.cHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+						</toolChain>
+					</folderInfo>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+		</cconfiguration>
+		<cconfiguration id="0.722284581.1539836586">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="0.722284581.1539836586" moduleId="org.eclipse.cdt.core.settings" name="RwnxDrv-3.19-V6">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.VCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GmakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.CWDLocator" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration buildProperties="" description="Build FullMAC and SoftMAC drivers for kernel 3.19 on V6 board" id="0.722284581.1539836586" name="RwnxDrv-3.19-V6" parent="org.eclipse.cdt.build.core.prefbase.cfg">
+					<folderInfo id="0.722284581.1539836586." name="/" resourcePath="">
+						<toolChain id="org.eclipse.cdt.build.core.prefbase.toolchain.251212214" name="No ToolChain" resourceTypeBasedDiscovery="false" superClass="org.eclipse.cdt.build.core.prefbase.toolchain">
+							<targetPlatform id="org.eclipse.cdt.build.core.prefbase.toolchain.251212214.2042827797" name=""/>
+							<builder arguments="-j 4 ARCH=arm CROSS_COMPILE=$(ARM_CROSS_COMPILE)" command="make" id="org.eclipse.cdt.build.core.settings.default.builder.138329212" keepEnvironmentInBuildfile="false" managedBuildOn="false" name="Gnu Make Builder" superClass="org.eclipse.cdt.build.core.settings.default.builder"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.libs.296561206" name="holder for library settings" superClass="org.eclipse.cdt.build.core.settings.holder.libs"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.1548447408" name="Assembly" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.666952453" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.1571624152" languageId="org.eclipse.cdt.core.assembly" languageName="Assembly" sourceContentType="org.eclipse.cdt.core.asmSource" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.1805839067" name="GNU C++" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.1299041206" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.1062615458" languageId="org.eclipse.cdt.core.g++" languageName="GNU C++" sourceContentType="org.eclipse.cdt.core.cxxSource,org.eclipse.cdt.core.cxxHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.2063080091" name="GNU C" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.1320892958" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="__KERNEL__"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.2050256269" languageId="org.eclipse.cdt.core.gcc" languageName="GNU C" sourceContentType="org.eclipse.cdt.core.cSource,org.eclipse.cdt.core.cHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+						</toolChain>
+					</folderInfo>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+		</cconfiguration>
+		<cconfiguration id="0.722284581.1539836586.778390041">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="0.722284581.1539836586.778390041" moduleId="org.eclipse.cdt.core.settings" name="RwnxDrv-3.19-V6-TL4">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.VCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GmakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.CWDLocator" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration buildProperties="" description="Build FullMAC and SoftMAC drivers for kernel 3.19 on V6 board (TL4 FW)" id="0.722284581.1539836586.778390041" name="RwnxDrv-3.19-V6-TL4" parent="org.eclipse.cdt.build.core.prefbase.cfg">
+					<folderInfo id="0.722284581.1539836586.778390041." name="/" resourcePath="">
+						<toolChain id="org.eclipse.cdt.build.core.prefbase.toolchain.2051848658" name="No ToolChain" resourceTypeBasedDiscovery="false" superClass="org.eclipse.cdt.build.core.prefbase.toolchain">
+							<targetPlatform id="org.eclipse.cdt.build.core.prefbase.toolchain.2051848658.1559988945" name=""/>
+							<builder arguments="-j 4 ARCH=arm CROSS_COMPILE=$(ARM_CROSS_COMPILE)" command="make" id="org.eclipse.cdt.build.core.settings.default.builder.1833711703" incrementalBuildTarget="all CONFIG_AML_TL4=y" keepEnvironmentInBuildfile="false" managedBuildOn="false" name="Gnu Make Builder" superClass="org.eclipse.cdt.build.core.settings.default.builder"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.libs.1023351172" name="holder for library settings" superClass="org.eclipse.cdt.build.core.settings.holder.libs"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.1180616198" name="Assembly" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.805871441" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.271352401" languageId="org.eclipse.cdt.core.assembly" languageName="Assembly" sourceContentType="org.eclipse.cdt.core.asmSource" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.569961150" name="GNU C++" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.1224456828" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.1661567060" languageId="org.eclipse.cdt.core.g++" languageName="GNU C++" sourceContentType="org.eclipse.cdt.core.cxxSource,org.eclipse.cdt.core.cxxHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.203199887" name="GNU C" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.747015758" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="__KERNEL__"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.1200466620" languageId="org.eclipse.cdt.core.gcc" languageName="GNU C" sourceContentType="org.eclipse.cdt.core.cSource,org.eclipse.cdt.core.cHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+						</toolChain>
+					</folderInfo>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+		</cconfiguration>
+		<cconfiguration id="0.722284581.1539836586.387855467">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="0.722284581.1539836586.387855467" moduleId="org.eclipse.cdt.core.settings" name="RwnxDrv-3.19-V7">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.VCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GmakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.CWDLocator" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration buildProperties="" description="Build FullMAC and SoftMAC drivers for kernel 3.19 on V7 board" id="0.722284581.1539836586.387855467" name="RwnxDrv-3.19-V7" parent="org.eclipse.cdt.build.core.prefbase.cfg">
+					<folderInfo id="0.722284581.1539836586.387855467." name="/" resourcePath="">
+						<toolChain id="org.eclipse.cdt.build.core.prefbase.toolchain.1181390920" name="No ToolChain" resourceTypeBasedDiscovery="false" superClass="org.eclipse.cdt.build.core.prefbase.toolchain">
+							<targetPlatform id="org.eclipse.cdt.build.core.prefbase.toolchain.1181390920.1805744321" name=""/>
+							<builder arguments="-j 4 ARCH=x86 CROSS_COMPILE=$(X86_CROSS_COMPILE)" command="make" id="org.eclipse.cdt.build.core.settings.default.builder.216417376" keepEnvironmentInBuildfile="false" managedBuildOn="false" name="Gnu Make Builder" superClass="org.eclipse.cdt.build.core.settings.default.builder"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.libs.290898622" name="holder for library settings" superClass="org.eclipse.cdt.build.core.settings.holder.libs"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.1049733395" name="Assembly" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.1288035818" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.1247971698" languageId="org.eclipse.cdt.core.assembly" languageName="Assembly" sourceContentType="org.eclipse.cdt.core.asmSource" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.973110922" name="GNU C++" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.831178896" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.1554357401" languageId="org.eclipse.cdt.core.g++" languageName="GNU C++" sourceContentType="org.eclipse.cdt.core.cxxSource,org.eclipse.cdt.core.cxxHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.282675047" name="GNU C" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.1065069007" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="__KERNEL__"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.204049857" languageId="org.eclipse.cdt.core.gcc" languageName="GNU C" sourceContentType="org.eclipse.cdt.core.cSource,org.eclipse.cdt.core.cHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+						</toolChain>
+					</folderInfo>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+		</cconfiguration>
+		<cconfiguration id="0.722284581.1539836586.387855467.103393038">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="0.722284581.1539836586.387855467.103393038" moduleId="org.eclipse.cdt.core.settings" name="FHostDrv-3.19-V7">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.VCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GmakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.CWDLocator" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration buildProperties="" description="Build FullHost driver for kernel 3.19 on V7 board" id="0.722284581.1539836586.387855467.103393038" name="FHostDrv-3.19-V7" parent="org.eclipse.cdt.build.core.prefbase.cfg">
+					<folderInfo id="0.722284581.1539836586.387855467.103393038." name="/" resourcePath="">
+						<toolChain id="org.eclipse.cdt.build.core.prefbase.toolchain.871156379" name="No ToolChain" resourceTypeBasedDiscovery="false" superClass="org.eclipse.cdt.build.core.prefbase.toolchain">
+							<targetPlatform id="org.eclipse.cdt.build.core.prefbase.toolchain.871156379.1683727565" name=""/>
+							<builder arguments="-j 4 ARCH=x86 CROSS_COMPILE=$(X86_CROSS_COMPILE)" cleanBuildTarget="clean CONFIG_AML_FHOST=m CONFIG_AML_FULLMAC=n CONFIG_AML_SOFTMAC=n" command="make" id="org.eclipse.cdt.build.core.settings.default.builder.2099396902" incrementalBuildTarget="all CONFIG_AML_FHOST=m CONFIG_AML_FULLMAC=n CONFIG_AML_SOFTMAC=n" keepEnvironmentInBuildfile="false" managedBuildOn="false" name="Gnu Make Builder" superClass="org.eclipse.cdt.build.core.settings.default.builder"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.libs.1094017460" name="holder for library settings" superClass="org.eclipse.cdt.build.core.settings.holder.libs"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.1078886120" name="Assembly" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.1063621128" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.1800421517" languageId="org.eclipse.cdt.core.assembly" languageName="Assembly" sourceContentType="org.eclipse.cdt.core.asmSource" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.295213399" name="GNU C++" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.92038176" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.44823363" languageId="org.eclipse.cdt.core.g++" languageName="GNU C++" sourceContentType="org.eclipse.cdt.core.cxxSource,org.eclipse.cdt.core.cxxHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.1683881220" name="GNU C" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.272553932" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="__KERNEL__"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.21318166" languageId="org.eclipse.cdt.core.gcc" languageName="GNU C" sourceContentType="org.eclipse.cdt.core.cSource,org.eclipse.cdt.core.cHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+						</toolChain>
+					</folderInfo>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+		</cconfiguration>
+		<cconfiguration id="0.722284581.1539836586.387855467.1059403940">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="0.722284581.1539836586.387855467.1059403940" moduleId="org.eclipse.cdt.core.settings" name="RwnxDrv-3.19-V7-TL4">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.VCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GmakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.CWDLocator" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration buildProperties="" description="Build FullMAC and SoftMAC drivers for kernel 3.19 on V7 board (TL4 FW)" id="0.722284581.1539836586.387855467.1059403940" name="RwnxDrv-3.19-V7-TL4" parent="org.eclipse.cdt.build.core.prefbase.cfg">
+					<folderInfo id="0.722284581.1539836586.387855467.1059403940." name="/" resourcePath="">
+						<toolChain id="org.eclipse.cdt.build.core.prefbase.toolchain.1528420529" name="No ToolChain" resourceTypeBasedDiscovery="false" superClass="org.eclipse.cdt.build.core.prefbase.toolchain">
+							<targetPlatform id="org.eclipse.cdt.build.core.prefbase.toolchain.1528420529.1410092770" name=""/>
+							<builder arguments="-j 4 ARCH=x86 CROSS_COMPILE=$(X86_CROSS_COMPILE)" command="make" id="org.eclipse.cdt.build.core.settings.default.builder.1225817791" incrementalBuildTarget="all CONFIG_AML_TL4=y" keepEnvironmentInBuildfile="false" managedBuildOn="false" name="Gnu Make Builder" superClass="org.eclipse.cdt.build.core.settings.default.builder"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.libs.1545608102" name="holder for library settings" superClass="org.eclipse.cdt.build.core.settings.holder.libs"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.896449008" name="Assembly" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.1052371295" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.1025185782" languageId="org.eclipse.cdt.core.assembly" languageName="Assembly" sourceContentType="org.eclipse.cdt.core.asmSource" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.149876551" name="GNU C++" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.434043680" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.1798431412" languageId="org.eclipse.cdt.core.g++" languageName="GNU C++" sourceContentType="org.eclipse.cdt.core.cxxSource,org.eclipse.cdt.core.cxxHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.2024053258" name="GNU C" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.814102007" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="__KERNEL__"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.507574239" languageId="org.eclipse.cdt.core.gcc" languageName="GNU C" sourceContentType="org.eclipse.cdt.core.cSource,org.eclipse.cdt.core.cHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+						</toolChain>
+					</folderInfo>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+		</cconfiguration>
+		<cconfiguration id="0.722284581.1539836586.387855467.1086557186">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="0.722284581.1539836586.387855467.1086557186" moduleId="org.eclipse.cdt.core.settings" name="RwnxDrv-4.19-V7">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.VCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GmakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.CWDLocator" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration buildProperties="" description="Build FullMAC and SoftMAC drivers for kernel 4.19 on V7 board" id="0.722284581.1539836586.387855467.1086557186" name="RwnxDrv-4.19-V7" parent="org.eclipse.cdt.build.core.prefbase.cfg">
+					<folderInfo id="0.722284581.1539836586.387855467.1086557186." name="/" resourcePath="">
+						<toolChain id="org.eclipse.cdt.build.core.prefbase.toolchain.1668514262" name="No ToolChain" resourceTypeBasedDiscovery="false" superClass="org.eclipse.cdt.build.core.prefbase.toolchain">
+							<targetPlatform id="org.eclipse.cdt.build.core.prefbase.toolchain.1668514262.1197675646" name=""/>
+							<builder arguments="-j 4 ARCH=x86 CROSS_COMPILE=$(X86_CROSS_COMPILE)" command="make" id="org.eclipse.cdt.build.core.settings.default.builder.1184062937" keepEnvironmentInBuildfile="false" managedBuildOn="false" name="Gnu Make Builder" superClass="org.eclipse.cdt.build.core.settings.default.builder"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.libs.259029300" name="holder for library settings" superClass="org.eclipse.cdt.build.core.settings.holder.libs"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.565936457" name="Assembly" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.382504702" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.1908126303" languageId="org.eclipse.cdt.core.assembly" languageName="Assembly" sourceContentType="org.eclipse.cdt.core.asmSource" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.1991445" name="GNU C++" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.1726542886" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.889107922" languageId="org.eclipse.cdt.core.g++" languageName="GNU C++" sourceContentType="org.eclipse.cdt.core.cxxSource,org.eclipse.cdt.core.cxxHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.895839578" name="GNU C" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.302398861" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="__KERNEL__"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.764701066" languageId="org.eclipse.cdt.core.gcc" languageName="GNU C" sourceContentType="org.eclipse.cdt.core.cSource,org.eclipse.cdt.core.cHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+						</toolChain>
+					</folderInfo>
+					<sourceEntries>
+						<entry excluding="src" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
+					</sourceEntries>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+		</cconfiguration>
+		<cconfiguration id="0.722284581.1539836586.387855467.103393038.1099113942">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="0.722284581.1539836586.387855467.103393038.1099113942" moduleId="org.eclipse.cdt.core.settings" name="FHostDrv-4.19-V7">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.VCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GmakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.CWDLocator" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration buildProperties="" description="Build FullHost driver for kernel 4.19 on V7 board" id="0.722284581.1539836586.387855467.103393038.1099113942" name="FHostDrv-4.19-V7" parent="org.eclipse.cdt.build.core.prefbase.cfg">
+					<folderInfo id="0.722284581.1539836586.387855467.103393038.1099113942." name="/" resourcePath="">
+						<toolChain id="org.eclipse.cdt.build.core.prefbase.toolchain.773456944" name="No ToolChain" resourceTypeBasedDiscovery="false" superClass="org.eclipse.cdt.build.core.prefbase.toolchain">
+							<targetPlatform id="org.eclipse.cdt.build.core.prefbase.toolchain.773456944.269582889" name=""/>
+							<builder arguments="-j 4 ARCH=x86 CROSS_COMPILE=$(X86_CROSS_COMPILE)" cleanBuildTarget="clean CONFIG_AML_FHOST=m CONFIG_AML_FULLMAC=n CONFIG_AML_SOFTMAC=n" command="make" id="org.eclipse.cdt.build.core.settings.default.builder.983939567" incrementalBuildTarget="all CONFIG_AML_FHOST=m CONFIG_AML_FULLMAC=n CONFIG_AML_SOFTMAC=n" keepEnvironmentInBuildfile="false" managedBuildOn="false" name="Gnu Make Builder" superClass="org.eclipse.cdt.build.core.settings.default.builder"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.libs.374976526" name="holder for library settings" superClass="org.eclipse.cdt.build.core.settings.holder.libs"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.1889253657" name="Assembly" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.391383594" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.14040252" languageId="org.eclipse.cdt.core.assembly" languageName="Assembly" sourceContentType="org.eclipse.cdt.core.asmSource" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.360259227" name="GNU C++" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.899783331" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.980369607" languageId="org.eclipse.cdt.core.g++" languageName="GNU C++" sourceContentType="org.eclipse.cdt.core.cxxSource,org.eclipse.cdt.core.cxxHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.207160516" name="GNU C" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.1514040815" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="__KERNEL__"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.1205541852" languageId="org.eclipse.cdt.core.gcc" languageName="GNU C" sourceContentType="org.eclipse.cdt.core.cSource,org.eclipse.cdt.core.cHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+						</toolChain>
+					</folderInfo>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+		</cconfiguration>
+		<cconfiguration id="0.722284581.1539836586.2000635714">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="0.722284581.1539836586.2000635714" moduleId="org.eclipse.cdt.core.settings" name="RwnxDrv-4.19-V6">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.VCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GmakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.CWDLocator" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration buildProperties="" description="Build FullMAC and SoftMAC drivers for kernel 4.19 on V6 board" id="0.722284581.1539836586.2000635714" name="RwnxDrv-4.19-V6" parent="org.eclipse.cdt.build.core.prefbase.cfg">
+					<folderInfo id="0.722284581.1539836586.2000635714." name="/" resourcePath="">
+						<toolChain id="org.eclipse.cdt.build.core.prefbase.toolchain.2073365477" name="No ToolChain" resourceTypeBasedDiscovery="false" superClass="org.eclipse.cdt.build.core.prefbase.toolchain">
+							<targetPlatform id="org.eclipse.cdt.build.core.prefbase.toolchain.2073365477.2117712950" name=""/>
+							<builder arguments="-j 4 ARCH=arm CROSS_COMPILE=$(ARM_CROSS_COMPILE)" command="make" id="org.eclipse.cdt.build.core.settings.default.builder.549960573" keepEnvironmentInBuildfile="false" managedBuildOn="false" name="Gnu Make Builder" superClass="org.eclipse.cdt.build.core.settings.default.builder"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.libs.1475145612" name="holder for library settings" superClass="org.eclipse.cdt.build.core.settings.holder.libs"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.1401141655" name="Assembly" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.272412019" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.75152591" languageId="org.eclipse.cdt.core.assembly" languageName="Assembly" sourceContentType="org.eclipse.cdt.core.asmSource" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.856324834" name="GNU C++" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.1334537692" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.478244873" languageId="org.eclipse.cdt.core.g++" languageName="GNU C++" sourceContentType="org.eclipse.cdt.core.cxxSource,org.eclipse.cdt.core.cxxHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.415604970" name="GNU C" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.1833011" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="__KERNEL__"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.1080390814" languageId="org.eclipse.cdt.core.gcc" languageName="GNU C" sourceContentType="org.eclipse.cdt.core.cSource,org.eclipse.cdt.core.cHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+						</toolChain>
+					</folderInfo>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+		</cconfiguration>
+		<cconfiguration id="0.722284581.1539836586.387855467.1086557186.1479955034">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="0.722284581.1539836586.387855467.1086557186.1479955034" moduleId="org.eclipse.cdt.core.settings" name="RwnxDrv-4.20-V7">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.VCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GmakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.CWDLocator" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration buildProperties="" description="Build FullMAC and SoftMAC drives for kernel 4.20 on V7 board" id="0.722284581.1539836586.387855467.1086557186.1479955034" name="RwnxDrv-4.20-V7" parent="org.eclipse.cdt.build.core.prefbase.cfg">
+					<folderInfo id="0.722284581.1539836586.387855467.1086557186.1479955034." name="/" resourcePath="">
+						<toolChain id="org.eclipse.cdt.build.core.prefbase.toolchain.2118849975" name="No ToolChain" resourceTypeBasedDiscovery="false" superClass="org.eclipse.cdt.build.core.prefbase.toolchain">
+							<targetPlatform id="org.eclipse.cdt.build.core.prefbase.toolchain.2118849975.459998794" name=""/>
+							<builder arguments="-j 4 ARCH=x86 CROSS_COMPILE=$(X86_CROSS_COMPILE)" command="make" id="org.eclipse.cdt.build.core.settings.default.builder.71805054" keepEnvironmentInBuildfile="false" managedBuildOn="false" name="Gnu Make Builder" superClass="org.eclipse.cdt.build.core.settings.default.builder"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.libs.1795535367" name="holder for library settings" superClass="org.eclipse.cdt.build.core.settings.holder.libs"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.1218888398" name="Assembly" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.1116016038" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.1091694244" languageId="org.eclipse.cdt.core.assembly" languageName="Assembly" sourceContentType="org.eclipse.cdt.core.asmSource" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.1238351581" name="GNU C++" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.605619736" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.1753571390" languageId="org.eclipse.cdt.core.g++" languageName="GNU C++" sourceContentType="org.eclipse.cdt.core.cxxSource,org.eclipse.cdt.core.cxxHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.1786798047" name="GNU C" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.560660853" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="__KERNEL__"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.328679365" languageId="org.eclipse.cdt.core.gcc" languageName="GNU C" sourceContentType="org.eclipse.cdt.core.cSource,org.eclipse.cdt.core.cHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+						</toolChain>
+					</folderInfo>
+					<sourceEntries>
+						<entry excluding="src" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
+					</sourceEntries>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+		</cconfiguration>
+		<cconfiguration id="0.722284581.1539836586.387855467.103393038.1099113942.1556573826">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="0.722284581.1539836586.387855467.103393038.1099113942.1556573826" moduleId="org.eclipse.cdt.core.settings" name="FHostDrv-4.20-V7">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.VCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GmakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.CWDLocator" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration buildProperties="" description="Build FullHost driver for kernel 4.20 on V7 board" id="0.722284581.1539836586.387855467.103393038.1099113942.1556573826" name="FHostDrv-4.20-V7" parent="org.eclipse.cdt.build.core.prefbase.cfg">
+					<folderInfo id="0.722284581.1539836586.387855467.103393038.1099113942.1556573826." name="/" resourcePath="">
+						<toolChain id="org.eclipse.cdt.build.core.prefbase.toolchain.1712623086" name="No ToolChain" resourceTypeBasedDiscovery="false" superClass="org.eclipse.cdt.build.core.prefbase.toolchain">
+							<targetPlatform id="org.eclipse.cdt.build.core.prefbase.toolchain.1712623086.2039822258" name=""/>
+							<builder arguments="-j 4 ARCH=x86 CROSS_COMPILE=$(X86_CROSS_COMPILE)" cleanBuildTarget="clean CONFIG_AML_FHOST=m CONFIG_AML_FULLMAC=n CONFIG_AML_SOFTMAC=n" command="make" id="org.eclipse.cdt.build.core.settings.default.builder.1861558079" incrementalBuildTarget="all CONFIG_AML_FHOST=m CONFIG_AML_FULLMAC=n CONFIG_AML_SOFTMAC=n" keepEnvironmentInBuildfile="false" managedBuildOn="false" name="Gnu Make Builder" superClass="org.eclipse.cdt.build.core.settings.default.builder"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.libs.219987518" name="holder for library settings" superClass="org.eclipse.cdt.build.core.settings.holder.libs"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.1048155772" name="Assembly" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.55216701" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.886116668" languageId="org.eclipse.cdt.core.assembly" languageName="Assembly" sourceContentType="org.eclipse.cdt.core.asmSource" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.436869387" name="GNU C++" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.1024162687" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.1135869622" languageId="org.eclipse.cdt.core.g++" languageName="GNU C++" sourceContentType="org.eclipse.cdt.core.cxxSource,org.eclipse.cdt.core.cxxHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.1645627211" name="GNU C" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.1488220063" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="__KERNEL__"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.31362117" languageId="org.eclipse.cdt.core.gcc" languageName="GNU C" sourceContentType="org.eclipse.cdt.core.cSource,org.eclipse.cdt.core.cHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+						</toolChain>
+					</folderInfo>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+		</cconfiguration>
+		<cconfiguration id="0.722284581.1539836586.387855467.1086557186.1479955034.572064261">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="0.722284581.1539836586.387855467.1086557186.1479955034.572064261" moduleId="org.eclipse.cdt.core.settings" name="RwnxDrv-5.2-V7">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.VCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GmakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.CWDLocator" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration buildProperties="" description="Build FullMAC and SoftMAC drivers for kernel 5.2 on V7 board" id="0.722284581.1539836586.387855467.1086557186.1479955034.572064261" name="RwnxDrv-5.2-V7" parent="org.eclipse.cdt.build.core.prefbase.cfg">
+					<folderInfo id="0.722284581.1539836586.387855467.1086557186.1479955034.572064261." name="/" resourcePath="">
+						<toolChain id="org.eclipse.cdt.build.core.prefbase.toolchain.1378317367" name="No ToolChain" resourceTypeBasedDiscovery="false" superClass="org.eclipse.cdt.build.core.prefbase.toolchain">
+							<targetPlatform id="org.eclipse.cdt.build.core.prefbase.toolchain.1378317367.317593465" name=""/>
+							<builder arguments="-j 4 ARCH=x86 CROSS_COMPILE=$(X86_CROSS_COMPILE)" command="make" id="org.eclipse.cdt.build.core.settings.default.builder.641389042" keepEnvironmentInBuildfile="false" managedBuildOn="false" name="Gnu Make Builder" superClass="org.eclipse.cdt.build.core.settings.default.builder"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.libs.1564479861" name="holder for library settings" superClass="org.eclipse.cdt.build.core.settings.holder.libs"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.550744743" name="Assembly" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.208199850" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.1950333755" languageId="org.eclipse.cdt.core.assembly" languageName="Assembly" sourceContentType="org.eclipse.cdt.core.asmSource" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.112475207" name="GNU C++" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.1660451685" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.297597497" languageId="org.eclipse.cdt.core.g++" languageName="GNU C++" sourceContentType="org.eclipse.cdt.core.cxxSource,org.eclipse.cdt.core.cxxHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.164103832" name="GNU C" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.1730503105" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="__KERNEL__"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.1122873562" languageId="org.eclipse.cdt.core.gcc" languageName="GNU C" sourceContentType="org.eclipse.cdt.core.cSource,org.eclipse.cdt.core.cHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+						</toolChain>
+					</folderInfo>
+					<sourceEntries>
+						<entry excluding="src" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
+					</sourceEntries>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+		</cconfiguration>
+		<cconfiguration id="0.722284581.1539836586.387855467.103393038.1099113942.1556573826.1836521665">
+			<storageModule buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider" id="0.722284581.1539836586.387855467.103393038.1099113942.1556573826.1836521665" moduleId="org.eclipse.cdt.core.settings" name="FHostDrv-5.2-V7">
+				<externalSettings/>
+				<extensions>
+					<extension id="org.eclipse.cdt.core.VCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GmakeErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.CWDLocator" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GCCErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GASErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+					<extension id="org.eclipse.cdt.core.GLDErrorParser" point="org.eclipse.cdt.core.ErrorParser"/>
+				</extensions>
+			</storageModule>
+			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+				<configuration buildProperties="" description="Build FullHost driver for kernel 5.2 on V7 board" id="0.722284581.1539836586.387855467.103393038.1099113942.1556573826.1836521665" name="FHostDrv-5.2-V7" parent="org.eclipse.cdt.build.core.prefbase.cfg">
+					<folderInfo id="0.722284581.1539836586.387855467.103393038.1099113942.1556573826.1836521665." name="/" resourcePath="">
+						<toolChain id="org.eclipse.cdt.build.core.prefbase.toolchain.388685550" name="No ToolChain" resourceTypeBasedDiscovery="false" superClass="org.eclipse.cdt.build.core.prefbase.toolchain">
+							<targetPlatform id="org.eclipse.cdt.build.core.prefbase.toolchain.388685550.988358611" name=""/>
+							<builder arguments="-j 4 ARCH=x86 CROSS_COMPILE=$(X86_CROSS_COMPILE)" cleanBuildTarget="clean CONFIG_AML_FHOST=m CONFIG_AML_FULLMAC=n CONFIG_AML_SOFTMAC=n" command="make" id="org.eclipse.cdt.build.core.settings.default.builder.1359730581" incrementalBuildTarget="all CONFIG_AML_FHOST=m CONFIG_AML_FULLMAC=n CONFIG_AML_SOFTMAC=n" keepEnvironmentInBuildfile="false" managedBuildOn="false" name="Gnu Make Builder" superClass="org.eclipse.cdt.build.core.settings.default.builder"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.libs.1702076381" name="holder for library settings" superClass="org.eclipse.cdt.build.core.settings.holder.libs"/>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.1244736697" name="Assembly" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.861371161" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.462968888" languageId="org.eclipse.cdt.core.assembly" languageName="Assembly" sourceContentType="org.eclipse.cdt.core.asmSource" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.495782051" name="GNU C++" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.1118876782" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.55521091" languageId="org.eclipse.cdt.core.g++" languageName="GNU C++" sourceContentType="org.eclipse.cdt.core.cxxSource,org.eclipse.cdt.core.cxxHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+							<tool id="org.eclipse.cdt.build.core.settings.holder.150090344" name="GNU C" superClass="org.eclipse.cdt.build.core.settings.holder">
+								<option id="org.eclipse.cdt.build.core.settings.holder.symbols.946010291" name="Symbols" superClass="org.eclipse.cdt.build.core.settings.holder.symbols" valueType="definedSymbols">
+									<listOptionValue builtIn="false" value="CONFIG_AML_UAPSD"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_POWERSAVE"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AGG_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BCN"/>
+									<listOptionValue builtIn="false" value="__KERNEL__"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_P2P_DEBUGFS"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_RADAR"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BMFER"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MON_DATA"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_SPLIT_TX_BUF"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_AMSDUS_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_MUMIMO_TX"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_DBG"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_FULLMAC"/>
+									<listOptionValue builtIn="false" value="CONFIG_AML_BFMER"/>
+								</option>
+								<inputType id="org.eclipse.cdt.build.core.settings.holder.inType.1458128872" languageId="org.eclipse.cdt.core.gcc" languageName="GNU C" sourceContentType="org.eclipse.cdt.core.cSource,org.eclipse.cdt.core.cHeader" superClass="org.eclipse.cdt.build.core.settings.holder.inType"/>
+							</tool>
+						</toolChain>
+					</folderInfo>
+				</configuration>
+			</storageModule>
+			<storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+		</cconfiguration>
+	</storageModule>
+	<storageModule moduleId="cdtBuildSystem" version="4.0.0">
+		<project id="AML.null.2064967617" name="AML"/>
+	</storageModule>
+	<storageModule moduleId="refreshScope" versionNumber="2">
+		<configuration configurationName="FHostDrv-3.19-V7">
+			<resource resourceType="PROJECT" workspacePath="/aml_drv"/>
+		</configuration>
+		<configuration configurationName="RwnxDrv-4.19-V7">
+			<resource resourceType="PROJECT" workspacePath="/aml_drv"/>
+		</configuration>
+		<configuration configurationName="RwnxDrv-5.2-V7"/>
+		<configuration configurationName="RwnxDrv-3.19-V7-TL4">
+			<resource resourceType="PROJECT" workspacePath="/aml_drv"/>
+		</configuration>
+		<configuration configurationName="RwnxDrv-3.9-V6">
+			<resource resourceType="PROJECT" workspacePath="/aml_drv"/>
+		</configuration>
+		<configuration configurationName="FHostDrv-4.20-V7"/>
+		<configuration configurationName="RwnxDrv-3.19-V6-TL4">
+			<resource resourceType="PROJECT" workspacePath="/aml_drv"/>
+		</configuration>
+		<configuration configurationName="FHostDrv-4.19-V7">
+			<resource resourceType="PROJECT" workspacePath="/aml_drv"/>
+		</configuration>
+		<configuration configurationName="RwnxDrv-3.19-V6">
+			<resource resourceType="PROJECT" workspacePath="/aml_drv"/>
+		</configuration>
+		<configuration configurationName="RwnxDrv-4.19-V6">
+			<resource resourceType="PROJECT" workspacePath="/aml_drv"/>
+		</configuration>
+		<configuration configurationName="RwnxDrv-3.19-V7">
+			<resource resourceType="PROJECT" workspacePath="/aml_drv"/>
+		</configuration>
+		<configuration configurationName="RwnxDrv-4.20-V7"/>
+	</storageModule>
+	<storageModule moduleId="org.eclipse.cdt.make.core.buildtargets">
+		<buildTargets>
+			<target name="clean" path="" targetID="org.eclipse.cdt.build.MakeTargetBuilder">
+				<buildCommand>make</buildCommand>
+				<buildArguments/>
+				<buildTarget>clean</buildTarget>
+				<stopOnError>true</stopOnError>
+				<useDefaultCommand>true</useDefaultCommand>
+				<runAllBuilders>false</runAllBuilders>
+			</target>
+		</buildTargets>
+	</storageModule>
+	<storageModule moduleId="scannerConfiguration">
+		<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
+		<scannerConfigBuildInfo instanceId="0.722284581.1539836586.387855467.103393038.1099113942">
+			<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
+		</scannerConfigBuildInfo>
+		<scannerConfigBuildInfo instanceId="0.722284581.1539836586.387855467">
+			<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
+		</scannerConfigBuildInfo>
+		<scannerConfigBuildInfo instanceId="0.722284581.1539836586.2000635714">
+			<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
+		</scannerConfigBuildInfo>
+		<scannerConfigBuildInfo instanceId="0.722284581.1539836586">
+			<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
+		</scannerConfigBuildInfo>
+		<scannerConfigBuildInfo instanceId="0.722284581.1539836586.387855467.1086557186">
+			<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
+		</scannerConfigBuildInfo>
+		<scannerConfigBuildInfo instanceId="0.722284581.1539836586.387855467.1059403940">
+			<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
+		</scannerConfigBuildInfo>
+		<scannerConfigBuildInfo instanceId="0.722284581.1539836586.778390041">
+			<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
+		</scannerConfigBuildInfo>
+		<scannerConfigBuildInfo instanceId="0.722284581">
+			<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
+		</scannerConfigBuildInfo>
+		<scannerConfigBuildInfo instanceId="0.722284581.1539836586.387855467.103393038">
+			<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
+		</scannerConfigBuildInfo>
+	</storageModule>
+	<storageModule moduleId="org.eclipse.cdt.core.LanguageSettingsProviders"/>
+</cproject>
