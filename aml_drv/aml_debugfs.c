@@ -538,10 +538,13 @@ static ssize_t aml_dbgfs_acsinfo_read(struct file *file,
     #else //CONFIG_AML_SOFTMAC
     struct wiphy *wiphy = priv->wiphy;
     #endif //CONFIG_AML_SOFTMAC
-    char buf[(SCAN_CHANNEL_MAX + 1) * 43];
+    char *buf = NULL;
     int survey_cnt = 0;
-    int len = 0;
+    int len = 0, ret = 0;
     int band, chan_cnt;
+
+    if ((buf = kmalloc((SCAN_CHANNEL_MAX + 1) * 43, GFP_KERNEL)) == NULL)
+        return -1;
 
     mutex_lock(&priv->dbgdump.mutex);
 
@@ -572,7 +575,9 @@ static ssize_t aml_dbgfs_acsinfo_read(struct file *file,
 
     mutex_unlock(&priv->dbgdump.mutex);
 
-    return simple_read_from_buffer(user_buf, count, ppos, buf, len);
+    ret = simple_read_from_buffer(user_buf, count, ppos, buf, len);
+    kfree(buf);
+    return ret;
 }
 
 DEBUGFS_READ_FILE_OPS(acsinfo);
