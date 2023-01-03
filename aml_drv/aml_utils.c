@@ -1122,7 +1122,7 @@ int aml_tx_task(void *data)
     uint8_t  dynabuf_id = 0;
     struct tx_amsdu_param *txamsdu = NULL;
 
-    if ((amsdu_dynabuf = kmalloc(sizeof(uint8_t *) * 256, GFP_ATOMIC)) == NULL)
+    if ((amsdu_dynabuf = vmalloc(sizeof(uint8_t *) * 256)) == NULL)
         return -1;
     memset(amsdu_dynabuf, 0, sizeof(uint8_t *) * 256);
 
@@ -1285,7 +1285,7 @@ int aml_tx_task(void *data)
         }
     }
 
-    kfree(amsdu_dynabuf);
+    vfree(amsdu_dynabuf);
     return 0;
 }
 

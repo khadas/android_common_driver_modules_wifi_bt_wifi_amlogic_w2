@@ -543,7 +543,7 @@ static ssize_t aml_dbgfs_acsinfo_read(struct file *file,
     int len = 0, ret = 0;
     int band, chan_cnt;
 
-    if ((buf = kmalloc((SCAN_CHANNEL_MAX + 1) * 43, GFP_KERNEL)) == NULL)
+    if ((buf = vmalloc((SCAN_CHANNEL_MAX + 1) * 43)) == NULL)
         return -1;
 
     mutex_lock(&priv->dbgdump.mutex);
@@ -576,7 +576,7 @@ static ssize_t aml_dbgfs_acsinfo_read(struct file *file,
     mutex_unlock(&priv->dbgdump.mutex);
 
     ret = simple_read_from_buffer(user_buf, count, ppos, buf, len);
-    kfree(buf);
+    vfree(buf);
     return ret;
 }
 

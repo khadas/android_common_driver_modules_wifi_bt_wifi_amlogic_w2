@@ -583,11 +583,11 @@ void _aml_fw_trace_dump(struct aml_hw *aml_hw, struct aml_fw_trace_buf *trace_bu
     char *buf = NULL;
     size_t size;
 
-    if ((buf = kmalloc(1824, GFP_ATOMIC)) == NULL)
+    if ((buf = vmalloc(1824)) == NULL)
         return;
 
     if (!trace_buf->data || aml_fw_trace_empty(trace_buf)) {
-        kfree(buf);
+        vfree(buf);
         return;
     }
 
@@ -636,7 +636,7 @@ void _aml_fw_trace_dump(struct aml_hw *aml_hw, struct aml_fw_trace_buf *trace_bu
 
     aml_fw_trace_buf_unlock(trace_buf);
 
-    kfree(buf);
+    vfree(buf);
 }
 
 /**

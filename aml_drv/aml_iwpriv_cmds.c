@@ -632,7 +632,7 @@ int aml_print_acs_info(struct aml_hw *priv)
     int len = 0;
     int band, chan_cnt;
 
-    if ((buf = kmalloc((SCAN_CHANNEL_MAX + 1) * 43, GFP_ATOMIC)) == NULL)
+    if ((buf = vmalloc((SCAN_CHANNEL_MAX + 1) * 43)) == NULL)
         return -1;
 
     mutex_lock(&priv->dbgdump.mutex);
@@ -662,7 +662,7 @@ int aml_print_acs_info(struct aml_hw *priv)
 
     mutex_unlock(&priv->dbgdump.mutex);
     aml_print_buf(buf, len);
-    kfree(buf);
+    vfree(buf);
     return 0;
 }
 
