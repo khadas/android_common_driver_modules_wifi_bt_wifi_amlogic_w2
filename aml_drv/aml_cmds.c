@@ -140,7 +140,8 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
             return -ENOMEM;
         }
         last = list_entry(cmd_mgr->cmds.prev, struct aml_cmd, list);
-        if (last->flags & (AML_CMD_FLAG_WAIT_ACK | AML_CMD_FLAG_WAIT_PUSH)) {
+        if ((last->flags & (AML_CMD_FLAG_WAIT_ACK | AML_CMD_FLAG_WAIT_PUSH))
+            || ((aml_bus_type == PCIE_MODE) && (last->flags & AML_CMD_FLAG_WAIT_CFM))) {
 #if 0 // queue even NONBLOCK command.
             if (cmd->flags & AML_CMD_FLAG_NONBLOCK) {
                 printk(KERN_CRIT"cmd queue busy\n");
@@ -235,7 +236,7 @@ static int cmd_mgr_llind(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
 {
     struct aml_cmd *cur, *acked = NULL, *next = NULL;
     struct aml_hw *aml_hw = container_of(cmd_mgr, struct aml_hw, cmd_mgr);
-
+    bool defer_push = true;
     printk("%s cmd:%p\n", __func__, cmd);
 
     CMD_PRINT(cmd);
@@ -255,22 +256,25 @@ static int cmd_mgr_llind(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
             break;
         }
     }
-
     if (!acked) {
         printk(KERN_CRIT "Error: acked cmd not found\n");
     } else {
         cmd->flags &= ~AML_CMD_FLAG_WAIT_ACK;
-        if (AML_CMD_WAIT_COMPLETE(cmd->flags))
+        if (AML_CMD_WAIT_COMPLETE(cmd->flags)) {
+            defer_push = false;
             cmd_complete(cmd_mgr, cmd);
+        }
     }
 
     if (next) {
         if (aml_bus_type != PCIE_MODE) {
             up(&aml_hw->aml_msg_sem);
         } else {
-            next->flags &= ~AML_CMD_FLAG_WAIT_PUSH;
-            aml_ipc_msg_push(aml_hw, next, AML_CMD_A2EMSG_LEN(next->a2e_msg));
-            kfree(next->a2e_msg);
+            if (!defer_push) {
+                next->flags &= ~AML_CMD_FLAG_WAIT_PUSH;
+                aml_ipc_msg_push(aml_hw, next, AML_CMD_A2EMSG_LEN(next->a2e_msg));
+                kfree(next->a2e_msg);
+            }
         }
     }
     aml_spin_unlock(&cmd_mgr->lock);
@@ -302,18 +306,16 @@ static int cmd_mgr_msgind(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd_e2amsg *ms
                           msg_cb_fct cb)
 {
     struct aml_hw *aml_hw = container_of(cmd_mgr, struct aml_hw, cmd_mgr);
-    struct aml_cmd *cmd;
+    struct aml_cmd *cmd, *next = NULL;
     bool found = false;
 
     //AML_DBG(AML_FN_ENTRY_STR);
     trace_msg_recv(msg->id);
-
     aml_spin_lock(&cmd_mgr->lock);
     list_for_each_entry(cmd, &cmd_mgr->cmds, list) {
-        CMD_PRINT(cmd);
         if (cmd->reqid == msg->id &&
             (cmd->flags & AML_CMD_FLAG_WAIT_CFM)) {
-
+            CMD_PRINT(cmd);
             if (!cmd_mgr_run_callback(aml_hw, cmd, msg, cb)) {
                 found = true;
                 cmd->flags &= ~AML_CMD_FLAG_WAIT_CFM;
@@ -327,11 +329,20 @@ static int cmd_mgr_msgind(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd_e2amsg *ms
                 if (cmd->e2a_msg && msg->param_len)
                     memcpy(cmd->e2a_msg, &msg->param, msg->param_len);
 
-                if (AML_CMD_WAIT_COMPLETE(cmd->flags))
+                if (AML_CMD_WAIT_COMPLETE(cmd->flags)) {
+                    next = (struct aml_cmd *)cmd->list.next;
                     cmd_complete(cmd_mgr, cmd);
+                }
 
                 break;
             }
+        }
+    }
+    if (aml_bus_type == PCIE_MODE) {
+        if (found && (next != NULL) && (next->flags & AML_CMD_FLAG_WAIT_PUSH)) {
+            next->flags &= ~AML_CMD_FLAG_WAIT_PUSH;
+            aml_ipc_msg_push(aml_hw, next, AML_CMD_A2EMSG_LEN(next->a2e_msg));
+            kfree(next->a2e_msg);
         }
     }
     aml_spin_unlock(&cmd_mgr->lock);
@@ -394,6 +405,7 @@ void aml_cmd_mgr_init(struct aml_cmd_mgr *cmd_mgr)
     INIT_LIST_HEAD(&cmd_mgr->cmds);
 
     spin_lock_init(&cmd_mgr->lock);
+    cmd_mgr->state = AML_CMD_MGR_STATE_INITED;
     cmd_mgr->max_queue_sz = AML_CMD_MAX_QUEUED;
     cmd_mgr->queue  = &cmd_mgr_queue;
     cmd_mgr->print  = &cmd_mgr_print;
@@ -407,6 +419,7 @@ void aml_cmd_mgr_init(struct aml_cmd_mgr *cmd_mgr)
  */
 void aml_cmd_mgr_deinit(struct aml_cmd_mgr *cmd_mgr)
 {
+    cmd_mgr->state = AML_CMD_MGR_STATE_DEINIT;
     cmd_mgr->print(cmd_mgr);
     cmd_mgr->drain(cmd_mgr);
     cmd_mgr->print(cmd_mgr);

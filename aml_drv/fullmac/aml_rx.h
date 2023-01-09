@@ -165,10 +165,14 @@ struct aml_defer_rx_cb {
     struct aml_vif *vif;
 };
 
+#define GET_TID(x) ((x) >> 8 & 0xF)
+#define EXCEPT_HOSTID(x) (((x) > 4096) ? ((x) % 4096):(x))
+
 struct rxdata {
     struct list_head list;
     unsigned int host_id;
     unsigned int frame_len;
+    unsigned int package_info;
     struct sk_buff *skb;
 };
 
@@ -176,6 +180,12 @@ struct rx_desc_head {
     u32 hostid;
     u32 frame_len;
     u32 status;
+    u32 package_info;
+};
+
+struct rx_reorder_info {
+    u32 hostid;
+    u32 reorder_len;
 };
 
 struct debug_proc_rxbuff_info {

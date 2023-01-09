@@ -26,6 +26,7 @@
 #include <linux/inetdevice.h>
 #include <net/addrconf.h>
 #include "aml_defs.h"
+#include "aml_recy.h"
 
 static int aml_freq_to_idx(struct aml_hw *aml_hw, int freq)
 {
@@ -112,7 +113,7 @@ static inline int aml_rx_chan_switch_ind(struct aml_hw *aml_hw,
     bool roc_req = ((struct mm_channel_switch_ind *)msg->param)->roc;
     bool roc_tdls = ((struct mm_channel_switch_ind *)msg->param)->roc_tdls;
 
-    //AML_INFO("chan_idx:%d", chan_idx);
+    //AML_INFO("chan_idx:%d, req:%d, tdls:%d", chan_idx, roc_req, roc_tdls);
 
     REG_SW_SET_PROFILING_CHAN(aml_hw, SW_PROF_CHAN_CTXT_SWTCH_BIT);
 
@@ -1260,6 +1261,9 @@ static inline int aml_rx_sm_disconnect_ind(struct aml_hw *aml_hw,
     aml_external_auth_disable(aml_vif);
     aml_chanctx_unlink(aml_vif);
     aml_vif->sta.scan_hang = 0;
+#ifdef CONFIG_AML_RECOVERY
+    aml_recy_conn_update(aml_hw, 0);
+#endif
 
     return 0;
 }
@@ -1729,7 +1733,7 @@ static inline int aml_suspend_ind(struct aml_hw *aml_hw,
                                   struct aml_cmd *cmd,
                                   struct ipc_e2a_msg *msg)
 {
-    aml_hw->suspend_ind = 1;
+    aml_hw->suspend_ind = SUSPEND_IND_RECV;
     printk("%s %d\n", __func__, __LINE__);
     return 0;
 }
@@ -1779,6 +1783,16 @@ static int aml_dhcp_offload_ind(struct aml_hw *aml_hw,
         }
     }
 
+    return 0;
+}
+
+struct rx_reorder_info reorder_info[8];
+static inline int aml_sdio_usb_rx_reord_flush_ind(struct aml_hw *aml_hw, struct aml_cmd *cmd, struct ipc_e2a_msg *msg)
+{
+    struct rx_reorder_info *map_info = (struct rx_reorder_info *)msg->param;
+
+    reorder_info[GET_TID(map_info->reorder_len)].hostid = map_info->hostid;
+    reorder_info[GET_TID(map_info->reorder_len)].reorder_len = map_info->reorder_len & 0xFF;
     return 0;
 }
 
@@ -1877,6 +1891,7 @@ static msg_cb_fct priv_hdlrs[MSG_I(TASK_PRIV)] = {
     [MSG_I(PRIV_CONNECT_INFO)]      = aml_rx_sm_connect_ind_ex,
     [MSG_I(PRIV_SET_SUSPEND_IND)]   = aml_suspend_ind,
     [MSG_I(PRIV_APM_DIS_STA_IND)]   = aml_apm_handle_disconnect_sta,
+    [MSG_I(PRIV_SDIO_USB_REORD_INFO_IND)] = aml_sdio_usb_rx_reord_flush_ind,
 };
 
 static msg_cb_fct *msg_hdlrs[] = {
@@ -1904,4 +1919,14 @@ void aml_rx_handle_msg(struct aml_hw *aml_hw, struct ipc_e2a_msg *msg)
 {
     aml_hw->cmd_mgr.msgind(&aml_hw->cmd_mgr, msg,
                             msg_hdlrs[MSG_T(msg->id)][MSG_I(msg->id)]);
+}
+void aml_rx_sdio_ind_msg_handle(struct aml_hw *aml_hw, struct ipc_e2a_msg *msg)
+{
+    if (msg->id == MM_CHANNEL_PRE_SWITCH_IND) {
+        aml_rx_chan_pre_switch_ind(aml_hw, NULL, msg);
+    } else if (msg->id == MM_CHANNEL_SWITCH_IND) {
+        aml_rx_chan_switch_ind(aml_hw, NULL, msg);
+    }
+
+    return;
 }

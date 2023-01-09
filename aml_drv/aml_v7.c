@@ -174,7 +174,7 @@ void aml_pcie_write(unsigned long addr, unsigned int val)
     return;
 }
 
-void pcie_addr_map(struct pci_dev *pci_dev, unsigned long src_addr, unsigned long trsl_addr, unsigned long table_size, unsigned int address, unsigned int direction)
+void pcie_addr_map(struct pci_dev *pci_dev, u64 src_addr, u64 trsl_addr, u64 table_size, unsigned int address, unsigned int direction)
 {
     unsigned int atr_param;
     unsigned int src_addr_high;
@@ -182,7 +182,7 @@ void pcie_addr_map(struct pci_dev *pci_dev, unsigned long src_addr, unsigned lon
     unsigned int trsl_addr_high;
     unsigned int trsl_param = 0;
     unsigned int atr_size = 0;
-    unsigned long temp = table_size;
+    u64 temp = table_size;
 
     while (temp != 0)
     {

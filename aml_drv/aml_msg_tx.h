@@ -206,9 +206,9 @@ int aml_tko_config_req(struct aml_hw *aml_hw, struct aml_vif *vif,
                         u16 interval, u16 retry_interval, u16 retry_count);
 int aml_tko_activate_req(struct aml_hw *aml_hw, struct aml_vif *vif, u8 active);
 int aml_set_cali_param_req(struct aml_hw *aml_hw, struct Cali_Param *cali_param);
+int aml_fw_reset(struct aml_vif *aml_vif);
 int _aml_get_efuse(struct aml_vif *aml_vif, u32 addr);
 int _aml_set_efuse(struct aml_vif *aml_vif, u32 addr, u32 value);
-int _aml_recovery(struct aml_vif *aml_vif);
 int _aml_set_macbypass(struct aml_vif *aml_vif, int format_type, int bandwidth, int rate, int siso_or_mimo);
 int _aml_set_stop_macbypass(struct aml_vif *aml_vif);
 
@@ -226,7 +226,7 @@ int _aml_set_pt_calibration(struct aml_vif *aml_vif, int pt_cali_val);
 int aml_send_notify_ip(struct aml_vif *aml_vif,u8_l ip_ver,u8_l*ip_addr);
 int _aml_enable_wf(struct aml_vif *aml_vif, u32 addr);
 int aml_send_fwlog_cmd(struct aml_vif *aml_vif, int mode);
-int aml_send_scc_conflict_nofify(struct aml_vif *ap_vif,u8 sta_vif_idx);
+int aml_send_scc_conflict_nofify(struct aml_vif *ap_vif, u8 sta_vif_idx, struct mm_scc_cfm *scc_cfm);
 void aml_sync_trace_timer_attach(struct aml_hw *aml_hw);
 void aml_sync_trace_timer_cancel(struct aml_hw *aml_hw);
 int aml_send_sync_trace(struct aml_hw *aml_hw);

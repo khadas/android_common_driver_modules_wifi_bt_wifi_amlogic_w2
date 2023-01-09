@@ -62,7 +62,7 @@
 #define   CMD_UP_FIFO_BASE_ADDR  (MAC_SRAM_BASE+0x0000d0)
 
  /* txcfm start address in sram  */
-#define   SRAM_TXCFM_START_ADDR  (0xa17400)
+#define   SRAM_TXCFM_START_ADDR  (0xa17000)
 
  /* flag start base address for store some flag info in sram */
 #define   SRAM_FLAG_MEM_BASE (0xa17fc0)
@@ -85,7 +85,7 @@
 
 #define howmanypage(x,y) (((x - 12) + ((y - 12) -1) )/ (y - 12))
 
-#define SDIO_PAGE_MAX    80
+#define SDIO_PAGE_MAX    60
 
 #define SDIO_FRAME_TAIL_LEN    12
 #define SDIO_PAGE_LEN    1024

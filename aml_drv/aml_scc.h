@@ -18,7 +18,7 @@ enum
 extern u8 bcn_save[];
 extern u32 beacon_need_update;
 
-extern int aml_scc_change_beacon(struct aml_hw *aml_hw);
+extern int aml_scc_change_beacon(struct aml_hw *aml_hw,struct aml_vif *vif);
 extern u8 aml_scc_get_confilct_vif_idx(struct aml_vif *incoming_vif);
 extern void aml_scc_save_bcn_buf(u8* bcn_buf,size_t len);
 extern bool aml_handle_scc_chan_switch(struct aml_vif *vif,struct aml_vif *target_vif);

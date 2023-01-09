@@ -13,6 +13,7 @@
 
 #include "aml_defs.h"
 #include "aml_tx.h"
+#include "aml_queue.h"
 
 
 int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data);

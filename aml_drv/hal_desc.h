@@ -370,9 +370,17 @@ struct tx_sdio_usb_cfm_tag
     u16_l amsdu_size;
 #endif
     union aml_sdio_usb_hw_txstatus status;
-    u16_l hostid;
+    u32_l hostid;
 };
 
+struct chan_switch_ind_info
+{
+    uint32_t msg_id;
+    uint8_t chan_index;
+    bool roc;
+    uint8_t vif_index;
+    bool roc_tdls;
+};
 #endif /* CONFIG_AML_SOFTMAC */
 
 /******************************************************************************

@@ -38,37 +38,40 @@ CONFIG_AML_DBG ?= n
 CONFIG_AML_LA ?= n
 
 obj-m := w2.o
-w2-y := aml_msg_tx.o          \
-               aml_msg_rx.o          \
-               aml_utils.o           \
-               aml_cmds.o            \
-               aml_irqs.o            \
-               aml_cfgfile.o         \
-               aml_strs.o            \
-               aml_rx.o              \
-               aml_tx.o              \
-               aml_txq.o             \
-               aml_main.o            \
-               aml_mod_params.o      \
-               aml_mesh.o            \
-               aml_platform.o        \
-               aml_dini.o            \
-               ipc_host.o             \
-               aml_tdls.o            \
-               hal_desc.o             \
-               aml_prealloc.o        \
-               aml_regdom.o          \
-               aml_android.o         \
-               aml_iwpriv_cmds.o     \
-               aml_p2p.o             \
-			   aml_scc.o
+w2-y := aml_msg_tx.o        \
+        aml_msg_rx.o        \
+        aml_utils.o         \
+        aml_cmds.o          \
+        aml_irqs.o          \
+        aml_cfgfile.o       \
+        aml_strs.o          \
+        aml_rx.o            \
+        aml_tx.o            \
+        aml_txq.o           \
+        aml_main.o          \
+        aml_mod_params.o    \
+        aml_mesh.o          \
+        aml_platform.o      \
+        aml_dini.o          \
+        ipc_host.o          \
+        aml_tdls.o          \
+        hal_desc.o          \
+        aml_prealloc.o      \
+        aml_regdom.o        \
+        aml_android.o       \
+        aml_iwpriv_cmds.o   \
+        aml_p2p.o           \
+        aml_scc.o           \
+        aml_queue.o         \
+        aml_wq.o            \
+        aml_recy.o
 
 obj-m += w2_comm.o
-  w2_comm-objs :=\
-        ../aml_bus/aml_interface.o\
-        usb_common.o\
-        sdio_common.o\
-        aml_pci.o\
+w2_comm-objs := \
+        ../aml_bus/aml_interface.o \
+        usb_common.o    \
+        sdio_common.o   \
+        aml_pci.o       \
         aml_v7.o
 
 w2-$(CONFIG_AML_RADAR)       += aml_radar.o

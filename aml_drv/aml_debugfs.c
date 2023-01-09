@@ -16,6 +16,7 @@
 #include <linux/debugfs.h>
 #include <linux/string.h>
 #include <linux/sort.h>
+#include <linux/math64.h>
 
 #include "aml_msg_tx.h"
 #include "aml_radar.h"
@@ -677,7 +678,8 @@ static ssize_t aml_dbgfs_sys_stats_read(struct file *file,
     ssize_t read;
     int error = 0;
     struct dbg_get_sys_stat_cfm cfm;
-    u32 sleep_int, sleep_frac, doze_int, doze_frac;
+    u64 sleep_int, sleep_frac, doze_int, doze_frac;
+    u32 rem;
 
     AML_DBG(AML_FN_ENTRY_STR);
 
@@ -688,10 +690,10 @@ static ssize_t aml_dbgfs_sys_stats_read(struct file *file,
     if (cfm.stats_time == 0)
         return 0;
 
-    sleep_int = ((cfm.cpu_sleep_time * 100) / cfm.stats_time);
-    sleep_frac = (((cfm.cpu_sleep_time * 100) % cfm.stats_time) * 10) / cfm.stats_time;
-    doze_int = ((cfm.doze_time * 100) / cfm.stats_time);
-    doze_frac = (((cfm.doze_time * 100) % cfm.stats_time) * 10) / cfm.stats_time;
+    sleep_int = div_u64_rem(cfm.cpu_sleep_time * 100, cfm.stats_time, &rem);
+    sleep_frac = div_u64(rem * 10,  cfm.stats_time);
+    doze_int = div_u64_rem(cfm.doze_time * 100, cfm.stats_time, &rem);
+    doze_frac = div_u64(rem * 10, cfm.stats_time);
 
     len += scnprintf(buf, min_t(size_t, sizeof(buf) - 1, count),
                      "\nSystem statistics:\n");
@@ -2033,17 +2035,18 @@ static ssize_t aml_dbgfs_last_rx_read(struct file *file,
     {
         if (rate_stats->table[i]) {
             union aml_rate_ctrl_info rate_config;
-            int percent = (((u64)rate_stats->table[i]) * 1000) / rate_stats->cpt;
-            int p;
+            u64 percent = div_u64(rate_stats->table[i] * 1000, rate_stats->cpt);
+            u64 p;
             int ru_size;
+            u32 rem;
 
             idx_to_rate_cfg(i, &rate_config, &ru_size);
             len += print_rate_from_cfg(&buf[len], bufsz - len,
                                        rate_config.value, NULL, ru_size);
-            p = (percent * hist_len) / 1000;
+            p = div_u64((percent * hist_len), 1000);
             len += scnprintf(&buf[len], bufsz - len, ": %9d(%2d.%1d%%)%.*s\n",
                              rate_stats->table[i],
-                             percent / 10, percent % 10, p, hist);
+                             div_u64_rem(percent, 10, &rem), rem, p, hist);
         }
     }
 

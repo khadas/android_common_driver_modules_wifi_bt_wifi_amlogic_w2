@@ -1731,6 +1731,9 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
     aml_tx_cfmed_list_init(aml_hw);
     aml_scan_results_list_init(aml_hw);
 
+    aml_hw->g_tx_param.tx_page_once = SDIO_PAGE_MAX;
+    aml_hw->g_tx_param.txcfm_trigger_tx_thr = TXCFM_TRIGGER_TX_THR;
+
     if (aml_bus_type == SDIO_MODE) {
 #ifdef CONFIG_AML_LA
          aml_hw->g_tx_param.tx_page_free_num = TX_PAGE_NUM_LARGE; /* for tx large */

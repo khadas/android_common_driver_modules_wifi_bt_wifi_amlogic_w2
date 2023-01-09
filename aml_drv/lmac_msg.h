@@ -391,6 +391,8 @@ enum priv_e2a_tag {
     PRIV_APM_DIS_STA_IND,
     PRIV_EFUSE_GET_RESULT,
     PRIV_DHCP_OFFLOAD_IND,
+    PRIV_SDIO_USB_REORD_INFO_IND,
+    PRIV_SCC_CONFLICT_CFM,
 
     PRIV_SUB_E2A_MAX,
 };
@@ -411,7 +413,7 @@ enum mm_sub_a2e_tag {
     MM_SUB_SET_CALI_REQ,
     MM_SUB_GET_EFUSE,
     MM_SUB_SET_EFUSE,
-    MM_SUB_RECOVERY,
+    MM_SUB_FW_RESET,
     MM_SUB_SET_MACBYPASS,
     MM_SUB_SET_STOP_MACBYPASS,
     SCANU_SCHED_START_REQ,
@@ -3089,7 +3091,7 @@ struct set_efuse_req
     u32_l value;
 };
 
-struct recovery
+struct fw_reset_req
 {
     u8_l vif_idx;
 };
@@ -3198,6 +3200,11 @@ typedef struct
     unsigned char ap_idx;
     unsigned char sta_idx;
 } scc_conflict_t;
+
+struct mm_scc_cfm
+{
+    uint8_t status;
+};
 
 typedef struct
 {

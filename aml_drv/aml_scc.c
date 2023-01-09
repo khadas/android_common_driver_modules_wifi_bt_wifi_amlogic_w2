@@ -72,74 +72,69 @@ u8* aml_get_probe_rsp_ie_addr(u8* buf, int frame_len,u8 eid)
  *
  */
 
-int aml_scc_change_beacon(struct aml_hw *aml_hw)
+int aml_scc_change_beacon(struct aml_hw *aml_hw,struct aml_vif *vif)
 {
-    struct aml_vif *vif = NULL;
     AML_DBG(AML_FN_ENTRY_STR);
-    list_for_each_entry(vif, &aml_hw->vifs, list) {
-        switch (AML_VIF_TYPE(vif)) {
-            case NL80211_IFTYPE_AP:
-            {
-                struct net_device *dev = vif->ndev;
-                struct aml_bcn *bcn = &vif->ap.bcn;
-                struct aml_ipc_buf buf = {0};
-                int error;
-                unsigned int addr;
-                u8* bcn_ie_addr;
-                u32 offset;
-                u8 e_id;
-                u8 e_len;
-                // Build the beacon
-                if (scc_bcn_buf == NULL) {
-                    scc_bcn_buf = kmalloc(bcn->len, GFP_KERNEL);
-                    if (!scc_bcn_buf)
-                        return -ENOMEM;
-                }
-                memcpy(scc_bcn_buf,bcn_save,bcn->len);
-                bcn_ie_addr = aml_get_beacon_ie_addr(scc_bcn_buf,bcn->len,WLAN_EID_SSID);
-                *(bcn_ie_addr - 1 ) = 0;
-                offset = bcn_ie_addr - scc_bcn_buf;
-                while (offset < bcn->len) {
-                    e_id = scc_bcn_buf[offset];
-                    e_len = scc_bcn_buf[offset + 1];
-                    if ((e_id != WLAN_EID_TIM) && (e_id != WLAN_EID_SSID)) {
-                        u8* src_ie_addr = aml_get_probe_rsp_ie_addr(probe_rsp_save,500,e_id);
-                        if (src_ie_addr != NULL) {
-                            u8 src_ie_len = *(src_ie_addr + 1);
-                            if (src_ie_len == e_len) {
-                                memcpy(&scc_bcn_buf[offset],src_ie_addr,e_len + 2);
-                            }
-                        }
+    if (AML_VIF_TYPE(vif) == NL80211_IFTYPE_AP) {
+        struct net_device *dev = vif->ndev;
+        struct aml_bcn *bcn = &vif->ap.bcn;
+        struct aml_ipc_buf buf = {0};
+        int error;
+        unsigned int addr;
+        u8* bcn_ie_addr;
+        u32 offset;
+        u8 e_id;
+        u8 e_len;
+        // Build the beacon
+        if (scc_bcn_buf == NULL) {
+            scc_bcn_buf = kmalloc(bcn->len, GFP_KERNEL);
+            if (!scc_bcn_buf)
+                return -ENOMEM;
+        }
+        memcpy(scc_bcn_buf,bcn_save,bcn->len);
+        bcn_ie_addr = aml_get_beacon_ie_addr(scc_bcn_buf,bcn->len,WLAN_EID_SSID);
+        *(bcn_ie_addr - 1 ) = 0;
+        offset = bcn_ie_addr - scc_bcn_buf;
+        while (offset < bcn->len) {
+            e_id = scc_bcn_buf[offset];
+            e_len = scc_bcn_buf[offset + 1];
+            if ((e_id != WLAN_EID_TIM) && (e_id != WLAN_EID_SSID)) {
+                u8* src_ie_addr = aml_get_probe_rsp_ie_addr(probe_rsp_save,500,e_id);
+                if (src_ie_addr != NULL) {
+                    u8 src_ie_len = *(src_ie_addr + 1);
+                    if (src_ie_len == e_len) {
+                        memcpy(&scc_bcn_buf[offset],src_ie_addr,e_len + 2);
                     }
-                    offset += e_len + 2;
                 }
+            }
+            offset += e_len + 2;
+        }
 
-                // Sync buffer for FW
-                if (aml_bus_type == PCIE_MODE) {
-                    if ((error = aml_ipc_buf_a2e_init(aml_hw, &buf, scc_bcn_buf, bcn->len))) {
-                        netdev_err(dev, "Failed to allocate IPC buf for new beacon\n");
-                        return error;
-                    }
-                } else if (aml_bus_type == USB_MODE) {
-                    addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
-                    aml_hw->plat->hif_ops->hi_write_sram((unsigned char *)scc_bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len, USB_EP4);
-                } else if (aml_bus_type == SDIO_MODE) {
-                    addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
-                    aml_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)scc_bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len);
-                }
-
-                // Forward the information to the LMAC
-                error = aml_send_bcn_change(aml_hw, vif->vif_index, buf.dma_addr,
-                bcn->len, bcn->head_len, bcn->tim_len, NULL);
-
-                if (buf.addr)
-                    dma_unmap_single(aml_hw->dev, buf.dma_addr, buf.size, DMA_TO_DEVICE);
-
+        // Sync buffer for FW
+        if (aml_bus_type == PCIE_MODE) {
+            if ((error = aml_ipc_buf_a2e_init(aml_hw, &buf, scc_bcn_buf, bcn->len))) {
+                netdev_err(dev, "Failed to allocate IPC buf for new beacon\n");
                 return error;
             }
-            default:
-                break;
+        } else if (aml_bus_type == USB_MODE) {
+            addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
+            aml_hw->plat->hif_ops->hi_write_sram((unsigned char *)scc_bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len, USB_EP4);
+        } else if (aml_bus_type == SDIO_MODE) {
+            addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
+            aml_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)scc_bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len);
         }
+
+        // Forward the information to the LMAC
+        error = aml_send_bcn_change(aml_hw, vif->vif_index, buf.dma_addr,
+        bcn->len, bcn->head_len, bcn->tim_len, NULL);
+
+        if (buf.addr)
+            dma_unmap_single(aml_hw->dev, buf.dma_addr, buf.size, DMA_TO_DEVICE);
+
+        return error;
+    }
+    else {
+        AML_INFO("type error:%d",AML_VIF_TYPE(vif));
     }
     return -1;
 }
@@ -218,10 +213,14 @@ void aml_scc_save_bcn_buf(u8* bcn_buf,size_t len)
 void aml_scc_save_probe_rsp(struct aml_vif *vif,u8* buf)
 {
     if (AML_SCC_BEACON_WAIT_PROBE() && (AML_VIF_TYPE(vif) == NL80211_IFTYPE_AP)) {
+        struct misc_msg_t misc_msg = {0,};
         struct aml_hw *aml_hw = vif->aml_hw;
         memcpy(probe_rsp_save,buf,1000);
         AML_SCC_BEACON_SET_STATUS(BEACON_UPDATE_WAIT_DOWNLOAD);
 #ifdef CONFIG_AML_USE_TASK
+        misc_msg.id = MISC_EVENT_BCN_UPDATE;
+        misc_msg.env = vif;
+        aml_enqueue(&(aml_hw->aml_misc_q), &misc_msg);
         UP_MISC_SEM(aml_hw);
 #endif
     }
@@ -252,8 +251,9 @@ bool aml_handle_scc_chan_switch(struct aml_vif *vif,struct aml_vif *target_vif)
 {
     struct net_device *dev = vif->ndev;
     struct cfg80211_chan_def chdef = vif->aml_hw->chanctx_table[target_vif->ch_index].chan_def;
-    if ((aml_scc_get_init_band() == NL80211_BAND_2GHZ) && (chdef.chan->band > NL80211_BAND_2GHZ)) {
-        AML_INFO("init band 2G,cannot switch to 5G \n");
+
+    if (aml_scc_get_init_band() != chdef.chan->band) {
+        AML_INFO("init band conflict with target band [%d %d]\n",aml_scc_get_init_band(),chdef.chan->band);
         return false;
     }
     if (aml_scc_change_beacon_ht_ie(vif->aml_hw->wiphy,dev,target_vif)) {
@@ -261,14 +261,7 @@ bool aml_handle_scc_chan_switch(struct aml_vif *vif,struct aml_vif *target_vif)
         AML_INFO("bcn change ht ie fail \n");
         return false;
     }
-    aml_chanctx_unlink(vif);
-    aml_chanctx_link(vif, target_vif->ch_index, &chdef);
-#ifdef CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT
-    cfg80211_ch_switch_notify(dev, &chdef, 0);
-#else
-    cfg80211_ch_switch_notify(dev, &chdef);
-#endif
-    AML_SCC_BEACON_SET_STATUS(BEACON_UPDATE_WAIT_PROBE);
+
     return true;
 }
 
@@ -285,10 +278,28 @@ void aml_scc_check_chan_confilct(struct aml_hw *aml_hw)
             case NL80211_IFTYPE_AP:
             {
                 u8 target_vif_idx = aml_scc_get_confilct_vif_idx(vif);
+                struct mm_scc_cfm scc_cfm;
+
                 AML_INFO("chan conflict,target_vif_idx:%d",target_vif_idx);
                 if (target_vif_idx != 0xff) {
                     if (aml_handle_scc_chan_switch(vif,vif->aml_hw->vif_table[target_vif_idx])) {
-                        aml_send_scc_conflict_nofify(vif,target_vif_idx);//notify fw
+                        if (aml_send_scc_conflict_nofify(vif, target_vif_idx, &scc_cfm) == 0) {//notify fw
+                            if (scc_cfm.status == CO_OK) {
+                                struct aml_vif *target_vif = aml_hw->vif_table[target_vif_idx];
+                                struct cfg80211_chan_def chdef = vif->aml_hw->chanctx_table[target_vif->ch_index].chan_def;
+
+                                aml_chanctx_unlink(vif);
+                                aml_chanctx_link(vif, target_vif->ch_index, &chdef);
+                                #ifdef CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT
+                                cfg80211_ch_switch_notify(vif->ndev, &chdef, 0);
+                                #else
+                                cfg80211_ch_switch_notify(vif->ndev, &chdef);
+                                #endif
+
+                                AML_SCC_BEACON_SET_STATUS(BEACON_UPDATE_WAIT_PROBE);
+                            }
+                            AML_INFO("scc_cfm.status:%d", scc_cfm.status);
+                        }
                     }
                 }
                 break;

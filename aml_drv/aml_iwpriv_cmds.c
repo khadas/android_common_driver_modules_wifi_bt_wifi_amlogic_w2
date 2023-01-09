@@ -1,4 +1,5 @@
 #include <linux/sort.h>
+#include <linux/math64.h>
 #include "aml_iwpriv_cmds.h"
 #include "aml_mod_params.h"
 #include "aml_debugfs.h"
@@ -10,6 +11,7 @@
 #include "aml_fw_trace.h"
 #include "aml_utils.h"
 #include "aml_compat.h"
+#include "aml_recy.h"
 
 #define RC_AUTO_RATE_INDEX -1
 #define MAX_CHAR_SIZE 40
@@ -695,17 +697,18 @@ int aml_print_last_rx_info(struct aml_hw *priv, struct aml_sta *sta)
     for (i = 0 ; i < rate_stats->size ; i++ ) {
         if (rate_stats->table[i]) {
             union aml_rate_ctrl_info rate_config;
-            int percent = (((u64)rate_stats->table[i]) * 1000) / rate_stats->cpt;
-            int p;
+            u64 percent = div_u64(rate_stats->table[i] * 1000, rate_stats->cpt);
+            u64 p;
             int ru_size;
+            u32 rem;
 
             idx_to_rate_cfg(i, &rate_config, &ru_size);
             len += print_rate_from_cfg(&buf[len], bufsz - len,
                                        rate_config.value, NULL, ru_size);
-            p = (percent * hist_len) / 1000;
+            p = div_u64((percent * hist_len), 1000);
             len += scnprintf(&buf[len], bufsz - len, ": %9d(%2d.%1d%%)%.*s\n",
                              rate_stats->table[i],
-                             percent / 10, percent % 10, p, hist);
+                             div_u64_rem(percent, 10, &rem), rem, p, hist);
         }
     }
 
@@ -1266,6 +1269,51 @@ static int aml_get_txq(struct net_device *dev)
     return 0;
 }
 
+static int aml_get_buf_state(struct net_device *dev)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
+    if (aml_hw->rx_buf_state & FW_BUFFER_EXPAND) {
+        printk("rxbuf: 256k, txbuf: 128k\n");
+    } else if (aml_hw->rx_buf_state & FW_BUFFER_NARROW) {
+        printk("rxbuf: 128k, txbuf: 256k\n");
+    } else {
+        printk("err: rx_buf_state[%x]\n", aml_hw->rx_buf_state);
+    }
+
+    return 0;
+}
+
+static int aml_set_txpage_once(struct net_device *dev, int txpage)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw * aml_hw = aml_vif->aml_hw;
+
+    if (aml_hw->g_tx_param.tx_page_once == txpage) {
+        printk("txpage did not change, ignore\n");
+        return 0;
+    }
+
+    aml_hw->g_tx_param.tx_page_once = txpage;
+    printk("set tx_page_once:0x%x success\n", txpage);
+    return 0;
+}
+
+static int aml_set_txcfm_tri_tx(struct net_device *dev, int tri_tx_thr)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw * aml_hw = aml_vif->aml_hw;
+
+    if (aml_hw->g_tx_param.txcfm_trigger_tx_thr == tri_tx_thr) {
+        printk("tri_tx_thr did not change, ignore\n");
+        return 0;
+    }
+
+    aml_hw->g_tx_param.txcfm_trigger_tx_thr = tri_tx_thr;
+    printk("set tri_tx_thr:0x%x success\n", tri_tx_thr);
+    return 0;
+}
+
 
 static int aml_send_twt_teardown(struct net_device *dev, int id)
 {
@@ -1281,17 +1329,6 @@ static int aml_send_twt_teardown(struct net_device *dev, int id)
 
     AML_INFO("flow id:%d\n", twt_teardown.id);
     return _aml_send_twt_teardown(aml_hw, &twt_teardown, &twt_teardown_cfm);
-}
-
-int aml_recovery(struct net_device *dev)
-{
-    struct aml_vif *aml_vif = netdev_priv(dev);
-
-    printk("Recovery!\n");
-
-    _aml_recovery(aml_vif);
-
-    return 0;
 }
 
 int aml_set_macbypass(struct net_device *dev, int format_type, int bandwidth, int rate, int siso_or_mimo)
@@ -2479,6 +2516,46 @@ int aml_set_tx_start(struct net_device *dev)
     return 0;
 }
 
+int aml_recy_ctrl(struct net_device *dev, int recy_id)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+#ifdef CONFIG_AML_RECOVERY
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
+    struct aml_cmd_mgr *cmd_mgr = &aml_hw->cmd_mgr;
+#endif
+
+    switch (recy_id) {
+        case 0:
+            AML_INFO("do firmware soft reset");
+            aml_fw_reset(aml_vif);
+            break;
+#ifdef CONFIG_AML_RECOVERY
+        case 1:
+            AML_INFO("do cmd queue crashed recovery");
+            aml_recy_cmdcsh_doit(aml_hw);
+            break;
+        case 2:
+            AML_INFO("do txhang recovery");
+            aml_recy_txhang_doit(aml_hw);
+            break;
+        case 3:
+            AML_INFO("do pci error recovery");
+            aml_recy_pcierr_doit(aml_hw);
+            break;
+        case 4:
+            AML_INFO("trigger cmd crash, for test only");
+            spin_lock_bh(&cmd_mgr->lock);
+            cmd_mgr->state = AML_CMD_MGR_STATE_CRASHED;
+            spin_unlock_bh(&cmd_mgr->lock);
+            break;
+#endif
+        default:
+            AML_INFO("unknow recovery operation");
+            break;
+    }
+    return 0;
+}
+
 int aml_set_tx_path(struct net_device *dev, int path)
 {
     tx_path = path;//mode:wf0 0x0 wf1 0x1 mimo 0x2
@@ -2875,6 +2952,15 @@ static int aml_iwpriv_send_para1(struct net_device *dev,
         case AML_IWP_SET_XOSC_EFUSE:
             aml_set_xosc_efuse(dev,set1);
             break;
+        case AML_IWP_SET_TXPAGE_ONCE:
+            aml_set_txpage_once(dev,set1);
+            break;
+        case AML_IWP_SET_TXCFM_TRI_TX:
+            aml_set_txcfm_tri_tx(dev,set1);
+            break;
+        case AML_IWP_RECY_CTRL:
+            aml_recy_ctrl(dev, set1);
+            break;
         default:
             printk("%s %d: param err\n", __func__, __LINE__);
             break;
@@ -2999,9 +3085,6 @@ static int aml_iwpriv_get(struct net_device *dev,
         case AML_IWP_SET_RATE_AUTO:
             aml_set_fixed_rate(dev, RC_AUTO_RATE_INDEX);
             break;
-        case AML_IWP_RECOVERY:
-            aml_recovery(dev);
-            break;
         case AML_IWP_GET_RATE_INFO:
             aml_get_rate_info(dev);
             break;
@@ -3072,6 +3155,9 @@ static int aml_iwpriv_get(struct net_device *dev,
             break;
         case AML_IWP_SET_TX_START:
             aml_set_tx_start(dev);
+            break;
+        case AML_IWP_GET_BUF_STATE:
+            aml_get_buf_state(dev);
             break;
         default:
             printk("%s %d param err\n", __func__, __LINE__);
@@ -3161,8 +3247,8 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
         AML_IWP_SET_RATE_AUTO,
         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "set_rate_auto"},
     {
-        AML_IWP_RECOVERY,
-        0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "recovery"},
+        AML_IWP_RECY_CTRL,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "recy_ctrl"},
     {
         AML_IWP_GET_RATE_INFO,
         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_rate_info"},
@@ -3229,6 +3315,9 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_IWP_SET_TX_START,
         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "pt_tx_start"},
+    {
+        AML_IWP_GET_BUF_STATE,
+        0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_buf_state"},
     {
         SIOCIWFIRSTPRIV + 1,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, ""},
@@ -3307,6 +3396,12 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_IWP_SET_XOSC_EFUSE,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_xosc_efuse"},
+    {
+        AML_IWP_SET_TXPAGE_ONCE,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_txpage_once"},
+    {
+        AML_IWP_SET_TXCFM_TRI_TX,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_tri_tx_thr"},
     {
         SIOCIWFIRSTPRIV + 2,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 2, 0, ""},

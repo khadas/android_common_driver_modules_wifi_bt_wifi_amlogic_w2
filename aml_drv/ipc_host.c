@@ -21,6 +21,7 @@
 #include "ipc_host.h"
 #include "share_mem_map.h"
 #include "ipc_shared.h"
+#include "aml_msg_rx.h"
 
 /*
  * TYPES DEFINITION
@@ -133,6 +134,39 @@ static void ipc_host_unsup_rx_vec_handler(struct ipc_host_env_tag *env)
         ;
 }
 
+static void ipc_host_chan_switch_ind_handler(void *pthis)
+{
+    struct aml_hw *aml_hw = pthis;
+    struct chan_switch_ind_info ind_info = {0};
+    struct ipc_e2a_msg msg;
+    struct mm_channel_pre_switch_ind * pre_ind = NULL;
+    struct mm_channel_switch_ind * ind = NULL;
+
+    if (aml_bus_type == USB_MODE) {
+        aml_hw->plat->hif_ops->hi_read_sram((unsigned char *)&ind_info,
+            (unsigned char *)CHAN_SWITCH_IND_MSG_ADDR, sizeof(struct chan_switch_ind_info), USB_EP4);
+    } else if (aml_bus_type == SDIO_MODE) {
+        aml_hw->plat->hif_sdio_ops->hi_sram_read((unsigned char *)&ind_info,
+            (unsigned char *)CHAN_SWITCH_IND_MSG_ADDR, sizeof(struct chan_switch_ind_info));
+    }
+    if (ind_info.msg_id == MM_CHANNEL_PRE_SWITCH_IND) {
+        msg.id = MM_CHANNEL_PRE_SWITCH_IND;
+        pre_ind = (struct mm_channel_pre_switch_ind *)msg.param;
+        pre_ind->chan_index = ind_info.chan_index;
+    } else if (ind_info.msg_id == MM_CHANNEL_SWITCH_IND) {
+        msg.id = MM_CHANNEL_SWITCH_IND;
+        ind = (struct mm_channel_switch_ind *)msg.param;
+        ind->chan_index = ind_info.chan_index;
+        ind->roc = ind_info.roc;
+        ind->roc_tdls = ind_info.roc_tdls;
+        ind->vif_index = ind_info.vif_index;
+    } else {
+        return;
+    }
+    aml_rx_sdio_ind_msg_handle(aml_hw, &msg);
+
+    return;
+}
 /**
  * ipc_host_msg_handler() - Handler for firmware message
  *
@@ -371,6 +405,7 @@ void ipc_host_init(struct ipc_host_env_tag *env,
 {
     unsigned int i;
     struct ipc_hostid *tx_hostid;
+    struct aml_hw *aml_hw = NULL;
 
     // Reset the environments
 #if 0
@@ -416,8 +451,13 @@ void ipc_host_init(struct ipc_host_env_tag *env,
     INIT_LIST_HEAD(&env->tx_hostid_available);
     INIT_LIST_HEAD(&env->tx_hostid_pushed);
     tx_hostid = env->tx_hostid;
+    aml_hw = (struct aml_hw *)env->pthis;
     for (i = 0; i < ARRAY_SIZE(env->tx_hostid); i++, tx_hostid++) {
         tx_hostid->hostid = i + 1; // +1 so that 0 is not a valid value
+        if (aml_bus_type != PCIE_MODE) {
+            aml_hw->hostid_prefix = i + 1;
+            tx_hostid->hostid = tx_hostid->hostid | (aml_hw->hostid_prefix << 16);
+        }
         list_add_tail(&tx_hostid->list, &env->tx_hostid_available);
     }
 }
@@ -728,6 +768,34 @@ void *ipc_host_tx_host_id_to_ptr(struct ipc_host_env_tag *env, uint32_t hostid)
     return tx_hostid->hostptr;
 }
 
+void *ipc_host_tx_host_id_to_ptr_for_sdio_usb(struct ipc_host_env_tag *env, uint32_t hostid)
+{
+    struct ipc_hostid *tx_hostid = NULL;
+    struct aml_hw *aml_hw = (struct aml_hw *)env->pthis;
+    struct ipc_hostid *tx_hostid_tmp, *next;
+    u8 find = 0;
+
+    if (unlikely(!hostid || ((hostid & 0xffff) > ARRAY_SIZE(env->tx_hostid))))
+        return NULL;
+
+    list_for_each_entry_safe(tx_hostid_tmp, next, &env->tx_hostid_pushed, list) {
+        if (tx_hostid_tmp->hostid == hostid) {
+            find = 1;
+            tx_hostid = tx_hostid_tmp;
+            break;
+        }
+    }
+    if (!find) {
+        return NULL;
+    }
+
+    list_del(&tx_hostid->list);
+    aml_hw->hostid_prefix = (aml_hw->hostid_prefix % 65535) + 1;
+    tx_hostid->hostid = tx_hostid->hostid & 0xffff;
+    tx_hostid->hostid = tx_hostid->hostid | (aml_hw->hostid_prefix << 16);
+    list_add_tail(&tx_hostid->list, &env->tx_hostid_available);
+    return tx_hostid->hostptr;
+}
 #ifdef CONFIG_AML_USE_TASK
 void ipc_host_irq_ext(struct ipc_host_env_tag *env, uint32_t status)
 {
@@ -851,6 +919,10 @@ void ipc_host_irq(struct ipc_host_env_tag *env, uint32_t status)
     {
         // handle the unsupported rx vector reception
         ipc_host_unsup_rx_vec_handler(env);
+    }
+    if (status & SDIO_IRQ_E2A_CHAN_SWITCH_IND_MSG)
+    {
+        ipc_host_chan_switch_ind_handler(env->pthis);
     }
 
     if (((status & IPC_IRQ_E2A_DBG) && (aml_bus_type == PCIE_MODE))

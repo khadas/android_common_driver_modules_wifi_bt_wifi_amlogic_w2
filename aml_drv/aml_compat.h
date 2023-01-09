@@ -563,7 +563,12 @@ static inline int FILE_STAT(const char __user *filename, struct kstat *stat)
 	UNUSED(stat);
 	return -ENOTSUPP;
 #else
-    return vfs_stat(filename, stat);
+    int ret;
+    GET_FS(oldfs);
+    SET_FS(KERNEL_DS);
+    ret=vfs_stat(filename, stat);
+    SET_FS(oldfs);
+    return ret;
 #endif
 }
 

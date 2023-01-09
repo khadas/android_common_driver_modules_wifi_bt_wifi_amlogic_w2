@@ -20,6 +20,7 @@
 #include "fi_cmd.h"
 #include "share_mem_map.h"
 #include "aml_scc.h"
+#include "aml_recy.h"
 
 const struct mac_addr mac_addr_bcst = {{0xFFFF, 0xFFFF, 0xFFFF}};
 
@@ -2174,6 +2175,9 @@ int aml_send_sm_disconnect_req(struct aml_hw *aml_hw,
     /* Set parameters for the SM_DISCONNECT_REQ message */
     req->reason_code = reason;
     req->vif_idx = aml_vif->vif_index;
+#ifdef CONFIG_AML_RECOVERY
+    aml_recy_conn_update(aml_hw, 0);
+#endif
 
     /* Send the SM_DISCONNECT_REQ message to LMAC FW */
     /* coverity[leaked_storage] - req will be freed later */
@@ -3538,16 +3542,16 @@ int _aml_set_efuse(struct aml_vif *aml_vif, u32 addr, u32 value)
     return aml_priv_send_msg(aml_hw, req, 0, 0, NULL);
 }
 
-int _aml_recovery(struct aml_vif *aml_vif)
+int aml_fw_reset(struct aml_vif *aml_vif)
 {
     struct aml_hw *aml_hw = aml_vif->aml_hw;
-    struct recovery *req = NULL;
+    struct fw_reset_req *req = NULL;
 
-    req = aml_priv_msg_zalloc(MM_SUB_RECOVERY, sizeof(struct recovery));
+    req = aml_priv_msg_zalloc(MM_SUB_FW_RESET, sizeof(struct fw_reset_req));
     if (!req)
         return -ENOMEM;
 
-    memset((void *)req, 0,sizeof(struct recovery));
+    memset((void *)req, 0, sizeof(struct fw_reset_req));
     req->vif_idx = aml_vif->vif_index;
 
     /* coverity[leaked_storage] - req will be freed later */
@@ -3895,7 +3899,7 @@ int aml_send_fwlog_cmd(struct aml_vif *aml_vif, int mode)
     return aml_priv_send_msg(aml_hw, fwlog_param, 0, 0, NULL);
 }
 
-int aml_send_scc_conflict_nofify(struct aml_vif *ap_vif,u8 sta_vif_idx)
+int aml_send_scc_conflict_nofify(struct aml_vif *ap_vif,u8 sta_vif_idx, struct mm_scc_cfm *scc_cfm)
 {
     struct aml_hw *aml_hw = ap_vif->aml_hw;
     scc_conflict_t *scc_conflict;
@@ -3905,7 +3909,7 @@ int aml_send_scc_conflict_nofify(struct aml_vif *ap_vif,u8 sta_vif_idx)
     }
     scc_conflict->ap_idx = ap_vif->vif_index;
     scc_conflict->sta_idx = sta_vif_idx;
-    return aml_priv_send_msg(aml_hw, scc_conflict, 0, 0, NULL);
+    return aml_priv_send_msg(aml_hw, scc_conflict, 1, PRIV_SCC_CONFLICT_CFM, scc_cfm);
 }
 
 int aml_send_sync_trace(struct aml_hw *aml_hw)
@@ -3923,7 +3927,6 @@ int aml_send_sync_trace(struct aml_hw *aml_hw)
     printk("aml_set_trace_sync,token[%d]\n",sync_token);
     sync_trace->token = sync_token;
     sync_token ++;
-    aml_hw->send_sync_cmd = 0;
     return aml_priv_send_msg(aml_hw, sync_trace, 0, 0, NULL);
 }
 
@@ -3961,9 +3964,11 @@ int aml_send_extcapab_req(struct aml_hw *aml_hw)
 static enum hrtimer_restart aml_sync_trace_timeout(struct hrtimer *timer)
 {
     struct aml_hw *aml_hw = container_of(timer, struct aml_hw, sync_trace_timer);
+    struct misc_msg_t misc_msg = {0,};
     hrtimer_start(&aml_hw->sync_trace_timer, aml_hw->sync_kt, HRTIMER_MODE_REL);
-    aml_hw->send_sync_cmd = 1;
 #ifdef CONFIG_AML_USE_TASK
+    misc_msg.id = MISC_EVENT_SYNC_TRACE;
+    aml_enqueue(&(aml_hw->aml_misc_q), &misc_msg);
     UP_MISC_SEM(aml_hw);
 #endif
     return HRTIMER_NORESTART;
@@ -3982,4 +3987,3 @@ void aml_sync_trace_timer_cancel(struct aml_hw *aml_hw)
 {
     hrtimer_cancel(&aml_hw->sync_trace_timer);
 }
-

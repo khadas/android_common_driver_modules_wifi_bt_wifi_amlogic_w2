@@ -73,7 +73,7 @@
 #define OUI_SUBTYPE_OFFSET      (CATEGORY_OFFSET + 6)
 #define AUTH_ALGO_OFFSET        MAC_SHORT_MAC_HDR_LEN
 
-#define SRAM_TXCFM_CNT         128
+#define SRAM_TXCFM_CNT         256
 
 #define TXCFM_RESET_CNT   42
 #define TXCFM_TRIGGER_TX_THR  20

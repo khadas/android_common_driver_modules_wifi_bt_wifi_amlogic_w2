@@ -1156,7 +1156,7 @@ int aml_tx_task(void *data)
             }
 
             if ((page_num <= aml_hw->g_tx_param.tx_page_free_num)
-                && ((aml_hw->g_tx_param.tot_page_num + page_num <= SDIO_PAGE_MAX) || (aml_hw->g_tx_param.tot_page_num == 0))) {
+                && ((aml_hw->g_tx_param.tot_page_num + page_num <= aml_hw->g_tx_param.tx_page_once) || (aml_hw->g_tx_param.tot_page_num == 0))) {
 
                 ASSERT(aml_hw->g_tx_param.scat_req != NULL);
 
@@ -1545,7 +1545,6 @@ static u8 aml_msg_process(struct aml_hw *aml_hw, struct ipc_e2a_msg *msg, struct
         ipc_host_msgbuf_push(aml_hw->ipc_env, buf);
         aml_hw->ipc_env->msgbuf_cnt = msgcnt;
     }
-
     return ret;
 }
 
@@ -1609,7 +1608,8 @@ static u8 aml_msgind(void *pthis, void *arg)
             ret = -1;
         }
     }
-
+    if (aml_hw->suspend_ind == SUSPEND_IND_RECV)
+        aml_hw->suspend_ind = SUSPEND_IND_DONE;
     return ret;
 
 }
@@ -2088,9 +2088,9 @@ void aml_umh_done(struct aml_hw *aml_hw)
 }
 
 const char *ssid_sprintf(const unsigned char *ssid, unsigned char ssid_len) {
-    static unsigned char slssid[MAC_SSID_LEN+1];
-    memset(slssid, 0, MAC_SSID_LEN+1);
-    if (ssid && ssid_len>0 && ssid_len<=MAC_SSID_LEN)
+    static unsigned char slssid[MAC_SSID_LEN + 1];
+    memset(slssid, 0, MAC_SSID_LEN + 1);
+    if (ssid && ssid_len > 0 && ssid_len <= MAC_SSID_LEN)
         memcpy(slssid, ssid, ssid_len);
     return slssid;
 }

@@ -6,13 +6,10 @@
 #undef TX_BUF_DYNA
 #endif
 #define TX_RX_BUF_OFFSET                 (6500) /* 6500 Byte */
-/* this mem is not used now for sdio/usb, the memory come from struct ipc_shared_env_tag,
-include:ipc_shared_env->txdmadesc, ipc_shared_env->txcfm_hostbuf_addr,
-ipc_shared_env->host_rxbuf and ipc_shared_env->host_rxbuf; Total size is 0x1AB0.
-*/
+
 #define SHARED_MEM_BASE_ADDR             (0x60000000)
 
-#define SDIO_USB_IDLE_ADDR               (0x60000928) /* size 0x1AB0 */
+#define TXLBUF_TAG_SDIO_3                (0x60000928) /* size 0x1AB0 */
 #define TXLBUF_TAG_SDIO_1                (0x6000f4f4) /* size 0x1800*/
 
 #define TXPAGE_DESC_ADDR                 (0x60010f40) /* size 0x114 */
@@ -81,4 +78,6 @@ extern struct sdio_buffer_control sdio_buffer_ctrl;
 #define BUFFER_RX_ENLARGED BIT(4)
 #define BUFFER_RX_REDUCED BIT(5)
 
+#define CHAN_SWITCH_IND_MSG_ADDR (0xa17fc0)
+#define SDIO_IRQ_E2A_CHAN_SWITCH_IND_MSG           CO_BIT(15)
 #endif

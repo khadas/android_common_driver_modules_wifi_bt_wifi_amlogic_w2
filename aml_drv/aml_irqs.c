@@ -13,6 +13,7 @@
 #include "aml_prof.h"
 #include "aml_msg_tx.h"
 #include "aml_scc.h"
+#include "aml_queue.h"
 
 int aml_irq_usb_hdlr(struct urb *urb)
 {
@@ -106,23 +107,38 @@ irqreturn_t aml_irq_pcie_hdlr(int irq, void *dev_id)
         while ((status = ipc_host_get_status(aml_hw->ipc_env))) { \
             ipc_host_irq_ext(aml_hw->ipc_env, status); \
         } \
-        aml_hw->plat->ack_irq(aml_hw); \
         aml_spin_lock(&aml_hw->tx_lock); \
         aml_hwq_process_all(aml_hw); \
         aml_spin_unlock(&aml_hw->tx_lock); \
         enable_irq(aml_platform_get_irq(aml_hw->plat)); \
+        aml_hw->plat->ack_irq(aml_hw); \
     } \
     complete_and_exit(&aml_hw->name->task_cmpl, 0); \
 } while (0);
 
 void aml_handle_misc_events(struct aml_hw *aml_hw)
 {
-    if (aml_hw->send_sync_cmd == 1) {
-        aml_send_sync_trace(aml_hw);
-    }
-    if (AML_SCC_BEACON_WAIT_DOWNLOAD()) {
-        if (!aml_scc_change_beacon(aml_hw)) {
-            AML_SCC_CLEAR_BEACON_UPDATE();
+    struct misc_msg_t msg = {0,};
+    while (aml_dequeue(&(aml_hw->aml_misc_q), (void *)(&msg)) == true) {
+        u32 id = msg.id;
+        switch (id) {
+            case MISC_EVENT_SYNC_TRACE:
+            {
+                aml_send_sync_trace(aml_hw);
+            }
+            break;
+            case MISC_EVENT_BCN_UPDATE:
+            {
+                struct aml_vif *aml_vif = (struct aml_vif *)msg.env;
+                if (AML_SCC_BEACON_WAIT_DOWNLOAD()) {
+                    if (!aml_scc_change_beacon(aml_hw, aml_vif)) {
+                        AML_SCC_CLEAR_BEACON_UPDATE();
+                    }
+                }
+            }
+            break;
+            default:
+                break;
         }
     }
 }

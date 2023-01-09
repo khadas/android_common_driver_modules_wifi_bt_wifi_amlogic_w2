@@ -1531,12 +1531,13 @@ s8 rx_skb_handle(struct rx_desc_head *desc_stat, struct aml_hw *aml_hw, struct r
         }
     }
 
-    if (desc_stat->status == RX_STAT_ALLOC) {
+    if (desc_stat->status == RX_STAT_ALLOC && desc_stat->package_info != 0) {
         rxdata = aml_get_rxdata_from_free_list();
         if (rxdata) {
             rxdata->host_id = desc_stat->hostid;
             rxdata->frame_len = desc_stat->frame_len;
             rxdata->skb = skb;
+            rxdata->package_info = desc_stat->package_info;
 
             skb_push(skb, sizeof(struct hw_rxhdr));
             memcpy((unsigned char *)skb->data, hw_rxhdr, sizeof(struct hw_rxhdr));
@@ -1768,7 +1769,7 @@ void aml_trigger_rst_rxd(struct aml_hw *aml_hw, uint32_t addr_rst)
         if (aml_bus_type == USB_MODE) {
             aml_hw->plat->hif_ops->hi_write_sram((unsigned char *)cmd_buf, (unsigned char *)(SYS_TYPE)(CMD_DOWN_FIFO_FDH_ADDR), 8, USB_EP4);
         } else if (aml_bus_type == SDIO_MODE) {
-            aml_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char*)cmd_buf, (unsigned char *)(SYS_TYPE)(CMD_DOWN_FIFO_FDH_ADDR), 8);
+            aml_hw->plat->hif_sdio_ops->hi_sram_write((unsigned char*)cmd_buf, (unsigned char *)(SYS_TYPE)(CMD_DOWN_FIFO_FDH_ADDR), 8);
         }
         last_addr = addr_rst;
     }
@@ -1908,6 +1909,8 @@ s8 aml_sdio_rxdataind(void *pthis, void *arg)
     return result;
 }
 
+extern struct rx_reorder_info reorder_info[8];
+
 int aml_rx_task(void *data)
 {
     struct aml_hw *aml_hw = (struct aml_hw *)data;
@@ -1922,6 +1925,7 @@ int aml_rx_task(void *data)
     struct rxdata *rxdata_tmp = NULL;
     uint32_t has_data = aml_hw->read_all_buf ? 1 : 0;
     struct sched_param sch_param;
+    static int count = 0;
 
     sch_param.sched_priority = 91;
     sched_setscheduler(current,SCHED_FIFO,&sch_param);
@@ -1949,29 +1953,39 @@ int aml_rx_task(void *data)
             desc_stat.hostid = (*status_framlen >> 16);
             desc_stat.frame_len = (*fram_len << 8) | (*status_framlen & 0xff);
             desc_stat.status = ((*status_framlen & 0xFF00) >> 8);
+            desc_stat.package_info = *(uint32_t *)(aml_hw->host_buf_start + RX_REORDER_LEN_OFFSET);
+            reorder_hostid_start = *(uint32_t *)(aml_hw->host_buf_start + RX_HOSTID_OFFSET);
+            reorder_len = *(uint32_t *)(aml_hw->host_buf_start + RX_REORDER_LEN_OFFSET) & 0xFF;
 
-            if (*status_framlen == 0) {
+            if (*status_framlen == 0 && reorder_len == 0) {
                 goto next_handle;
+            }
+
+            if (desc_stat.status == RX_STAT_ALLOC && desc_stat.package_info != 0) {
+                for (i = 0; i < reorder_info[GET_TID(desc_stat.package_info)].reorder_len; ++i) {
+                    if (reorder_hostid_start == EXCEPT_HOSTID(reorder_info[GET_TID(desc_stat.package_info)].hostid + i)) {
+                        desc_stat.status = RX_STAT_ALLOC | RX_STAT_FORWARD;
+                        count++;
+                    }
+                }
+                if (count == reorder_info[GET_TID(desc_stat.package_info)].reorder_len) {
+                    reorder_info[GET_TID(desc_stat.package_info)].reorder_len = 0;
+                    reorder_info[GET_TID(desc_stat.package_info)].hostid = 0;
+                    count = 0;
+                }
             }
 
             rx_skb_handle(&desc_stat, aml_hw, NULL);
 
-            reorder_hostid_start = *(uint32_t *)(aml_hw->host_buf_start + RX_HOSTID_OFFSET);
-            reorder_len = *(uint32_t *)(aml_hw->host_buf_start + RX_REORDER_LEN_OFFSET);
             if ((reorder_hostid_start != 0) && (reorder_len != 0)) {
                 desc_stat.status = RX_STAT_FORWARD;
 
                 for (i = 0; i < reorder_len; ++i) {
-                    has_data = 0;
                     list_for_each_entry_safe(rxdata, rxdata_tmp, &reorder_list, list) {
-                        if (rxdata->host_id == reorder_hostid_start + i) {
-                            rx_skb_handle(&desc_stat, aml_hw, rxdata);
-                            has_data = 1;
+                        if (rxdata->host_id == (EXCEPT_HOSTID(reorder_hostid_start + i))
+                            && GET_TID(desc_stat.package_info) == GET_TID(rxdata->package_info)) {
+                                rx_skb_handle(&desc_stat, aml_hw, rxdata);
                         }
-                    }
-
-                    if (!has_data) {
-                        AML_OUTPUT("hostid is missing:%d\n", reorder_hostid_start + i);
                     }
                 }
             }

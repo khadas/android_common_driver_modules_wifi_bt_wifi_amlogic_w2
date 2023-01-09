@@ -1735,7 +1735,7 @@ int aml_tx_cfm_task(void *data)
 #endif
             cfm.status.value = (u32)cfm_data.status.value;
             cfm.hostid = (u32_l)cfm_data.hostid;
-            skb = ipc_host_tx_host_id_to_ptr(aml_hw->ipc_env, cfm.hostid);
+            skb = ipc_host_tx_host_id_to_ptr_for_sdio_usb(aml_hw->ipc_env, cfm.hostid);
 
             if (!skb)
                 break;
@@ -1761,7 +1761,7 @@ int aml_tx_cfm_task(void *data)
                     aml_hw->g_tx_param.tx_page_free_num -= cfm.ampdu_size;
             }
             spin_unlock_bh(&aml_hw->tx_buf_lock);
-            if (aml_hw->g_tx_param.tx_page_free_num >= TXCFM_TRIGGER_TX_THR) {
+            if (aml_hw->g_tx_param.tx_page_free_num >= aml_hw->g_tx_param.txcfm_trigger_tx_thr) {
                 up(&aml_hw->aml_tx_task_sem);
             }
 
@@ -2004,7 +2004,7 @@ void aml_txq_credit_update(struct aml_hw *aml_hw, int sta_idx, u8 tid, s8 update
     struct aml_sta *sta = &aml_hw->sta_table[sta_idx];
     struct aml_txq *txq;
     struct sk_buff *tx_skb;
-    int user = 0;
+    int user = 0, credits = 0;
 
     txq = aml_txq_sta_get(sta, tid, aml_hw);
     user = AML_TXQ_POS_ID(txq);
@@ -2014,15 +2014,26 @@ void aml_txq_credit_update(struct aml_hw *aml_hw, int sta_idx, u8 tid, s8 update
         if (aml_bus_type != PCIE_MODE && update > NX_TXQ_INITIAL_CREDITS) {
             update = TX_MAX_CNT - NX_TXQ_INITIAL_CREDITS;
         }
-        if (((txq->credits + update) > 0) &&
-            ((txq->credits + txq->pkt_pushed[user] + update) < txq->hwq->size )) {
-            txq->credits += update;
+
+        credits = txq->credits;
+        if (aml_bus_type != PCIE_MODE) {
+            if (((txq->credits + update) > 0) &&
+                ((txq->credits + txq->pkt_pushed[user] + update) < txq->hwq->size )) {
+                txq->credits += update;
+            } else {
+                txq->credits = txq->hwq->size - txq->pkt_pushed[user];
+            }
         } else {
-            txq->credits = txq->hwq->size - txq->pkt_pushed[user];
+            if ((txq->credits + txq->pkt_pushed[user] + update) < txq->hwq->size ) {
+                txq->credits += update;
+            } else {
+                txq->credits = txq->hwq->size - txq->pkt_pushed[user];
+            }
         }
-        AML_INFO("sta_idx=%d, tid=%d, update=%d, pkt pushed: %d, credits=%d",
-                sta_idx, tid, update, txq->pkt_pushed[user], txq->credits);
+        AML_INFO("sta_idx=%d, tid=%d, update=%d, pkt pushed: %d, credits=%d, old_credits=%d",
+                sta_idx, tid, update, txq->pkt_pushed[user], txq->credits, credits);
         trace_credit_update(txq, update);
+
         if (txq->credits <= 0)
             aml_txq_stop(txq, AML_TXQ_STOP_FULL);
         else

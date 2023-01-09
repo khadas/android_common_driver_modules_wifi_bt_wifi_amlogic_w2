@@ -1,6 +1,0 @@
-#define AML_VERS_REV "89c3716M (project_w2)"
-#define AML_VERS_MOD "6.10.0.0"
-#define AML_VERS_BANNER "aml v6.10.0.0 - build: bo.li Dec 30 2022 13:20:47 - 89c3716M (project_w2)"
-#define AML_DRIVER_COMPILE_INFO "driver compile date: Dec 30 2022 13:20:47,driver hash: 89c37166314d2bf604f6e8a915c0c64aa0a9948e"
-#define FIRMWARE_INFO "fw compile date: 2022-12-30 12:24:08,fw hash: 28b5de18486d8c75fa80aec1cd2bcf36fe32bf9c,fw size: 1843020"
-#define COMMON_INFO "common: last commit: /17:58:07/+0800   hash: a55b691ad10c5c9a9bb2792d28b5d36e3db9bbd0"

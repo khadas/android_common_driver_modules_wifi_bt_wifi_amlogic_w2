@@ -392,6 +392,7 @@ uint32_t ipc_host_get_rawstatus(struct ipc_host_env_tag *env);
 
 uint32_t ipc_host_tx_host_ptr_to_id(struct ipc_host_env_tag *env, void *host_ptr);
 void *ipc_host_tx_host_id_to_ptr(struct ipc_host_env_tag *env, uint32_t hostid);
+void *ipc_host_tx_host_id_to_ptr_for_sdio_usb(struct ipc_host_env_tag *env, uint32_t hostid);
 
 void ipc_host_irq_ext(struct ipc_host_env_tag *env, uint32_t status);
 void ipc_host_rxdesc_handler(struct ipc_host_env_tag *env);

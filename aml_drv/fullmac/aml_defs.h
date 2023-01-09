@@ -29,9 +29,11 @@
 #include "aml_mu_group.h"
 #include "aml_platform.h"
 #include "aml_cmds.h"
+#include "aml_recy.h"
 #include "ipc_host.h"
 #include "fi_cmd.h"
 #include "aml_compat.h"
+#include "aml_queue.h"
 
 #define WPI_HDR_LEN    18
 #define WPI_PN_LEN     16
@@ -49,7 +51,7 @@
 #define NX_BCNFRAME_LEN 512
 #define BCN_TXLBUF_TAG_LEN 252
 
-#define TXCFM_READ_CNT 128
+#define TXCFM_READ_CNT 256
 
 #define TX_MAX_CNT  124
 
@@ -596,6 +598,13 @@ enum wifi_suspend_state {
     WIFI_SUSPEND_STATE_DEEPSLEEP,
 };
 
+enum suspend_ind_state {
+    SUSPEND_IND_NONE,
+    SUSPEND_IND_RECV,
+    SUSPEND_IND_DONE,
+};
+
+
 #define WOW_MAX_PATTERNS 4
 
 /* wake up filter in wow mode */
@@ -609,7 +618,8 @@ struct tx_task_param {
     u32 tx_page_free_num;
     u32 tot_page_num;
     u32 mpdu_num;
-    u32  tx_cnt;
+    u8  tx_page_once;
+    u8  txcfm_trigger_tx_thr;
     struct amlw_hif_scatter_req * scat_req;
 };
 
@@ -780,7 +790,23 @@ struct aml_hw {
     struct aml_task *txcfm;
     struct aml_task *misc;
     u32 txcfm_status;
+
 #endif
+
+    // recovery
+#ifdef CONFIG_AML_RECOVERY
+    bool is_connected;
+    struct timer_list cmdcsh_timer;
+    struct timer_list txhang_timer;
+    struct timer_list pcierr_timer;
+    struct aml_recy_info *recy_info;
+#endif
+
+    // workqueue
+    spinlock_t wq_lock;
+    struct workqueue_struct *wq;
+    struct work_struct work;
+    struct list_head work_list;
 
     // IPC
     struct ipc_host_env_tag *ipc_env;
@@ -800,6 +826,7 @@ struct aml_hw {
     struct aml_ipc_buf rxbufs[AML_RXBUFF_MAX];
 #endif
     int rxbuf_idx;
+    uint16_t hostid_prefix;
     struct aml_ipc_buf unsuprxvecs[IPC_UNSUPRXVECBUF_CNT];
     struct aml_ipc_buf scan_ie;
     struct aml_ipc_buf_pool txcfm_pool;
@@ -841,6 +868,7 @@ struct aml_hw {
     struct task_struct *aml_msg_task;
     struct task_struct *aml_tx_cfm_task;
     struct task_struct *aml_misc_task;
+    struct msg_q_t aml_misc_q;
 
     struct semaphore aml_tx_cfm_sem;
     struct semaphore aml_msg_sem;
@@ -867,7 +895,6 @@ struct aml_hw {
     u8 g_tx_to;
 
     struct hrtimer sync_trace_timer;
-    int send_sync_cmd;
     ktime_t sync_kt;
 };
 
@@ -919,5 +946,13 @@ static inline void aml_spin_unlock(spinlock_t* lock)
 
 void aml_external_auth_enable(struct aml_vif *vif);
 void aml_external_auth_disable(struct aml_vif *vif);
+void aml_scan_abort(struct aml_hw *aml_hw);
+int aml_cfg80211_add_key(struct wiphy *wiphy, struct net_device *netdev,
+#ifdef CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT
+        int link_id, u8 key_index, bool pairwise, const u8 *mac_addr,
+#else
+        u8 key_index, bool pairwise, const u8 *mac_addr,
+#endif
+        struct key_params *params);
 
 #endif /* _AML_DEFS_H_ */

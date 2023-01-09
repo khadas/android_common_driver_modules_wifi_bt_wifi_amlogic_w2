@@ -1,4 +1,4 @@
-AML_VERS_NUM=6.10.0.0
+AML_VERS_NUM=v1.0.10_20230111-w2 driver:1ca159c8af6813edb6b9dc1c49ab679d09949213
 #KERNELDIR=/usr/lib/modules/5.8.0-63-generic/build
 PWD=$(shell pwd)
 ifeq ($(ARCH),)
@@ -98,6 +98,8 @@ CONFIG_AML_POWER_SAVE_MODE ?= n
 # Support to use tasks to process IRQ Handlers
 CONFIG_AML_USE_TASK ?= y
 
+# Support recovery function
+CONFIG_AML_RECOVERY ?= n
 # } // WAITING FOR KCONFIG
 #
 
@@ -111,6 +113,7 @@ subdir-ccflags-$(CONFIG_AML_PREALLOC_BUF_SKB) += -DCONFIG_AML_PREALLOC_BUF_SKB
 subdir-ccflags-$(CONFIG_AML_WFA_CERT_MODE) += -DCONFIG_AML_WFA_CERT_MODE
 subdir-ccflags-$(CONFIG_AML_POWER_SAVE_MODE) += -DCONFIG_AML_POWER_SAVE_MODE
 subdir-ccflags-$(CONFIG_AML_USE_TASK) += -DCONFIG_AML_USE_TASK
+subdir-ccflags-$(CONFIG_AML_RECOVERY) += -DCONFIG_AML_RECOVERY
 
 # FW VARS
 subdir-ccflags-y += -DNX_VIRT_DEV_MAX=4

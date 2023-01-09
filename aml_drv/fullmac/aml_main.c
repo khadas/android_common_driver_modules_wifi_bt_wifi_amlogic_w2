@@ -42,6 +42,8 @@
 #include "share_mem_map.h"
 #include "aml_prealloc.h"
 #include "aml_scc.h"
+#include "aml_wq.h"
+#include "aml_recy.h"
 
 
 #define RW_DRV_DESCRIPTION  "Amlogic 11nac driver for Linux cfg80211"
@@ -1574,13 +1576,13 @@ static int aml_cfg80211_scan(struct wiphy *wiphy,
  * @add_key: add a key with the given parameters. @mac_addr will be %NULL
  *	when adding a group key.
  */
-static int aml_cfg80211_add_key(struct wiphy *wiphy, struct net_device *netdev,
+int aml_cfg80211_add_key(struct wiphy *wiphy, struct net_device *netdev,
 #ifdef CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT
-                                 int link_id, u8 key_index, bool pairwise, const u8 *mac_addr,
+        int link_id, u8 key_index, bool pairwise, const u8 *mac_addr,
 #else
-                                 u8 key_index, bool pairwise, const u8 *mac_addr,
+        u8 key_index, bool pairwise, const u8 *mac_addr,
 #endif
-                                 struct key_params *params)
+        struct key_params *params)
 {
     struct aml_hw *aml_hw = wiphy_priv(wiphy);
     struct aml_vif *vif = netdev_priv(netdev);
@@ -1826,15 +1828,17 @@ static int aml_cfg80211_connect(struct wiphy *wiphy, struct net_device *dev,
     switch (sm_connect_cfm.status)
     {
         case CO_OK:
+            if (sme->ssid != NULL && sme->channel != NULL) {
+                AML_INFO("ssid=%s, center freq:%d\n", ssid_sprintf(sme->ssid, sme->ssid_len),
+                        sme->channel->center_freq);
+            }
             aml_vif->sta.assoc_ssid_len =
                 sme->ssid_len > MAC_SSID_LEN ? MAC_SSID_LEN : sme->ssid_len;
-            memcpy(&aml_vif->sta.assoc_ssid, sme->ssid,
-                    aml_vif->sta.assoc_ssid_len);
+            memcpy(&aml_vif->sta.assoc_ssid, sme->ssid, aml_vif->sta.assoc_ssid_len);
             aml_save_assoc_info_for_ft(aml_vif, sme);
-            if (sme->ssid != NULL && sme->channel != NULL)
-            {
-                AML_INFO("ssid=%s, center:%d\n", ssid_sprintf(sme->ssid, sme->ssid_len), sme->channel->center_freq);
-            }
+#ifdef CONFIG_AML_RECOVERY
+            aml_recy_save_info(aml_vif, sme);
+#endif
             aml_hw->is_connectting = 1;
             error = 0;
             break;
@@ -4174,6 +4178,19 @@ static int aml_cfg80211_leave_mesh(struct wiphy *wiphy, struct net_device *dev)
     return 0;
 }
 
+void aml_scan_abort(struct aml_hw *aml_hw)
+{
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 8, 0)
+    struct cfg80211_scan_info scan_info = {
+        .aborted = true,
+    };
+    cfg80211_scan_done(aml_hw->scan_request, &scan_info);
+#else
+    cfg80211_scan_done(rwnx_hw->scan_request, true);
+#endif
+    aml_hw->scan_request = NULL;
+}
+
 #ifdef CONFIG_AML_SUSPEND
 int aml_pwrsave_wow_sta(struct aml_hw *aml_hw, struct aml_vif *aml_vif)
 {
@@ -4340,7 +4357,7 @@ static int aml_ps_wow_resume(struct aml_hw *aml_hw)
             continue;
         }
 
-        aml_txq_vif_start(aml_vif, AML_TXQ_STOP, aml_hw);
+        aml_txq_vif_start(aml_vif, AML_TXQ_STOP & ~AML_TXQ_STOP_CHAN, aml_hw);
 
         if (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_STATION) {
             if (aml_bus_type != PCIE_MODE) {
@@ -4385,7 +4402,7 @@ static int aml_ps_wow_suspend(struct aml_hw *aml_hw, struct cfg80211_wowlan *wow
     }
 
     // reset suspend, flag for fw suspended
-    aml_hw->suspend_ind = 0;
+    aml_hw->suspend_ind = SUSPEND_IND_NONE;
 
     //only support suspend under sta interface.
     list_for_each_entry(aml_vif, &aml_hw->vifs, list) {
@@ -4455,11 +4472,12 @@ static int aml_ps_wow_suspend(struct aml_hw *aml_hw, struct cfg80211_wowlan *wow
     }
 
     count = 0;
-    while (aml_hw->suspend_ind == 0) {
+    while ((aml_hw->suspend_ind != SUSPEND_IND_DONE)
+        || ((aml_bus_type == PCIE_MODE) && (AML_REG_READ(aml_hw->plat, AML_ADDR_MAC_PHY, ISTATUS_HOST) & BIT(24)))) {
         msleep(10);
         if (count++ > 100) {
-            printk("%s %d, ERROR wait suspend_ind timeout, start resume cmd:%d\n",
-                __func__, __LINE__, aml_hw->cmd_mgr.queue_sz);
+            printk("%s %d, ERROR wait suspend_ind timeout:%d, start resume cmd:%d\n",
+                __func__, __LINE__, aml_hw->suspend_ind, aml_hw->cmd_mgr.queue_sz);
             goto err;
         }
     }
@@ -5050,6 +5068,9 @@ static void aml_reg_notifier(struct wiphy *wiphy,
     AML_INFO("initiator=%d, hint_type=%d, alpha=%s, region=%d\n",
                 request->initiator, request->user_reg_hint_type,
                 request->alpha2, request->dfs_region);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0)
+    aml_apply_regdom(aml_hw, wiphy, request->alpha2);
+#endif
     // For now trust all initiator
     aml_radar_set_domain(&aml_hw->radar, request->dfs_region);
     aml_send_me_chan_config_req(aml_hw);
@@ -5362,6 +5383,7 @@ int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
     if ((ret = aml_handle_dynparams(aml_hw, aml_hw->wiphy)))
         goto err_lmac_reqs;
 
+    aml_misc_queue_init(&(aml_hw->aml_misc_q));
     aml_enable_mesh(aml_hw);
     aml_radar_detection_init(&aml_hw->radar);
 
@@ -5380,6 +5402,11 @@ int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
         wiphy_err(wiphy, "Could not register wiphy device\n");
         goto err_register_wiphy;
     }
+
+    aml_wq_init(aml_hw);
+#ifdef CONFIG_AML_RECOVERY
+    aml_recy_init(aml_hw);
+#endif
 
     /* Work to defer processing of rx buffer */
     INIT_WORK(&aml_hw->defer_rx.work, aml_rx_deferred);
@@ -5491,7 +5518,12 @@ void aml_cfg80211_deinit(struct aml_hw *aml_hw)
     wiphy_unregister(aml_hw->wiphy);
     aml_radar_detection_deinit(&aml_hw->radar);
     del_timer_sync(&aml_hw->txq_cleanup);
+#ifdef CONFIG_AML_RECOVERY
+    aml_recy_deinit(aml_hw);
+#endif
+    aml_wq_deinit(aml_hw);
     aml_platform_off(aml_hw, NULL);
+    aml_misc_queue_deinit(&(aml_hw->aml_misc_q));
     if (aml_bus_type != PCIE_MODE) {
         aml_rxdata_deinit();
 #ifdef CONFIG_AML_RX_SG
