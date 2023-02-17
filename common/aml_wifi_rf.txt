@@ -1,5 +1,6 @@
-#config version info <char>
-version=1
+#config version info <char> version must be consistent with the WIFI_CALI_VERSION in c code
+#After updating the parameters, it must be modified at the same time.
+version=3
 
 #cali config <short>
 cali_config=0x0
@@ -45,14 +46,14 @@ cw2mod=0xfe,0xfc,0x2,0xfe,0xfe,0xfe
 #wf2g_vht40_tpwr=21,21,21,21,21,20,18,17,16,14
 #wf2g_he20_tpwr=20,20,20,19,19,19,19,18,16,16,13,13
 #wf2g_he40_tpwr=21,21,21,20,20,20,19,18,17,16,14,14
-wf2g_11b_tpwr=15,15,15,15
-wf2g_11g_tpwr=15,15,15,15,15,15,15,15
-wf2g_ht20_tpwr=15,15,15,15,15,15,15,15
-wf2g_ht40_tpwr=15,15,15,15,15,15,15,15
-wf2g_vht20_tpwr=15,15,15,15,15,15,15,15,15
-wf2g_vht40_tpwr=15,15,15,15,15,15,15,15,15,14
-wf2g_he20_tpwr=15,15,15,15,15,15,15,15,15,15,13,13
-wf2g_he40_tpwr=15,15,15,15,15,15,15,15,15,15,14,14
+wf2g_11b_tpwr=22,22,22,22
+wf2g_11g_tpwr=21,21,21,21,21,20,19,18
+wf2g_ht20_tpwr=21,21,21,21,20,19,18,17
+wf2g_ht40_tpwr=20,20,20,20,19,19,18,17
+wf2g_vht20_tpwr=21,21,21,21,20,19,18,17,16
+wf2g_vht40_tpwr=20,20,20,20,19,19,18,18,17,16
+wf2g_he20_tpwr=20,20,20,20,20,19,19,18,17,16,8,8
+wf2g_he40_tpwr=20,20,20,20,20,19,19,18,17,16,8,8
 
 #wf5g olpc target_pwr limit
 #wf5g_11a_tpwr=16,16,16,15,15,14,13,12
@@ -64,12 +65,99 @@ wf2g_he40_tpwr=15,15,15,15,15,15,15,15,15,15,14,14
 #wf5g_hesu20_tpwr=15,15,15,15,15,14,13,12,11,11,10,10
 #wf5g_hesu40_tpwr=15,15,15,14,14,14,13,12,11,11,10,10
 #wf5g_hesu80_tpwr=14,14,14,13,13,13,12,11,10,9,8,8
-wf5g_11a_tpwr=14,14,14,13,14,12,11,10
-wf5g_ht20_tpwr=14,14,14,13,12,11,10,9
-wf5g_ht40_tpwr=13,13,13,13,12,11,10,9
-wf5g_vht20_tpwr=14,14,14,13,12,11,10,9,9
-wf5g_vht40_tpwr=13,13,13,13,12,11,10,10,9,8
-wf5g_vht80_tpwr=12,12,12,11,11,11,10,10,9,8
-wf5g_hesu20_tpwr=13,13,13,13,13,12,11,10,9,9,8,8
-wf5g_hesu40_tpwr=13,13,13,12,12,12,11,10,9,9,8,8
-wf5g_hesu80_tpwr=12,12,12,11,11,11,10,9,8,7,6,6
+wf5g_11a_tpwr=18,18,18,18,18,17,16,15
+wf5g_ht20_tpwr=18,18,18,18,17,16,15,15
+wf5g_ht40_tpwr=18,18,18,17,16,16,15,15
+wf5g_vht20_tpwr=18,18,18,18,17,16,15,15,14
+wf5g_vht40_tpwr=18,18,18,18,17,16,15,15,14,14
+wf5g_vht80_tpwr=17,17,17,17,17,16,15,15,14,14
+wf5g_hesu20_tpwr=17,17,17,17,17,16,15,15,14,14,6,6
+wf5g_hesu40_tpwr=17,17,17,17,17,16,15,15,14,13,6,6
+wf5g_hesu80_tpwr=16,16,16,16,16,16,15,15,14,13,6,6
+
+
+#use xosc_ctune and offset power in txt:0
+#use xosc_ctune and offset power in efuse:1
+customer_efuse_en=0
+
+#use looggain in txt:0, use looggain in efuse:1
+FT_efuse_en=0
+
+#enable xosc ctune:1
+xosc_ctune_vld=1
+
+#enable loopgain:1
+absolute_power_wf0_2g_vld=1
+absolute_power_wf0_5g_vld=1
+absolute_power_wf1_2g_vld=1
+absolute_power_wf1_5g_vld=1
+
+#enable offset power:1
+offset_power_wf0_2g_vld=1
+offset_power_wf0_5g_vld=1
+offset_power_wf1_2g_vld=1
+offset_power_wf1_5g_vld=1
+
+pwr_delta_wf0_customer_vld=1
+pwr_delta_wf1_customer_vld=1
+
+#xosc ctune value
+xosc_ctune=0x00
+
+#wf0 loopgain offset
+absolute_power_wf0_2g_l=0x00
+absolute_power_wf0_2g_m=0x00
+absolute_power_wf0_2g_h=0x00
+absolute_power_wf0_5200=0x00
+absolute_power_wf0_5300=0x00
+absolute_power_wf0_5530=0x00
+absolute_power_wf0_5660=0x00
+absolute_power_wf0_5780=0x00
+
+#wf1 loopgain offset
+absolute_power_wf1_2g_l=0x00
+absolute_power_wf1_2g_m=0x00
+absolute_power_wf1_2g_h=0x00
+absolute_power_wf1_5200=0x00
+absolute_power_wf1_5300=0x00
+absolute_power_wf1_5530=0x00
+absolute_power_wf1_5660=0x00
+absolute_power_wf1_5780=0x00
+
+#wf0 offset power
+offset_power_wf0_2g_l=0x00
+offset_power_wf0_2g_m=0x00
+offset_power_wf0_2g_h=0x00
+offset_power_wf0_5200=0x00
+offset_power_wf0_5300=0x00
+offset_power_wf0_5530=0x00
+offset_power_wf0_5660=0x00
+offset_power_wf0_5780=0x00
+
+#wf1 offset power
+offset_power_wf1_2g_l=0x00
+offset_power_wf1_2g_m=0x00
+offset_power_wf1_2g_h=0x00
+offset_power_wf1_5200=0x00
+offset_power_wf1_5300=0x00
+offset_power_wf1_5530=0x00
+offset_power_wf1_5660=0x00
+offset_power_wf1_5780=0x00
+
+second_offset_power_wf0_2g_l=0x00
+second_offset_power_wf0_2g_m=0x00
+second_offset_power_wf0_2g_h=0x00
+second_offset_power_wf0_5200=0x00
+second_offset_power_wf0_5300=0x00
+second_offset_power_wf0_5530=0x00
+second_offset_power_wf0_5660=0x00
+second_offset_power_wf0_5780=0x00
+
+second_offset_power_wf1_2g_l=0x00
+second_offset_power_wf1_2g_m=0x00
+second_offset_power_wf1_2g_h=0x00
+second_offset_power_wf1_5200=0x00
+second_offset_power_wf1_5300=0x00
+second_offset_power_wf1_5530=0x00
+second_offset_power_wf1_5660=0x00
+second_offset_power_wf1_5780=0x00

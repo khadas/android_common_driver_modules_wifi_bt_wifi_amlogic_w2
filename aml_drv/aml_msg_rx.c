@@ -374,7 +374,7 @@ static inline int aml_rx_remain_on_channel_exp_ind(struct aml_hw *aml_hw,
 
     trace_roc_exp(aml_vif->vif_index);
 
-    AML_INFO("roc internal=%d, on_chan=%d");
+    AML_INFO("roc internal=%d, on_chan=%d cookie:0x%llu\n",roc->internal,roc->on_chan,roc);
     if (!roc->internal && roc->on_chan) {
         // If RoC has been started by the user space and hasn't been cancelled,
         // inform it that off-channel period has expired
@@ -685,7 +685,7 @@ static inline int aml_rx_ps_change_ind(struct aml_hw *aml_hw,
                                         struct ipc_e2a_msg *msg)
 {
     struct mm_ps_change_ind *ind = (struct mm_ps_change_ind *)msg->param;
-    struct aml_sta *sta = &aml_hw->sta_table[ind->sta_idx];
+    struct aml_sta *sta = aml_hw->sta_table + ind->sta_idx;
 
     AML_DBG(AML_FN_ENTRY_STR);
 
@@ -695,8 +695,9 @@ static inline int aml_rx_ps_change_ind(struct aml_hw *aml_hw,
         return 1;
     }
 
-    AML_INFO("Sta %d, change PS mode to %s", sta->sta_idx,
-               ind->ps_state ? "ON" : "OFF");
+    AML_INFO("Sta %d, valid:%d, change PS mode to %s,mac[%02x %02x %02x %02x %02x %02x]", sta->sta_idx, sta->valid,
+               ind->ps_state ? "ON" : "OFF",
+               sta->mac_addr[0],sta->mac_addr[1],sta->mac_addr[2],sta->mac_addr[3],sta->mac_addr[4],sta->mac_addr[5]);
 
     if (sta->valid) {
         aml_ps_bh_enable(aml_hw, sta, ind->ps_state);
@@ -715,7 +716,7 @@ static inline int aml_rx_traffic_req_ind(struct aml_hw *aml_hw,
                                           struct ipc_e2a_msg *msg)
 {
     struct mm_traffic_req_ind *ind = (struct mm_traffic_req_ind *)msg->param;
-    struct aml_sta *sta = &aml_hw->sta_table[ind->sta_idx];
+    struct aml_sta *sta = aml_hw->sta_table + ind->sta_idx;
 
     AML_DBG(AML_FN_ENTRY_STR);
 
@@ -791,7 +792,7 @@ static inline int aml_sdio_rx_scanu_result_ind(struct aml_hw *aml_hw)
     u8* ie = NULL;
     u64 timestamp;
     struct ieee80211_mgmt *mgmt = NULL;
-    struct scan_results *scan_res,*next;
+    struct scan_results *scan_res, *next;
 
     spin_lock_bh(&aml_hw->scan_lock);
     list_for_each_entry_safe(scan_res, next, &aml_hw->scan_res_list, list) {
@@ -975,7 +976,7 @@ static inline int aml_rx_sm_connect_ind_ex(struct aml_hw *aml_hw,
                                          struct ipc_e2a_msg *msg)
 {
     struct sm_connect_ind_ex *ind = (struct sm_connect_ind_ex *)msg->param;
-    struct aml_sta *sta = &aml_hw->sta_table[ind->ap_idx];
+    struct aml_sta *sta = aml_hw->sta_table + ind->ap_idx;
     int i;
 
     sta->stats.bcn_interval = ind->bcn_interval;
@@ -1075,7 +1076,7 @@ static inline int aml_rx_sm_connect_ind(struct aml_hw *aml_hw,
     // Fill-in the AP information
     if (ind->status_code == 0)
     {
-        struct aml_sta *sta = &aml_hw->sta_table[ind->ap_idx];
+        struct aml_sta *sta = aml_hw->sta_table + ind->ap_idx;
         u8 txq_status;
         struct ieee80211_channel *chan;
         struct cfg80211_chan_def chandef = {0};
@@ -1183,24 +1184,23 @@ static inline int aml_rx_sm_connect_ind(struct aml_hw *aml_hw,
             struct ieee80211_channel *notify_channel = NULL;
 
             notify_channel = ieee80211_get_channel(aml_hw->wiphy, ind->chan.prim20_freq);
-            if (notify_channel == NULL) {
+            if (notify_channel != NULL) {
+                bss = cfg80211_get_bss(aml_hw->wiphy, notify_channel, (const u8 *)ind->bssid.array, (const u8 *)aml_vif->sta.assoc_ssid, aml_vif->sta.assoc_ssid_len,
+                                        IEEE80211_BSS_TYPE_ANY, IEEE80211_PRIVACY_ANY);
+            } else {
                 AML_INFO("channel is null\n");
-                return -1;
             }
-            bss = cfg80211_get_bss(aml_hw->wiphy, notify_channel, (const u8 *)ind->bssid.array, (const u8 *)aml_vif->sta.assoc_ssid, aml_vif->sta.assoc_ssid_len,
-                                IEEE80211_BSS_TYPE_ANY, IEEE80211_PRIVACY_ANY);
-
             if (bss != NULL) {
                 AML_INFO("ssid:%-32.32s, bss_freq:%d\n", ssid_sprintf(aml_vif->sta.assoc_ssid, aml_vif->sta.assoc_ssid_len), bss->channel->center_freq);
-                cfg80211_connect_bss(dev, (const u8 *)ind->bssid.array, bss, req_ie, ind->assoc_req_ie_len, rsp_ie,
-                #if LINUX_VERSION_CODE <= KERNEL_VERSION(4, 12, 0)
-                                    ind->assoc_rsp_ie_len, WLAN_STATUS_SUCCESS, GFP_ATOMIC);
-                #else
-                                    ind->assoc_rsp_ie_len, WLAN_STATUS_SUCCESS, GFP_ATOMIC,NL80211_TIMEOUT_UNSPECIFIED);
-                #endif
             }else {
                 AML_INFO("can't find bss in kernel\n");
             }
+            cfg80211_connect_bss(dev, (const u8 *)ind->bssid.array, bss, req_ie, ind->assoc_req_ie_len, rsp_ie,
+                #if LINUX_VERSION_CODE <= KERNEL_VERSION(4, 12, 0)
+                                ind->assoc_rsp_ie_len, ind->status_code, GFP_ATOMIC);
+                #else
+                                ind->assoc_rsp_ie_len, ind->status_code, GFP_ATOMIC,NL80211_TIMEOUT_UNSPECIFIED);
+                #endif
     #else
             cfg80211_connect_result(dev, (const u8 *)ind->bssid.array, req_ie,
                                     ind->assoc_req_ie_len, rsp_ie,
@@ -1262,7 +1262,7 @@ static inline int aml_rx_sm_disconnect_ind(struct aml_hw *aml_hw,
     aml_chanctx_unlink(aml_vif);
     aml_vif->sta.scan_hang = 0;
 #ifdef CONFIG_AML_RECOVERY
-    aml_recy_conn_update(aml_hw, 0);
+    aml_recy_flags_clr(AML_RECY_ASSOC_INFO_SAVED|AML_RECY_EXTAUTH_REQUIRED);
 #endif
 
     return 0;
@@ -1299,6 +1299,10 @@ static inline int aml_rx_sm_external_auth_required_ind(struct aml_hw *aml_hw,
     }
 
     aml_external_auth_enable(aml_vif);
+#ifdef CONFIG_AML_RECOVERY
+    aml_recy_flags_set(AML_RECY_EXTAUTH_REQUIRED);
+#endif
+
 #else
     aml_send_sm_external_auth_required_rsp(aml_hw, aml_vif,
                                             WLAN_STATUS_UNSPECIFIED_FAILURE);
@@ -1338,7 +1342,7 @@ static inline int aml_rx_twt_setup_ind(struct aml_hw *aml_hw,
                                         struct ipc_e2a_msg *msg)
 {
     struct twt_setup_ind *ind = (struct twt_setup_ind *)msg->param;
-    struct aml_sta *aml_sta = &aml_hw->sta_table[ind->sta_idx];
+    struct aml_sta *aml_sta = aml_hw->sta_table + ind->sta_idx;
 
     AML_DBG(AML_FN_ENTRY_STR);
 
@@ -1368,7 +1372,7 @@ static inline int aml_rx_mesh_peer_update_ind(struct aml_hw *aml_hw,
 {
     struct mesh_peer_update_ind *ind = (struct mesh_peer_update_ind *)msg->param;
     struct aml_vif *aml_vif = aml_hw->vif_table[ind->vif_idx];
-    struct aml_sta *aml_sta = &aml_hw->sta_table[ind->sta_idx];
+    struct aml_sta *aml_sta = aml_hw->sta_table + ind->sta_idx;
 
     AML_DBG(AML_FN_ENTRY_STR);
 
@@ -1494,7 +1498,7 @@ static inline int aml_rx_mesh_path_update_ind(struct aml_hw *aml_hw,
     else {
         if (found) {
             // Update the Next Hop STA
-            mesh_path->nhop_sta = &aml_hw->sta_table[ind->nhop_sta_idx];
+            mesh_path->nhop_sta = aml_hw->sta_table + ind->nhop_sta_idx;
             trace_mesh_update_path(mesh_path);
         } else {
             // Allocate a Mesh Path structure
@@ -1504,7 +1508,7 @@ static inline int aml_rx_mesh_path_update_ind(struct aml_hw *aml_hw,
                 INIT_LIST_HEAD(&mesh_path->list);
 
                 mesh_path->path_idx = ind->path_idx;
-                mesh_path->nhop_sta = &aml_hw->sta_table[ind->nhop_sta_idx];
+                mesh_path->nhop_sta = aml_hw->sta_table + ind->nhop_sta_idx;
                 memcpy(&mesh_path->tgt_mac_addr, &ind->tgt_mac_addr, MAC_ADDR_LEN);
 
                 // Insert the path in the list of path
@@ -1578,7 +1582,7 @@ static inline int aml_rx_apm_probe_client_ind(struct aml_hw *aml_hw,
 {
     struct apm_probe_client_ind *ind = (struct apm_probe_client_ind *)msg->param;
     struct aml_vif *aml_vif = aml_hw->vif_table[ind->vif_idx];
-    struct aml_sta *aml_sta = &aml_hw->sta_table[ind->sta_idx];
+    struct aml_sta *aml_sta = aml_hw->sta_table + ind->sta_idx;
 
     aml_sta->stats.last_act = jiffies;
     cfg80211_probe_status(aml_vif->ndev, aml_sta->mac_addr, (u64)ind->probe_id,

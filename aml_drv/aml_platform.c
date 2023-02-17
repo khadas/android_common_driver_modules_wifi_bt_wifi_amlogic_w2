@@ -29,6 +29,12 @@
 #include "aml_utils.h"
 #include <linux/interrupt.h>
 #include "aml_prealloc.h"
+#include "aml_task.h"
+
+#include <linux/notifier.h>
+#include <linux/module.h>
+#include <linux/reboot.h>
+#include "aml_agcram.h"
 
 extern unsigned char auc_driver_insmoded;
 extern struct usb_device *g_udev;
@@ -37,6 +43,7 @@ extern struct auc_hif_ops g_auc_hif_ops;
 extern struct aml_plat_pci *g_aml_plat_pci;
 extern unsigned char g_pci_driver_insmoded;
 extern unsigned char g_pci_after_probe;
+extern unsigned char g_pci_shutdown;
 
 #ifndef CONFIG_AML_FPGA_PCIE
 extern struct pcie_mem_map_struct pcie_ep_addr_range[PCIE_TABLE_NUM];
@@ -135,6 +142,7 @@ static int aml_plat_tl4_fw_upload(struct aml_plat *aml_plat, u8* fw_addr,
  *
  * Load a fw, stored as a binary file, into the specified address
  */
+#if 0
 static int aml_plat_bin_fw_upload(struct aml_plat *aml_plat, u8* fw_addr,
                                char *filename)
 {
@@ -149,6 +157,7 @@ static int aml_plat_bin_fw_upload(struct aml_plat *aml_plat, u8* fw_addr,
 
     err = request_firmware(&fw, filename, dev);
     if (err) {
+        printk("Please check version of agcram.bin, need update to %s !!!\n", filename);
         return err;
     }
 
@@ -176,6 +185,34 @@ static int aml_plat_bin_fw_upload(struct aml_plat *aml_plat, u8* fw_addr,
 
     return err;
 }
+#endif
+
+static int aml_plat_agc_download(struct aml_plat *aml_plat, u8* fw_addr)
+{
+    unsigned int size;
+    u32 *src, *dst;
+    unsigned int i;
+
+    src = agc_ram;
+    size = sizeof(agc_ram);
+    dst = (u32 *)fw_addr;
+
+    printk("%s:%d, src addr 0x%x, size %d\n", __func__, __LINE__, fw_addr, size);
+
+    /* check potential platform bug on multiple stores vs memcpy */
+    if (aml_bus_type == USB_MODE) {
+        aml_plat->hif_ops->hi_write_sram((unsigned char *)src, (unsigned char *)dst, size, USB_EP4);
+    } else if (aml_bus_type == SDIO_MODE) {
+        aml_plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)src, (unsigned char *)dst, size);
+    } else {
+        for (i = 0; i < size; i += 4) {
+            *dst++ = *src++;
+        }
+    }
+
+    return 0;
+}
+
 //sj
 #define ICCM_ROM_LEN (256 * 1024)
 #define ICCM_RAM_LEN (256 * 1024)
@@ -585,7 +622,7 @@ static u8 aml_plat_get_agc_load_version(struct aml_plat *aml_plat, u32 rf,
 {
     u8 agc_load_ver = 0;
     u32 agc_ver;
-//    u32 regval;
+    //u32 regval;
 
     *clkctrladdr = aml_plat_get_clkctrl_addr(aml_plat);
 
@@ -594,7 +631,7 @@ static u8 aml_plat_get_agc_load_version(struct aml_plat *aml_plat, u32 rf,
         return 0;
 
     /* Get the FPGA signature */
-//    regval = AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, SYSCTRL_SIGNATURE_ADDR);
+    //regval = AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, SYSCTRL_SIGNATURE_ADDR);
 
     /* Read RIU version register */
     agc_ver = AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, RIU_AMLVERSION_ADDR);
@@ -637,16 +674,7 @@ static int aml_plat_agc_load(struct aml_plat *aml_plat)
     aml_plat_stop_agcfsm(aml_plat, agc, &agcctl, &memclk, agc_ver, clkctrladdr);
     printk("%s:%d, agc_addr %x, memclk %x, agc_ver %x, clkctrladdr %x\n", __func__, __LINE__, agc, memclk, agc_ver, clkctrladdr);
 
-#if 1
-    ret = aml_plat_bin_fw_upload(aml_plat,
-                              AML_ADDR(aml_plat, AML_ADDR_SYSTEM, PHY_AGC_UCODE_ADDR),
-                              AML_AGC_FW_NAME);
-#else
-    AML_REG_WRITE(0x33445566, aml_plat, AML_ADDR_SYSTEM, 0x00c0a000);
-    AML_REG_WRITE(0x33445566, aml_plat, AML_ADDR_SYSTEM, 0x00c0a004);
-    AML_REG_WRITE(0x33445566, aml_plat, AML_ADDR_SYSTEM, 0x00c0a008);
-    AML_REG_WRITE(0x33445566, aml_plat, AML_ADDR_SYSTEM, 0x00c0a00c);
-#endif
+    ret = aml_plat_agc_download(aml_plat, AML_ADDR(aml_plat, AML_ADDR_SYSTEM, PHY_AGC_UCODE_ADDR));
 
     if (!ret && (agc_ver == 1)) {
         /* Run BIST to ensure that the AGC RAM was correctly loaded */
@@ -717,7 +745,7 @@ static int aml_ldpc_load(struct aml_hw *aml_hw)
  *
  * @aml_plat: platform data
  */
-static int aml_plat_lmac_load(struct aml_plat *aml_plat)
+int aml_plat_lmac_load(struct aml_plat *aml_plat)
 {
     int ret;
 
@@ -828,7 +856,7 @@ static int aml_plat_rf_fw_load(struct aml_hw *aml_hw)
  *
  * @aml_plat: platform data
  */
-static void aml_plat_mpif_sel(struct aml_plat *aml_plat)
+void aml_plat_mpif_sel(struct aml_plat *aml_plat)
 {
 #ifndef CONFIG_AML_SDM
     u32 regval;
@@ -853,7 +881,7 @@ static void aml_plat_mpif_sel(struct aml_plat *aml_plat)
  *
  * @aml_plat: platform data
  */
-static int aml_platform_reset(struct aml_plat *aml_plat)
+int aml_platform_reset(struct aml_plat *aml_plat)
 {
     u32 regval_aml;
     u32 regval_cpu;
@@ -1555,7 +1583,6 @@ int aml_create_thread(struct aml_hw *aml_hw)
     sema_init(&aml_hw->aml_tx_task_sem, 0);
     sema_init(&aml_hw->aml_tx_cfm_sem, 0);
     sema_init(&aml_hw->aml_msg_sem, 0);
-    sema_init(&aml_hw->aml_misc_sem, 0);
 
     aml_hw->aml_task = kthread_run(aml_task, aml_hw, "aml_task");
     if (IS_ERR(aml_hw->aml_task)) {
@@ -1596,12 +1623,6 @@ int aml_create_thread(struct aml_hw *aml_hw)
         aml_hw->aml_tx_cfm_task = NULL;
         ERROR_DEBUG_OUT("create aml_tx_cfm_task error!!!!\n");
         return -1;
-    }
-
-    aml_hw->aml_misc_task = kthread_run(aml_misc_task, aml_hw, "aml_misc_task");
-    if (IS_ERR(aml_hw->aml_misc_task)) {
-        aml_hw->aml_misc_task = NULL;
-        ERROR_DEBUG_OUT("create aml_misc_task error!!!!\n");
     }
 
     return 0;
@@ -1675,10 +1696,11 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
     AML_REG_WRITE(CPU_CLK_VALUE, aml_plat, AML_ADDR_MAC_PHY, CPU_CLK_REG_ADDR);
 
     //printk("%s:%d, value %x", __func__, __LINE__, readl(aml_plat->get_address(aml_plat, AML_ADDR_MAC_PHY, 0x00a070b4)));
+#ifdef CONFIG_AML_DEBUGFS
     aml_fw_trace_config_filters(aml_get_shared_trace_buf(aml_hw),
                                  aml_ipc_fw_trace_desc_get(aml_hw),
                                  aml_hw->mod_params->ftl);
-
+#endif
 
 #ifndef CONFIG_AML_FHOST
     if ((ret = aml_check_fw_compatibility(aml_hw)))
@@ -1835,42 +1857,6 @@ void aml_pci_destroy_thread(struct aml_hw *aml_hw)
 }
 #endif
 
-#ifdef CONFIG_AML_USE_TASK
-#define AML_TASK_INIT(aml_hw, name)  do { \
-    aml_hw->name = kmalloc(sizeof(struct aml_task), GFP_KERNEL); \
-    spin_lock_init(&aml_hw->name->lock); \
-    sema_init(&aml_hw->name->task_sem, 0); \
-    aml_hw->name->task_quit = 0; \
-    aml_hw->name->task = kthread_run(aml_pcie_##name##_task, aml_hw, "aml_"#name); \
-    if (IS_ERR(aml_hw->name->task)) { kfree(aml_hw->name); } \
-} while (0);
-
-#define AML_TASK_DEINIT(aml_hw, name) do { \
-    init_completion(&aml_hw->name->task_cmpl); \
-    aml_hw->name->task_quit = 1; \
-    up(&aml_hw->name->task_sem); \
-    kthread_stop(aml_hw->name->task); \
-    wait_for_completion(&aml_hw->name->task_cmpl); \
-    kfree(aml_hw->name); \
-} while (0);
-
-static void aml_tasks_create(struct aml_hw *aml_hw)
-{
-    AML_TASK_INIT(aml_hw, irqhdlr);
-    AML_TASK_INIT(aml_hw, rxdesc);
-    AML_TASK_INIT(aml_hw, txcfm);
-    AML_TASK_INIT(aml_hw, misc);
-}
-
-static void aml_tasks_destroy(struct aml_hw *aml_hw)
-{
-    AML_TASK_DEINIT(aml_hw, irqhdlr);
-    AML_TASK_DEINIT(aml_hw, rxdesc);
-    AML_TASK_DEINIT(aml_hw, txcfm);
-    AML_TASK_DEINIT(aml_hw, misc);
-}
-#endif
-
 /**
  * aml_platform_on() - Start the platform
  *
@@ -1955,7 +1941,7 @@ int aml_pci_platform_on(struct aml_hw *aml_hw, void *config)
         return ret;
 
 #ifdef CONFIG_AML_USE_TASK
-    aml_tasks_create(aml_hw);
+    aml_task_init(aml_hw);
 #endif
 
     if ((ret = aml_plat->enable(aml_hw)))
@@ -1963,23 +1949,17 @@ int aml_pci_platform_on(struct aml_hw *aml_hw, void *config)
     AML_REG_WRITE(BOOTROM_ENABLE, aml_plat,
                    AML_ADDR_SYSTEM, SYSCTRL_MISC_CNTL_ADDR);
 
-    printk("%s:%d, reg:0xa070b4 : value %x", __func__, __LINE__, readl(aml_plat->get_address(aml_plat, AML_ADDR_MAC_PHY, 0x00a070b4 )));
-    msleep(10);
-    printk("%s:%d, reg:0xa070b4 : value %x", __func__, __LINE__, readl(aml_plat->get_address(aml_plat, AML_ADDR_MAC_PHY, 0x00a070b4 )));
-    msleep(10);
-    printk("%s:%d, reg:0xa070b4 : value %x", __func__, __LINE__, readl(aml_plat->get_address(aml_plat, AML_ADDR_MAC_PHY, 0x00a070b4 )));
-    msleep(10);
-
     //start firmware cpu
     AML_REG_WRITE(0x00070000, aml_plat, AML_ADDR_AON, RG_PMU_A22);
 
     //check W2 fw whether is ready
     aml_get_vid(aml_plat);
 
-    printk("%s:%d, value %x", __func__, __LINE__, readl(aml_plat->get_address(aml_plat, AML_ADDR_MAC_PHY, 0x00a070b4)));
+#ifdef CONFIG_AML_DEBUGFS
     aml_fw_trace_config_filters(aml_get_shared_trace_buf(aml_hw),
                                  aml_ipc_fw_trace_desc_get(aml_hw),
                                  aml_hw->mod_params->ftl);
+#endif
 
     #ifndef CONFIG_AML_FHOST
     if ((ret = aml_check_fw_compatibility(aml_hw)))
@@ -2060,9 +2040,7 @@ void aml_platform_off(struct aml_hw *aml_hw, void **config)
 #endif
 
 #ifdef CONFIG_AML_USE_TASK
-    if (aml_bus_type == PCIE_MODE) {
-        aml_tasks_destroy(aml_hw);
-    }
+    aml_task_deinit(aml_hw);
 #endif
 
     aml_platform_reset(aml_hw->plat);
@@ -2070,7 +2048,9 @@ void aml_platform_off(struct aml_hw *aml_hw, void **config)
         aml_hw->host_buf = NULL;
         aml_txbuf_list_deinit(aml_hw);
         if (aml_bus_type == SDIO_MODE) {
+#ifndef CONFIG_AML_PREALLOC_BUF_STATIC
             aml_amsdu_buf_list_deinit(aml_hw);
+#endif
         }
     }
     aml_hw->plat->enabled = false;
@@ -2172,6 +2152,7 @@ static u32 aml_pci_ack_irq(struct aml_hw *aml_hw)
         }
         aml_hw->fw_new_pos = (reg_val[0] + SHARED_MEM_BASE_ADDR);
     }
+
 
     return reg_val[1];
 }
@@ -2550,6 +2531,17 @@ static int aml_pci_get_config_reg(struct aml_plat *aml_plat, const u32 **list)
     }
 }
 
+static int wifi_reboot_fn(struct notifier_block *nb, unsigned long action, void *data)
+{
+    g_pci_shutdown = 1;
+    printk("%s action: %d =====>\n", __func__, action);
+    return NOTIFY_OK;
+}
+
+static struct notifier_block wifinotifier = {
+    .notifier_call = wifi_reboot_fn,
+};
+
 /**
  * aml_platform_register_drv() - Register all possible platform drivers
  */
@@ -2584,7 +2576,7 @@ int aml_platform_register_pcie_drv(void)
     g_pci_dev = aml_plat->pci_dev;
     ret = aml_platform_init(aml_plat, &drv_data);
     pci_set_drvdata(g_pci_dev, drv_data);
-
+    register_reboot_notifier(&wifinotifier);
     return ret;
 }
 
@@ -2604,8 +2596,8 @@ void aml_platform_unregister_pcie_drv(void)
     aml_platform_deinit(aml_hw);
     kfree(aml_plat);
     printk("%s,%d\n", __func__, __LINE__);
-
     pci_set_drvdata(g_pci_dev, NULL);
+    unregister_reboot_notifier(&wifinotifier);
 }
 
 void aml_get_vid(struct aml_plat *aml_plat)

@@ -1,4 +1,4 @@
-AML_VERS_NUM=v1.0.10_20230111-w2 driver:1ca159c8af6813edb6b9dc1c49ab679d09949213
+AML_VERS_NUM=w2: v1.1.0_20230306-w2 driver:be45f7d45d8f277dd0f059f5d9cb8a88b426af99
 #KERNELDIR=/usr/lib/modules/5.8.0-63-generic/build
 PWD=$(shell pwd)
 ifeq ($(ARCH),)
@@ -87,7 +87,7 @@ CONFIG_AML_PLATFORM_AH212 ?= y
 CONFIG_AML_PREALLOC_BUF_STATIC ?= y
 
 # Support to use preallocing buffer for debug SKB alloc failed
-CONFIG_AML_PREALLOC_BUF_SKB ?= y
+CONFIG_AML_PREALLOC_BUF_SKB ?= n
 
 # Config to enable WFA certification mode
 CONFIG_AML_WFA_CERT_MODE ?= n
@@ -99,12 +99,11 @@ CONFIG_AML_POWER_SAVE_MODE ?= n
 CONFIG_AML_USE_TASK ?= y
 
 # Support recovery function
-CONFIG_AML_RECOVERY ?= n
+CONFIG_AML_RECOVERY ?= y
 # } // WAITING FOR KCONFIG
 #
 
-subdir-ccflags-y += -DCONFIG_AML_DEBUGFS
-#subdir-ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_AML_DEBUGFS
+subdir-ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_AML_DEBUGFS
 subdir-ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_AML_UM_HELPER_DFLT=\"$(CONFIG_AML_UM_HELPER_DFLT)\"
 subdir-ccflags-$(CONFIG_AML_P2P_DEBUGFS) += -DCONFIG_AML_P2P_DEBUGFS
 subdir-ccflags-$(CONFIG_AML_FPGA_PCIE) += -DCONFIG_AML_FPGA_PCIE

@@ -303,6 +303,7 @@ struct aml_txq {
 #ifdef CONFIG_AML_MUMIMO_TX
     u8 mumimo_info;
 #endif
+    spinlock_t txq_lock;
 };
 
 struct aml_sta;

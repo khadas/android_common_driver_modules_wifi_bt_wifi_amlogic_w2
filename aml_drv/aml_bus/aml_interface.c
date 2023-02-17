@@ -2,6 +2,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
+#include "aml_static_buf.h"
 
 char *bus_type = "pci";
 EXPORT_SYMBOL(bus_type);
@@ -15,6 +16,9 @@ extern int aml_pci_rmmod(void);
 int aml_bus_intf_insmod(void)
 {
     int ret;
+    if (aml_init_wlan_mem()) {
+        printk("aml_init_wlan_mem fail\n");
+    }
     if (strncmp(bus_type,"usb",3) == 0) {
         ret = aml_usb_insmod();
         if (ret) {
@@ -43,6 +47,7 @@ void aml_bus_intf_rmmod(void)
     } else if (strncmp(bus_type,"pci",3) == 0) {
         aml_pci_rmmod();
     }
+    aml_deinit_wlan_mem();
 }
 
 module_param(bus_type, charp,S_IRUSR | S_IRGRP | S_IROTH);

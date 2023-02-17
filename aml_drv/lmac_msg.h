@@ -437,6 +437,8 @@ enum mm_sub_a2e_tag {
     MM_SYNC_TRACE,
     MM_SUB_DHCP_REQ,
     MM_EXT_CAPAB,
+    MM_SUB_LIMIT_POWER,
+    MM_SUB_SHOW_TX_MSG,
     /// the MAX
     MM_SUB_A2E_MAX,
     /// New members cannot be added below
@@ -3233,6 +3235,11 @@ struct mm_dhcpoffload_req {
 struct extcapab_req
 {
     u8_l ext_capab[10];
+};
+
+struct show_tx_msg_req_t
+{
+    unsigned int token;
 };
 
 #endif // LMAC_MSG_H_

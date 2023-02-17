@@ -581,9 +581,10 @@ void _aml_fw_trace_dump(struct aml_hw *aml_hw, struct aml_fw_trace_buf *trace_bu
 {
     uint16_t *ptr = NULL, *ptr_end = NULL, *ptr_limit = NULL, *next_ptr, *ptr_flag;
     char *buf = NULL;
+    int buf_size = 1824;
     size_t size;
 
-    if ((buf = vmalloc(1824)) == NULL)
+    if ((buf = vmalloc(buf_size)) == NULL)
         return;
 
     if (!trace_buf->data || aml_fw_trace_empty(trace_buf)) {
@@ -613,7 +614,7 @@ void _aml_fw_trace_dump(struct aml_hw *aml_hw, struct aml_fw_trace_buf *trace_bu
 
     if (aml_bus_type == PCIE_MODE) {
         while (1) {
-            size = sizeof(buf);
+            size = buf_size;
             next_ptr = aml_fw_trace_to_str(ptr, buf, &size);
             pr_info("%s", buf);
 

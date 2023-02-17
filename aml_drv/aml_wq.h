@@ -21,11 +21,12 @@
 #include "aml_defs.h"
 
 enum aml_wq_type {
-    AML_WQ_RECY_NONE,
-    AML_WQ_RECY_CMDCSH,
-    AML_WQ_RECY_TXHANG,
-    AML_WQ_RECY_PCIERR,
-    AML_WQ_RECY_MAX,
+    AML_WQ_NONE,
+    AML_WQ_RECY,
+    AML_WQ_SYNC_TRACE,
+    AML_WQ_SYNC_BEACON,
+    AML_WQ_SHOW_TX_MSG,
+    AML_WQ_MAX,
 };
 
 struct aml_wq {

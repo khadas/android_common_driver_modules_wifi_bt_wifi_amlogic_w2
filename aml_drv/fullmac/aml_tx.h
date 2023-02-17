@@ -57,6 +57,12 @@
 
 #define MAC_SHORT_MAC_HDR_LEN   24
 #define ACTION_CODE_VENDOR      0x09
+
+#define ACTION_GAS_INIT_REQ        10
+#define ACTION_GAS_INIT_RSP        11
+#define ACTION_GAS_COMEBACK_REQ    12
+#define ACTION_GAS_COMEBACK_RSP    13
+
 #define ACTION_TYPE             0x0d
 #define AUTH_TYPE               0x0b
 #define PROBE_RSP_TYPE          0X05
@@ -65,15 +71,16 @@
 #define PUBLIC_ACTION           0x04
 #define P2P_ACTION              0x7f
 #define OUI_TYPE_P2P            0x09
+#define OUI_TYPE_DPP            0x1a
 
 #define CATEGORY_OFFSET         MAC_SHORT_MAC_HDR_LEN
 #define ACTION_CODE_OFFSET      (CATEGORY_OFFSET + 1)
 #define OUI_OFFSET              (CATEGORY_OFFSET + 2)
 #define OUI_TYPE_OFFSET         (CATEGORY_OFFSET + 5)
 #define OUI_SUBTYPE_OFFSET      (CATEGORY_OFFSET + 6)
-#define AUTH_ALGO_OFFSET        MAC_SHORT_MAC_HDR_LEN
+#define DPP_PUBLIC_ACTION_SUBTYPE_OFFSET      (CATEGORY_OFFSET + 7)
 
-#define SRAM_TXCFM_CNT         256
+#define AUTH_ALGO_OFFSET        MAC_SHORT_MAC_HDR_LEN
 
 #define TXCFM_RESET_CNT   42
 #define TXCFM_TRIGGER_TX_THR  20
@@ -200,6 +207,7 @@ typedef enum {
 enum {
     AML_SP_FRAME = BIT(0),
     AML_P2P_ACTION_FRAME = BIT(1),
+    AML_DPP_ACTION_FRAME = BIT(2),
 };
 
 /**
@@ -298,6 +306,7 @@ void aml_tx_push(struct aml_hw *aml_hw, struct aml_txhdr *txhdr, int flags);
 int aml_update_tx_cfm(void *pthis);
 
 int aml_sdio_tx_task(void *data);
+bool aml_filter_sp_data_frame(struct sk_buff *skb,struct aml_vif *aml_vif,AML_SP_STATUS_E sp_status);
 
 
 #endif /* _AML_TX_H_ */

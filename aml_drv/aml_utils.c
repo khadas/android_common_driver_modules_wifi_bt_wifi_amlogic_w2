@@ -878,10 +878,25 @@ void aml_amsdu_buf_list_init(struct aml_hw *aml_hw)
 {
     int i = 0;
     struct tx_amsdu_param *txamsdu;
+#ifdef CONFIG_AML_PREALLOC_BUF_STATIC
+    size_t out_size;
+    struct tx_amsdu_param *txamsdu_base;
+#endif
 
     INIT_LIST_HEAD(&aml_hw->tx_amsdu_buf_free_list);
     INIT_LIST_HEAD(&aml_hw->tx_amsdu_buf_used_list);
-
+#ifdef CONFIG_AML_PREALLOC_BUF_STATIC
+    txamsdu_base =(struct tx_amsdu_param *)aml_prealloc_get(PREALLOC_BUF_TYPE_AMSDU,
+             AMSDU_BUF_CNT * sizeof(struct tx_amsdu_param), &out_size);
+    if (!txamsdu_base) {
+        ASSERT_ERR(0);
+        return;
+    }
+    for (i = 0; i < AMSDU_BUF_CNT; i++) {
+        txamsdu = txamsdu_base + i;
+        list_add_tail(&txamsdu->list, &aml_hw->tx_amsdu_buf_free_list);
+    }
+#else
     for (i = 0; i < AMSDU_BUF_CNT; i++) {
         txamsdu = kmalloc(sizeof(struct tx_amsdu_param), GFP_ATOMIC);
         if (!txamsdu) {
@@ -890,6 +905,8 @@ void aml_amsdu_buf_list_init(struct aml_hw *aml_hw)
         }
         list_add_tail(&txamsdu->list, &aml_hw->tx_amsdu_buf_free_list);
     }
+
+#endif
 }
 void aml_amsdu_buf_list_deinit(struct aml_hw *aml_hw)
 {
@@ -965,7 +982,7 @@ void aml_txbuf_list_init(struct aml_hw *aml_hw)
 
 void aml_tx_cfmed_list_init(struct aml_hw *aml_hw)
 {
-    memset(aml_hw->read_cfm, 0, sizeof(struct tx_sdio_usb_cfm_tag) * TXCFM_READ_CNT);
+    memset(aml_hw->read_cfm, 0, sizeof(struct tx_sdio_usb_cfm_tag) * SRAM_TXCFM_CNT);
     INIT_LIST_HEAD(&aml_hw->tx_cfmed_list);
 }
 
@@ -974,6 +991,7 @@ void aml_scan_results_list_init(struct aml_hw *aml_hw)
 {
     int i =0;
     struct scan_results *scan_results;
+
     memset(aml_hw->scan_results, 0, sizeof(struct scan_results) * SCAN_RESULTS_MAX_CNT);
     spin_lock_init(&aml_hw->scan_lock);
     INIT_LIST_HEAD(&aml_hw->scan_res_list);
@@ -988,7 +1006,7 @@ void aml_scan_results_list_init(struct aml_hw *aml_hw)
 }
 
 
-struct scan_results * aml_scan_get_scan_res_node(struct aml_hw *aml_hw)
+struct scan_results *aml_scan_get_scan_res_node(struct aml_hw *aml_hw)
 {
     struct scan_results *scan_res;
     spin_lock_bh(&aml_hw->scan_lock);
@@ -1155,7 +1173,7 @@ int aml_tx_task(void *data)
                 page_num = howmanypage(frame_tot_len + SDIO_DATA_OFFSET + SDIO_FRAME_TAIL_LEN, SDIO_PAGE_LEN);
             }
 
-            if ((page_num <= aml_hw->g_tx_param.tx_page_free_num)
+            if ((aml_hw->g_tx_param.tx_page_free_num > 1) && (page_num <= aml_hw->g_tx_param.tx_page_free_num)
                 && ((aml_hw->g_tx_param.tot_page_num + page_num <= aml_hw->g_tx_param.tx_page_once) || (aml_hw->g_tx_param.tot_page_num == 0))) {
 
                 ASSERT(aml_hw->g_tx_param.scat_req != NULL);
@@ -1207,6 +1225,7 @@ int aml_tx_task(void *data)
                         aml_hw->g_tx_param.scat_req->scat_count++;
                         aml_hw->g_tx_param.scat_req->len += aml_hw->g_tx_param.scat_req->scat_list[aml_hw->g_tx_param.mpdu_num].len;
                         aml_hw->g_tx_param.mpdu_num++;
+                        AML_PRINT(AML_DBG_MODULES_TX, "amsdu %s, tx_page_free_num=%d, credit=%d, pagenum=%d, skb=%p\n", __func__, aml_hw->g_tx_param.tx_page_free_num, sw_txhdr->txq->credits, page_num, sw_txhdr->skb);
 
                     } else {
                         frm = (unsigned char *)sw_txhdr->skb->data + sizeof(struct aml_txhdr);
@@ -1216,7 +1235,7 @@ int aml_tx_task(void *data)
                         aml_hw->g_tx_param.scat_req->scat_list[aml_hw->g_tx_param.mpdu_num].page_num = page_num;
                         aml_hw->g_tx_param.scat_req->scat_count++;
                         aml_hw->g_tx_param.scat_req->len += aml_hw->g_tx_param.scat_req->scat_list[aml_hw->g_tx_param.mpdu_num].len;
-
+                        AML_PRINT(AML_DBG_MODULES_TX, "%s, tx_page_free_num=%d, credit=%d, pagenum=%d, skb=%p\n", __func__, aml_hw->g_tx_param.tx_page_free_num, sw_txhdr->txq->credits, page_num, sw_txhdr->skb);
                         aml_hw->g_tx_param.mpdu_num++;
                     }
                 } else {
@@ -2062,9 +2081,10 @@ void aml_error_ind(struct aml_hw *aml_hw)
     } else {
         dump = (struct dbg_debug_dump_tag *)((char*)buf->addr + DGB_INFO_OFFSET);
     }
-    dev_err(aml_hw->dev, "(type %d): dump received\n",
-            dump->dbg_info.error_type);
+    dev_err(aml_hw->dev, "(type %d): dump received\n", dump->dbg_info.error_type);
+#ifdef CONFIG_AML_DEBUGFS
     aml_hw->debugfs.trace_prst = true;
+#endif
     aml_trigger_um_helper(&aml_hw->debugfs);
 }
 
@@ -2081,7 +2101,9 @@ void aml_umh_done(struct aml_hw *aml_hw)
 
     /* this assumes error_ind won't trigger before ipc_host_dbginfo_push
        is called and so does not irq protect (TODO) against error_ind */
+#ifdef CONFIG_AML_DEBUGFS
     aml_hw->debugfs.trace_prst = false;
+#endif
     if (aml_bus_type == PCIE_MODE) {
         ipc_host_dbginfo_push(aml_hw->ipc_env, &aml_hw->dbgdump.buf);
     }
@@ -2113,6 +2135,7 @@ u32 aml_ieee80211_chan_to_freq(u32 chan, u32 band)
         }
     }
 }
+
 u32 aml_ieee80211_freq_to_chan(u32 freq, u32 band)
 {
     if (band == NL80211_BAND_5GHZ) {
@@ -2148,4 +2171,3 @@ uint32_t aml_read_reg(struct net_device *dev,uint32_t reg_addr)
     }
     return 0;
 }
-

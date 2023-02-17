@@ -12,6 +12,9 @@
 #include "aml_tx.h"
 #include "ipc_host.h"
 #include "aml_events.h"
+#include "aml_iwpriv_cmds.h"
+#include "aml_msg_tx.h"
+#include "aml_wq.h"
 
 /******************************************************************************
  * Utils functions
@@ -206,6 +209,7 @@ static void aml_txq_init(struct aml_txq *txq, int idx, u8 status,
     txq->amsdu_len = 0;
 #endif /* CONFIG_AML_AMSDUS_TX */
 #endif /* CONFIG_AML_SOFTMAC */
+    spin_lock_init(&txq->txq_lock);
 }
 
 /**
@@ -306,8 +310,8 @@ static void aml_txq_deinit(struct aml_hw *aml_hw, struct aml_txq *txq)
     if (txq->idx == TXQ_INACTIVE)
         return;
 
-    AML_INFO("txq deinit");
     spin_lock_bh(&aml_hw->tx_lock);
+    AML_INFO("txq deinit, txq idx=%d", txq->idx);
     aml_txq_del_from_hw_list(txq);
     txq->idx = TXQ_INACTIVE;
     aml_txq_flush(aml_hw, txq);
@@ -351,7 +355,7 @@ void aml_txq_vif_init(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
     txq = aml_txq_vif_get(aml_vif, NX_BCMC_TXQ_TYPE);
     idx = aml_txq_vif_idx(aml_vif, NX_BCMC_TXQ_TYPE);
     aml_txq_init(txq, idx, status, &aml_hw->hwq[AML_HWQ_BE], 0,
-                  &aml_hw->sta_table[aml_vif->ap.bcmc_index], aml_vif->ndev);
+                  aml_hw->sta_table + aml_vif->ap.bcmc_index, aml_vif->ndev);
 
     txq = aml_txq_vif_get(aml_vif, NX_UNK_TXQ_TYPE);
     idx = aml_txq_vif_idx(aml_vif, NX_UNK_TXQ_TYPE);
@@ -638,6 +642,14 @@ static bool aml_txq_drop_old_traffic(struct aml_txq *txq, struct aml_hw *aml_hw,
  * @vif: Vif to process
  * @return Whether there is still pkt queued in any TXQ.
  */
+
+void aml_show_tx_msg(struct aml_hw *aml_hw,struct aml_wq *aml_wq)
+{
+    struct aml_vif *vif = (struct aml_vif *)aml_wq->data;
+    AML_INFO("vif:%d",vif->vif_index);
+    aml_get_txq(vif->ndev);
+    aml_txq_unexpection(vif->aml_hw);
+}
 static bool aml_txq_drop_ap_vif_old_traffic(struct aml_vif *vif)
 {
     struct aml_sta *sta;
@@ -652,6 +664,19 @@ static bool aml_txq_drop_ap_vif_old_traffic(struct aml_vif *vif)
                               vif->aml_hw, AML_TXQ_MAX_QUEUE_JIFFIES, &pkt_dropped);
     WARN(pkt_dropped, "Dropped packet in BCMC/UNK queue");
 
+    if (pkt_dropped) {
+        struct aml_wq *aml_wq;
+        aml_wq = aml_wq_alloc(sizeof(struct aml_vif));
+        if (!aml_wq) {
+            AML_INFO("alloc workqueue out of memory");
+        }
+        else
+        {
+            aml_wq->id = AML_WQ_SHOW_TX_MSG;
+            memcpy(aml_wq->data, vif, sizeof(struct aml_vif));
+            aml_wq_add(vif->aml_hw, aml_wq);
+        }
+    }
     list_for_each_entry(sta, &vif->ap.sta_list, list) {
         struct aml_txq *txq;
         int tid;
@@ -699,8 +724,20 @@ static bool aml_txq_drop_sta_vif_old_traffic(struct aml_vif *vif)
         }
     }
 
-    if (pkt_dropped)
+    if (pkt_dropped) {
+        struct aml_wq *aml_wq;
         netdev_warn(vif->ndev, "Dropped packet in STA interface TXQs");
+        aml_wq = aml_wq_alloc(sizeof(struct aml_vif));
+        if (!aml_wq) {
+            AML_INFO("alloc workqueue out of memory");
+        }
+        else
+        {
+            aml_wq->id = AML_WQ_SHOW_TX_MSG;
+            memcpy(aml_wq->data, vif, sizeof(struct aml_vif));
+            aml_wq_add(vif->aml_hw, aml_wq);
+        }
+    }
     return pkt_queued;
 }
 
@@ -785,14 +822,69 @@ void aml_txq_prepare(struct aml_hw *aml_hw)
  * Add the TX queue if not already present in the HW queue list.
  * To be called with tx_lock hold
  */
+#define TXQ_LIST_DEBUG
+#ifdef TXQ_LIST_DEBUG
+#define TXQ_DEBUG_BUF_LEN 15
+struct txq_save_t {
+    u16 txq_idx;
+    u8 txq_tid;
+    u8 sta_idx;
+    u8 vif_idx;
+    u8 pl;
+};
+struct txq_save_t txq_save[TXQ_DEBUG_BUF_LEN] = {0,};
+u8 txq_save_idx = 0;
+
+void txq_save_fn(struct aml_txq *txq,u8 pl)
+{
+    txq_save[txq_save_idx].txq_idx = txq->idx;
+    txq_save[txq_save_idx].txq_tid = txq->tid;
+    if (txq->sta != NULL) {
+        txq_save[txq_save_idx].sta_idx = txq->sta->sta_idx;
+        txq_save[txq_save_idx].vif_idx = txq->sta->vif_idx;
+    }
+    else {
+        txq_save[txq_save_idx].sta_idx = 0x55;
+        txq_save[txq_save_idx].vif_idx = 0x55;
+    }
+    txq_save[txq_save_idx].pl = pl;
+    txq_save_idx ++;
+    if (txq_save_idx == TXQ_DEBUG_BUF_LEN) {
+        txq_save_idx = 0;
+    }
+}
+#endif
 void aml_txq_add_to_hw_list(struct aml_txq *txq)
 {
+    aml_spin_lock(&txq->txq_lock);
     if (!(txq->status & AML_TXQ_IN_HWQ_LIST)) {
         trace_txq_add_to_hw(txq);
         txq->status |= AML_TXQ_IN_HWQ_LIST;
+#ifdef TXQ_LIST_DEBUG
+        txq_save_fn(txq, 0);
+        {
+            struct list_head *new = &txq->sched_list;
+            struct list_head *head = &txq->hwq->list;
+            u8 i = 0;
+            if (new == head->prev) {
+                AML_INFO("txq_idx:%d,txq_tid:%d,sta_idx:%d,vif_idx:%d,cur_save_idx:%d",
+                    txq->idx,
+                    txq->tid,
+                    (txq->sta == NULL) ? 0X55 : txq->sta->sta_idx,
+                    (txq->sta == NULL) ? 0X55 : txq->sta->vif_idx,
+                    txq_save_idx);
+                for (i = 0; i < TXQ_DEBUG_BUF_LEN; i++) {
+                    AML_INFO("[%d]txq_idx:%d,txq_tid:%d,sta_idx:%d,vif_idx:%d",
+                        i, txq_save[i].txq_idx, txq_save[i].txq_tid, txq_save[i].sta_idx, txq_save[i].vif_idx);
+                    msleep(5);
+                }
+            }
+        }
+#endif
         list_add_tail(&txq->sched_list, &txq->hwq->list);
         txq->hwq->need_processing = true;
     }
+    aml_spin_unlock(&txq->txq_lock);
 }
 
 /**
@@ -805,11 +897,16 @@ void aml_txq_add_to_hw_list(struct aml_txq *txq)
  */
 void aml_txq_del_from_hw_list(struct aml_txq *txq)
 {
+    aml_spin_lock(&txq->txq_lock);
     if (txq->status & AML_TXQ_IN_HWQ_LIST) {
         trace_txq_del_from_hw(txq);
         txq->status &= ~AML_TXQ_IN_HWQ_LIST;
+#ifdef TXQ_LIST_DEBUG
+        txq_save_fn(txq, 1);
+#endif
         list_del(&txq->sched_list);
     }
+    aml_spin_unlock(&txq->txq_lock);
 }
 
 /**
@@ -1288,7 +1385,7 @@ int aml_txq_queue_skb(struct sk_buff *skb, struct aml_txq *txq,
     if (!retry && ++txq->hwq->len == txq->hwq->len_stop) {
          trace_hwq_flowctrl_stop(txq->hwq->id);
          ieee80211_stop_queue(aml_hw->hw, txq->hwq->id);
-         aml_hw->stats.queues_stops++;
+         aml_hw->stats->queues_stops++;
      }
 #endif /* CONFIG_AML_FULLMAC */
 
@@ -1339,7 +1436,7 @@ void aml_txq_confirm_any(struct aml_hw *aml_hw, struct aml_txq *txq,
 
     hwq->credits[user]++;
     hwq->need_processing = true;
-    aml_hw->stats.cfm_balance[hwq->id]--;
+    aml_hw->stats->cfm_balance[hwq->id]--;
 }
 
 /******************************************************************************
@@ -1800,10 +1897,10 @@ void aml_hwq_init(struct aml_hw *aml_hw)
         struct aml_hwq *hwq = &aml_hw->hwq[i];
 
         for (j = 0 ; j < CONFIG_USER_MAX; j++) {
-            hwq->credits[j] = (aml_bus_type == PCIE_MODE) ? nx_txdesc_cnt[i] : nx_txdesc_cnt_ext[i];
+            hwq->credits[j] = nx_txdesc_cnt_ext[i];
         }
         hwq->id = i;
-        hwq->size = (aml_bus_type == PCIE_MODE) ? nx_txdesc_cnt[i] : nx_txdesc_cnt_ext[i];
+        hwq->size = nx_txdesc_cnt_ext[i];
         INIT_LIST_HEAD(&hwq->list);
 
 #ifdef CONFIG_AML_SOFTMAC

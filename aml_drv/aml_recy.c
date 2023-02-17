@@ -9,6 +9,7 @@
 *
 ****************************************************************************************
 */
+
 #include <linux/list.h>
 #include <linux/types.h>
 #include <linux/timer.h>
@@ -22,86 +23,144 @@
 #include "aml_utils.h"
 #include "aml_msg_tx.h"
 #include "aml_platform.h"
+#include "aml_main.h"
+#include "aml_scc.h"
+
+#include "reg_access.h"
+#include "wifi_intf_addr.h"
+#include "chip_pmu_reg.h"
 
 #ifdef CONFIG_AML_RECOVERY
-int aml_recy_save_info(struct aml_vif *aml_vif, struct cfg80211_connect_params *sme)
-{
-    struct aml_hw *aml_hw = aml_vif->aml_hw;
-    struct aml_recy_info *recy_info = aml_hw->recy_info;
-    int ies_len = sme->ie_len + sme->ssid_len + 2;
-    uint8_t bcst_bssid[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
-    uint8_t *pos;
 
-#define RECY_INFO_MEMCPY(dst, src, len) do { \
+struct aml_recy *aml_recy;
+static int recy_dbg = 0;
+
+void aml_recy_flags_set(uint8_t flags)
+{
+    aml_recy->flags |= flags;
+}
+
+void aml_recy_flags_clr(uint8_t flags)
+{
+    aml_recy->flags &= ~(flags);
+}
+
+void aml_recy_save_assoc_info(struct cfg80211_connect_params *sme)
+{
+    uint8_t bcst_bssid[ETH_ALEN] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+    uint8_t *pos;
+    int ies_len;
+
+    if (!sme || !sme->ie || !sme->ie_len || !sme->ssid || !sme->ssid_len)
+        return;
+
+    RECY_DBG("save assoc info");
+
+    if (sme->bssid) {
+        memcpy(&aml_recy->assoc_info.bssid, sme->bssid, ETH_ALEN);
+    } else {
+        memcpy(&aml_recy->assoc_info.bssid, bcst_bssid, ETH_ALEN);
+    }
+    if (sme->prev_bssid) {
+        memcpy(&aml_recy->assoc_info.prev_bssid, sme->prev_bssid, ETH_ALEN);
+    }
+    memcpy(&aml_recy->assoc_info.crypto,
+            &sme->crypto, sizeof(struct cfg80211_crypto_settings));
+    aml_recy->assoc_info.auth_type = sme->auth_type;
+    aml_recy->assoc_info.mfp = sme->mfp;
+    aml_recy->assoc_info.key_idx = sme->key_idx;
+    aml_recy->assoc_info.key_len = sme->key_len;
+
+#define AML_RECY_MEMCPY(dst, src, len) do { \
     if (src && len) { \
-        if (!dst) dst = kmalloc(len, GFP_KERNEL); \
-        if (!dst) {AML_INFO("kmalloc failed"); return -1;} \
+        if (dst && (sizeof(*dst) != len)) { kfree(dst); dst = NULL; } \
+        if (!dst) { dst = kmalloc(len, GFP_KERNEL); } \
+        if (!dst) { AML_INFO("kmalloc failed"); return; } \
         memcpy(dst, src, len); \
     } \
 } while (0);
 
-    AML_INFO("recovery save info");
-    aml_recy_conn_update(aml_hw, 1);
-    recy_info->state = AML_RECY_STATE_INIT;
-    if (sme->bssid) {
-        memcpy(&recy_info->bssid, sme->bssid, ETH_ALEN);
-    } else {
-        memcpy(&recy_info->bssid, bcst_bssid, ETH_ALEN);
-    }
-    if (sme->prev_bssid) {
-        memcpy(&recy_info->prev_bssid, sme->prev_bssid, ETH_ALEN);
-    }
-    memcpy(&recy_info->crypto, &sme->crypto, sizeof(struct cfg80211_crypto_settings));
-    recy_info->auth_type = sme->auth_type;
-    recy_info->mfp = sme->mfp;
-    recy_info->key_idx = sme->key_idx;
-    recy_info->key_len = sme->key_len;
-    RECY_INFO_MEMCPY(recy_info->channel, sme->channel, sizeof(struct ieee80211_channel));
-    RECY_INFO_MEMCPY(recy_info->key_buf, sme->key, sme->key_len);
+    AML_RECY_MEMCPY(aml_recy->assoc_info.chan,
+            sme->channel, sizeof(struct ieee80211_channel));
+    AML_RECY_MEMCPY(aml_recy->assoc_info.key_buf, sme->key, sme->key_len);
+#undef AML_RECY_MEMCPY
 
-    if (!recy_info->ies_buf) {
-        recy_info->ies_buf = kmalloc(ies_len, GFP_KERNEL);
+    ies_len = sme->ie_len + sme->ssid_len + 2;
+    if (!aml_recy->assoc_info.ies_buf) {
+        aml_recy->assoc_info.ies_buf = kmalloc(ies_len, GFP_KERNEL);
+        if (!aml_recy->assoc_info.ies_buf) {
+            AML_INFO("kmalloc ies buf failed");
+            return;
+        }
     }
-    if (!recy_info->ies_buf) {
-        AML_INFO("alloc ies buf failed");
-        return -1;
-    }
-    pos = recy_info->ies_buf;
+    pos = aml_recy->assoc_info.ies_buf;
     *pos++ = WLAN_EID_SSID;
     *pos++ = sme->ssid_len;
     memcpy(pos, sme->ssid, sme->ssid_len);
     pos += sme->ssid_len;
     memcpy(pos, sme->ie, sme->ie_len);
-    recy_info->ies_len = ies_len;
-
-    return 0;
+    aml_recy->assoc_info.ies_len = ies_len;
+    aml_recy_flags_set(AML_RECY_ASSOC_INFO_SAVED);
 }
 
-static int aml_recy_connect(struct aml_vif *aml_vif, struct sm_connect_cfm *cfm)
+void aml_recy_save_ap_info(struct cfg80211_ap_settings *settings)
 {
-    struct aml_hw *aml_hw = aml_vif->aml_hw;
-    struct aml_recy_info *recy_info = aml_hw->recy_info;
-    struct cfg80211_connect_params sme;
+    RECY_DBG("save ap info");
+    if (!aml_recy->ap_info.settings) {
+        aml_recy->ap_info.settings =
+            kmalloc(sizeof(struct cfg80211_ap_settings), GFP_KERNEL);
+        if (!aml_recy->ap_info.settings) {
+            AML_INFO("kmalloc ap settings failed");
+            return;
+        }
+    }
+    memcpy(aml_recy->ap_info.settings,
+            settings, sizeof(struct cfg80211_ap_settings));
+    aml_recy_flags_set(AML_RECY_AP_INFO_SAVED);
+}
 
-    if (!aml_hw->is_connected)
+void aml_recy_save_bcn_info(uint8_t *bcn, size_t bcn_len)
+{
+    RECY_DBG("save bcn info");
+    if (!aml_recy->ap_info.bcn) {
+        aml_recy->ap_info.bcn = kmalloc(bcn_len, GFP_KERNEL);
+        if (!aml_recy->ap_info.bcn) {
+            AML_INFO("kmalloc beacon info failed");
+            return;
+        }
+    }
+    memcpy(aml_recy->ap_info.bcn, bcn, bcn_len);
+    aml_recy->ap_info.bcn_len = bcn_len;
+    aml_recy_flags_set(AML_RECY_BCN_INFO_SAVED);
+}
+
+static int aml_recy_sta_connect(struct aml_hw *aml_hw, uint8_t *status)
+{
+    struct aml_vif *aml_vif;
+    struct cfg80211_connect_params sme;
+    struct sm_connect_cfm cfm;
+
+    /* if no connection, do nothing */
+    if (!aml_hw || !(aml_vif = aml_hw->vif_table[0]) || !(aml_vif->ndev)
+        || !(aml_recy->flags & AML_RECY_ASSOC_INFO_SAVED)
+        || (AML_VIF_TYPE(aml_vif) != NL80211_IFTYPE_STATION))
         return 0;
 
-    AML_INFO("recovery connection");
+    RECY_DBG("sta connect start");
     if (aml_hw->scan_request) {
         aml_scan_abort(aml_hw);
     }
 
     memset(&sme, 0, sizeof(sme));
-    sme.bssid = recy_info->bssid;
-    sme.prev_bssid = recy_info->prev_bssid;
-    sme.channel = recy_info->channel;
-    memcpy(&sme.crypto, &recy_info->crypto,
-            sizeof(struct cfg80211_crypto_settings));
-    sme.auth_type = recy_info->auth_type;
-    sme.mfp = recy_info->mfp;
-    sme.key_idx = recy_info->key_idx;
-    sme.key_len = recy_info->key_len;
-    memcpy((void *)sme.key, recy_info->key_buf, recy_info->key_len);
+    sme.bssid = aml_recy->assoc_info.bssid;
+    sme.prev_bssid = aml_recy->assoc_info.prev_bssid;
+    sme.channel = aml_recy->assoc_info.chan;
+    memcpy(&sme.crypto, &aml_recy->assoc_info.crypto, sizeof(struct cfg80211_crypto_settings));
+    sme.auth_type = aml_recy->assoc_info.auth_type;
+    sme.mfp = aml_recy->assoc_info.mfp;
+    sme.key_idx = aml_recy->assoc_info.key_idx;
+    sme.key_len = aml_recy->assoc_info.key_len;
+    memcpy((void *)sme.key, aml_recy->assoc_info.key_buf, aml_recy->assoc_info.key_len);
 
     /* install key for shared-key authentication */
     if (!(sme.crypto.wpa_versions & (NL80211_WPA_VERSION_1
@@ -130,325 +189,283 @@ static int aml_recy_connect(struct aml_vif *aml_vif, struct sm_connect_cfm *cfm)
 #endif
     }
 
-    sme.ssid_len = recy_info->ies_buf[1];
-    sme.ssid = &recy_info->ies_buf[2];
-    sme.ie = &recy_info->ies_buf[2 + sme.ssid_len];
-    sme.ie_len = recy_info->ies_len - (2 + sme.ssid_len);
-    aml_send_sm_connect_req(aml_hw, aml_vif, &sme, cfm);
+    sme.ssid_len = aml_recy->assoc_info.ies_buf[1];
+    sme.ssid = &aml_recy->assoc_info.ies_buf[2];
+    sme.ie = &aml_recy->assoc_info.ies_buf[2 + sme.ssid_len];
+    sme.ie_len = aml_recy->assoc_info.ies_len - (2 + sme.ssid_len);
+    aml_send_sm_connect_req(aml_hw, aml_vif, &sme, &cfm);
+    *status = cfm.status;
 
     return 0;
 }
 
-#if 0 //TODO
-static int aml_recy_reset_ipc(struct aml_hw *aml_hw)
+static int aml_recy_fw_reload(struct aml_hw *aml_hw)
 {
-    return 0;
+    struct aml_plat *aml_plat = aml_hw->plat;
+    unsigned int mac_clk_reg;
+    int ret;
+    u32 regval;
+
+    if (!aml_hw->plat->enabled)
+        return 0;
+
+    RECY_DBG("reload fw start");
+    aml_ipc_stop(aml_hw);
+    if (aml_hw->plat->disable)
+        aml_hw->plat->disable(aml_hw);
+
+    aml_ipc_deinit(aml_hw);
+    aml_platform_reset(aml_hw->plat);
+    regval = AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, NXMAC_MAC_CNTRL_2_ADDR);
+    AML_REG_WRITE(regval | NXMAC_SOFT_RESET_BIT, aml_plat, AML_ADDR_SYSTEM, NXMAC_MAC_CNTRL_2_ADDR);
+    aml_hw->plat->enabled = false;
+
+    /* stop firmware */
+    AML_REG_WRITE(0x00070000 | PHY_RESET | MAC_RESET | CPU_RESET, aml_plat, AML_ADDR_AON, RG_PMU_A22);
+    msleep(10);
+    AML_REG_WRITE(0x00070000 | CPU_RESET, aml_plat, AML_ADDR_AON, RG_PMU_A22);
+    /* config cpu clock to 240Mhz */
+    AML_REG_WRITE(CPU_CLK_VALUE, aml_plat, AML_ADDR_MAC_PHY, CPU_CLK_REG_ADDR);
+    /* change mac clock to 240M */
+    mac_clk_reg = AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, RG_INTF_MACCORE_CLK);
+    mac_clk_reg |= 0x30000;
+    AML_REG_WRITE(mac_clk_reg, aml_plat, AML_ADDR_MAC_PHY, RG_INTF_MACCORE_CLK);
+
+    aml_plat_mpif_sel(aml_plat);
+    aml_hw->phy.cnt = 1;
+    aml_hw->rxbuf_idx = 0;
+
+    aml_plat_lmac_load(aml_plat);
+    aml_ipc_init(aml_hw, (u8 *)AML_ADDR(aml_plat, AML_ADDR_SYSTEM, SHARED_RAM_PCI_START_ADDR),
+            (u8 *)AML_ADDR(aml_plat, AML_ADDR_SYSTEM, SHARED_RAM_HOST_RXBUF_ADDR),
+            (u8 *)AML_ADDR(aml_plat, AML_ADDR_SYSTEM, SHARED_RAM_HOST_RXDESC_ADDR));
+
+    if ((ret = aml_plat->enable(aml_hw)))
+        return 0;
+
+    AML_REG_WRITE(BOOTROM_ENABLE, aml_plat, AML_ADDR_SYSTEM, SYSCTRL_MISC_CNTL_ADDR);
+    /* start firmware */
+    AML_REG_WRITE(0x00070000, aml_plat, AML_ADDR_AON, RG_PMU_A22);
+    /* wait for chip ready */
+    while (!(AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, REG_OF_VENDOR_ID)
+            == W2p_VENDOR_AMLOGIC_EFUSE)) {};
+
+    aml_ipc_start(aml_hw);
+    aml_plat->enabled = true;
+
+    aml_send_reset(aml_hw);
+    aml_send_me_config_req(aml_hw);
+    aml_send_me_chan_config_req(aml_hw);
+
+    if ((ret = aml_send_start(aml_hw))) {
+        AML_INFO("reload fw failed");
+        return -1;
+    }
+
+    return ret;
 }
 
-static int aml_recy_reset_fw(struct aml_hw *aml_hw)
+static int aml_recy_vif_reset(struct aml_hw *aml_hw)
 {
-    aml_recy_reset_ipc(aml_hw);
+    struct aml_vif *aml_vif;
+    struct net_device *dev;
+    int i;
+
+    for (i = 0; i < aml_hw->vif_started; i++) {
+        RECY_DBG("reset vif(%d) reset", i);
+        if (!(aml_vif = aml_hw->vif_table[i]) || !(dev = aml_vif->ndev)) {
+            AML_INFO("retrieve vif or dev failed");
+            if (!aml_vif) AML_INFO();
+            if (!dev) AML_INFO();
+            return -1;
+        }
+
+        aml_radar_cancel_cac(&aml_hw->radar);
+        if (aml_hw->roc && (aml_hw->roc->vif == aml_vif)) {
+            kfree(aml_hw->roc);
+            aml_hw->roc = NULL;
+        }
+
+        spin_lock_bh(&aml_hw->cb_lock);
+        aml_vif->up = false;
+        if (netif_carrier_ok(dev)) {
+            if (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_STATION ||
+                AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_P2P_CLIENT) {
+                if (aml_vif->sta.ap) {
+                    aml_txq_sta_deinit(aml_hw, aml_vif->sta.ap);
+                    aml_txq_tdls_vif_deinit(aml_vif);
+                }
+                netif_tx_stop_all_queues(dev);
+                netif_carrier_off(dev);
+            } else if (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_AP_VLAN) {
+                netif_carrier_off(dev);
+            } else if (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_AP ||
+                    AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_P2P_GO) {
+                aml_txq_vif_deinit(aml_hw, aml_vif);
+                aml_scc_deinit();
+
+                netif_tx_stop_all_queues(dev);
+                netif_carrier_off(dev);
+            }
+        }
+        spin_unlock_bh(&aml_hw->cb_lock);
+
+        if (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_MONITOR)
+            aml_hw->monitor_vif = AML_INVALID_VIF;
+    }
+
     return 0;
 }
-#endif
 
-static int aml_recy_reset_all(struct aml_hw *aml_hw)
+static int aml_recy_vif_restart(struct aml_hw *aml_hw)
 {
     struct aml_vif *aml_vif;
     struct net_device *dev;
     struct mm_add_if_cfm cfm;
+    uint8_t i, status;
     int err = 0;
 
-    if (!aml_hw || !aml_hw->vif_table[0] || !aml_hw->vif_table[0]->ndev)
-        return 0;
 
-    AML_INFO("reset all");
-    aml_vif = aml_hw->vif_table[0];
-    dev = aml_vif->ndev;
+    for (i = 0; i < aml_hw->vif_started; i++) {
+        RECY_DBG("reset vif(%d) reset", i);
+        if (!(aml_vif = aml_hw->vif_table[i]) || !(dev = aml_vif->ndev)) {
+            AML_INFO("retrieve vif or dev failed");
+            if (!aml_vif) AML_INFO();
+            if (!dev) AML_INFO();
+            return -1;
+        }
 
-#if 0 //TODO
-#else
-    {
-        struct aml_cmd_mgr *cmd_mgr = &aml_hw->cmd_mgr;
-        spin_lock_bh(&cmd_mgr->lock);
-        cmd_mgr->state = AML_CMD_MGR_STATE_INITED;
-        spin_unlock_bh(&cmd_mgr->lock);
-    }
-#endif
+        err = aml_send_add_if(aml_hw, dev->dev_addr, AML_VIF_TYPE(aml_vif), false, &cfm);
+        if (err || (cfm.status != 0)) {
+            AML_INFO("add interface %d failed", i);
+            return -1;
+        }
 
-    aml_radar_cancel_cac(&aml_hw->radar);
+        spin_lock_bh(&aml_hw->cb_lock);
+        aml_vif->vif_index = cfm.inst_nbr;
+        aml_vif->up = true;
+        aml_hw->vif_table[cfm.inst_nbr] = aml_vif;
+        spin_unlock_bh(&aml_hw->cb_lock);
 
-    if (aml_hw->scan_request &&
-        aml_hw->scan_request->wdev == &aml_vif->wdev) {
-        aml_scan_abort(aml_hw);
-    }
-
-    aml_send_remove_if(aml_hw, aml_vif->vif_index);
-
-    if (aml_hw->roc && (aml_hw->roc->vif == aml_vif)) {
-        kfree(aml_hw->roc);
-        aml_hw->roc = NULL;
-    }
-
-    spin_lock_bh(&aml_hw->cb_lock);
-    aml_vif->up = false;
-    if (netif_carrier_ok(dev)) {
-        if (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_STATION ||
-            AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_P2P_CLIENT) {
-            if (aml_vif->sta.ap) {
-                aml_txq_sta_deinit(aml_hw, aml_vif->sta.ap);
-                aml_txq_tdls_vif_deinit(aml_vif);
+        if ((AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_STATION) &&
+                (aml_recy->flags & AML_RECY_ASSOC_INFO_SAVED)) {
+            err = aml_recy_sta_connect(aml_hw, &status);
+            if (err || status) {
+                AML_INFO("sta connect failed");
+                return -1;
             }
-            netif_tx_stop_all_queues(dev);
-            netif_carrier_off(dev);
-        } else if (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_AP_VLAN) {
-            netif_carrier_off(dev);
         }
-    }
-    aml_hw->vif_table[aml_vif->vif_index] = NULL;
-    spin_unlock_bh(&aml_hw->cb_lock);
-
-    aml_chanctx_unlink(aml_vif);
-
-    if (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_MONITOR)
-        aml_hw->monitor_vif = AML_INVALID_VIF;
-
-    aml_hw->vif_started--;
-    if (aml_hw->vif_started == 0) {
-        /* reset both IPC sides and remain in sync */
-        aml_ipc_tx_drain(aml_hw);
-        aml_send_reset(aml_hw);
-        aml_send_me_config_req(aml_hw);
-        aml_send_me_chan_config_req(aml_hw);
-
-        /* restart firmware */
-        if ((err = aml_send_start(aml_hw))) {
-            AML_INFO("restart firmware failed");
-            goto fatal;
+        if (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_AP) {
+            aml_cfg80211_change_iface(aml_hw->wiphy, dev, NL80211_IFTYPE_AP, NULL);
+            err = aml_cfg80211_start_ap(aml_vif->aml_hw->wiphy, dev, aml_recy->ap_info.settings);
+            if (err) {
+                AML_INFO("restart ap failed");
+                return -1;
+            }
         }
     }
 
-    if (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_AP_VLAN) {
-        cfm.inst_nbr = aml_vif->drv_vif_index;
-        netif_tx_stop_all_queues(dev);
-    } else {
-        if ((err = aml_send_add_if(aml_hw,
-                    dev->dev_addr, AML_VIF_TYPE(aml_vif), false, &cfm))) {
-            AML_INFO("add interface failed");
-            goto fatal;
-        }
-
-        if (cfm.status != 0) {
-            AML_INFO("add interface failed, status(%d)", cfm.status);
-            goto fatal;
-        }
-    }
-
-    spin_lock_bh(&aml_hw->cb_lock);
-    aml_vif->vif_index = cfm.inst_nbr;
-    aml_vif->up = true;
-    aml_hw->vif_started++;
-    aml_hw->vif_table[cfm.inst_nbr] = aml_vif;
-    spin_unlock_bh(&aml_hw->cb_lock);
-
-    if (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_MONITOR) {
-        aml_hw->monitor_vif = aml_vif->vif_index;
-        if (aml_vif->ch_index != AML_CH_NOT_SET) {
-            err = aml_send_config_monitor_req(aml_hw,
-                    &aml_hw->chanctx_table[aml_vif->ch_index].chan_def,
-                    NULL);
-        }
-    }
-
-    netif_carrier_off(dev);
-
-fatal:
-    return err;
+    return 0;
 }
 
-int aml_recy_cmdcsh_doit(struct aml_hw *aml_hw)
+int aml_recy_doit(struct aml_hw *aml_hw)
 {
-    struct aml_recy_info *recy_info;
-    struct aml_vif *aml_vif;
-    struct sm_connect_cfm cfm;
-    int ret = 0;
+    int ret;
 
-    if (!aml_hw || !aml_hw->vif_table[0] || !aml_hw->vif_table[0]->ndev)
-        return 0;
-
-    aml_vif = aml_hw->vif_table[0];
-    recy_info = aml_hw->recy_info;
-
-    if (recy_info->state != AML_RECY_STATE_STARTED)
-        return 0;
-
-    if ((ret = aml_recy_reset_all(aml_hw))) {
-        AML_INFO("reset all failed");
-        goto fatal;
+    ret = aml_recy_vif_reset(aml_hw);
+    if (ret) {
+        AML_INFO("vif reset failed");
+        return -1;
     }
 
-    if ((ret = aml_recy_connect(aml_vif, &cfm))) {
-        AML_INFO("connect req failed");
-        goto fatal;
+    ret = aml_recy_fw_reload(aml_hw);
+    if (ret) {
+        AML_INFO("fw reload failed");
+        return -1;
     }
 
-    switch (cfm.status) {
-        case CO_OK:
-            AML_INFO("recovery success");
-            recy_info->state = AML_RECY_STATE_DONE;
-            break;
-        default:
-            AML_INFO("recovery failed(%d)", cfm.status);
-            aml_recy_conn_update(aml_hw, 0);
-            recy_info->state = AML_RECY_STATE_FAIL;
-            break;
+    ret = aml_recy_vif_restart(aml_hw);
+    if (ret) {
+        AML_INFO("vif restart failed");
+        return -1;
     }
 
-fatal:
-    return ret;
+    return 0;
 }
 
-static void aml_recy_cmdcsh_cb(struct timer_list *t)
+static int aml_recy_detection(void)
 {
-    struct aml_hw *aml_hw = from_timer(aml_hw, t, cmdcsh_timer);
-    struct aml_recy_info *recy_info = aml_hw->recy_info;
-    struct aml_cmd_mgr *cmd_mgr = &aml_hw->cmd_mgr;
-    enum aml_wq_type type = AML_WQ_RECY_CMDCSH;
-    struct aml_wq *aml_wq;
-    bool crashed = false;
+    struct aml_cmd_mgr *cmd_mgr;
+    int ret = false;
 
+    if (!aml_recy | !aml_recy->aml_hw)
+        return 0;
+
+    cmd_mgr = &aml_recy->aml_hw->cmd_mgr;
     spin_lock_bh(&cmd_mgr->lock);
     if (cmd_mgr->state == AML_CMD_MGR_STATE_CRASHED) {
-        crashed = true;
+        ret = true;
     }
     spin_unlock_bh(&cmd_mgr->lock);
 
-    if (crashed && recy_info->state != AML_RECY_STATE_STARTED) {
-        recy_info->state = AML_RECY_STATE_STARTED;
-        aml_wq = aml_wq_alloc(1);
-        if (!aml_wq) {
-            AML_INFO("alloc wq out of memory");
-            return;
-        }
-        aml_wq->id = AML_WQ_RECY_CMDCSH;
-        memcpy(aml_wq->data, &type, 1);
-        aml_wq_add(aml_hw, aml_wq);
-    }
-    mod_timer(&aml_hw->cmdcsh_timer, jiffies + AML_RECY_CMDCSH_MON_INTERVAL);
+    return ret;
 }
 
-int aml_recy_txhang_doit(struct aml_hw *aml_hw)
+static void aml_recy_timer_cb(struct timer_list *t)
 {
-    return 0;
-}
-
-static void aml_recy_txhang_cb(struct timer_list *t)
-{
-    struct aml_hw *aml_hw = from_timer(aml_hw, t, txhang_timer);
-    struct aml_recy_info *recy_info = aml_hw->recy_info;
-    enum aml_wq_type type = AML_WQ_RECY_TXHANG;
     struct aml_wq *aml_wq;
-    bool txhang = false;
+    enum aml_wq_type type = AML_WQ_RECY;
+    int ret = 0;
 
-    //TODO: to be implement tx hang dectection
-    if (txhang && recy_info->state != AML_RECY_STATE_STARTED) {
-        recy_info->state = AML_RECY_STATE_STARTED;
+    if ((ret = aml_recy_detection())) {
         aml_wq = aml_wq_alloc(1);
         if (!aml_wq) {
             AML_INFO("alloc wq out of memory");
             return;
         }
-        aml_wq->id = AML_WQ_RECY_TXHANG;
+        aml_wq->id = AML_WQ_RECY;
         memcpy(aml_wq->data, &type, 1);
-        aml_wq_add(aml_hw, aml_wq);
+        aml_wq_add(aml_recy->aml_hw, aml_wq);
     }
-    mod_timer(&aml_hw->txhang_timer, jiffies + AML_RECY_TXHANG_MON_INTERVAL);
-}
-
-int aml_recy_pcierr_doit(struct aml_hw *aml_hw)
-{
-    return 0;
-}
-
-static void aml_recy_pcierr_cb(struct timer_list *t)
-{
-    struct aml_hw *aml_hw = from_timer(aml_hw, t, pcierr_timer);
-    struct aml_recy_info *recy_info = aml_hw->recy_info;
-    enum aml_wq_type type = AML_WQ_RECY_PCIERR;
-    struct aml_wq *aml_wq;
-    bool pcierr = false;
-
-    //TODO: to be implement pci error dectection
-    if (pcierr && recy_info->state != AML_RECY_STATE_STARTED) {
-        recy_info->state = AML_RECY_STATE_STARTED;
-        aml_wq = aml_wq_alloc(1);
-        if (!aml_wq) {
-            AML_INFO("alloc wq out of memory");
-            return;
-        }
-        aml_wq->id = AML_WQ_RECY_PCIERR;
-        memcpy(aml_wq->data, &type, 1);
-        aml_wq_add(aml_hw, aml_wq);
-    }
-    mod_timer(&aml_hw->pcierr_timer, jiffies + AML_RECY_PCIERR_MON_INTERVAL);
-}
-
-void aml_recy_conn_update(struct aml_hw *aml_hw, bool is_connected)
-{
-    aml_hw->is_connected = is_connected;
+    mod_timer(&aml_recy->timer, jiffies + AML_RECY_MON_INTERVAL);
 }
 
 int aml_recy_init(struct aml_hw *aml_hw)
 {
-    struct aml_recy_info *recy_info;
+    RECY_DBG("recovery func init");
 
-    if (aml_bus_type != PCIE_MODE)
-        return 0;
-
-    AML_INFO("recovery init");
-    recy_info = kmalloc(sizeof(struct aml_recy_info), GFP_KERNEL);
-    if (!recy_info) {
+    aml_recy = kmalloc(sizeof(struct aml_recy), GFP_KERNEL);
+    if (!aml_recy) {
         AML_INFO("recy info alloc failed");
-        return 0;
+        return -ENOMEM;
     }
-    aml_hw->recy_info = recy_info;
-    recy_info->state = AML_RECY_STATE_INIT;
-    aml_recy_conn_update(aml_hw, 0);
+    aml_recy->aml_hw = aml_hw;
 
-    timer_setup(&aml_hw->cmdcsh_timer, aml_recy_cmdcsh_cb, 0);
-    timer_setup(&aml_hw->txhang_timer, aml_recy_txhang_cb, 0);
-    timer_setup(&aml_hw->pcierr_timer, aml_recy_pcierr_cb, 0);
-
-    mod_timer(&aml_hw->cmdcsh_timer, jiffies + AML_RECY_CMDCSH_MON_INTERVAL);
-    mod_timer(&aml_hw->txhang_timer, jiffies + AML_RECY_TXHANG_MON_INTERVAL);
-    mod_timer(&aml_hw->pcierr_timer, jiffies + AML_RECY_PCIERR_MON_INTERVAL);
+    timer_setup(&aml_recy->timer, aml_recy_timer_cb, 0);
+#if 0 //disable recovery function as default
+    mod_timer(&aml_recy->timer, jiffies + AML_RECY_MON_INTERVAL);
+#endif
 
     return 0;
 }
 
-int aml_recy_deinit(struct aml_hw *aml_hw)
+int aml_recy_deinit(void)
 {
-    struct aml_recy_info *recy_info = aml_hw->recy_info;
+    RECY_DBG("recovery func deinit");
 
-    if (aml_bus_type != PCIE_MODE)
-        return 0;
+    del_timer_sync(&aml_recy->timer);
 
-    AML_INFO("recovery deinit");
-    recy_info->state = AML_RECY_STATE_DEINIT;
-    aml_recy_conn_update(aml_hw, 0);
+#define AML_RECY_FREE(a) do { \
+    if (a) kfree(a); \
+} while (0);
 
-    del_timer_sync(&aml_hw->cmdcsh_timer);
-    del_timer_sync(&aml_hw->txhang_timer);
-    del_timer_sync(&aml_hw->pcierr_timer);
-
-    if (recy_info->channel)
-        kfree(recy_info->channel);
-    if (recy_info->key_buf)
-        kfree(recy_info->key_buf);
-    if (recy_info->ies_buf)
-        kfree(recy_info->ies_buf);
-    if (recy_info)
-        kfree(aml_hw->recy_info);
+    AML_RECY_FREE(aml_recy->assoc_info.chan);
+    AML_RECY_FREE(aml_recy->assoc_info.key_buf);
+    AML_RECY_FREE(aml_recy->assoc_info.ies_buf);
+    AML_RECY_FREE(aml_recy->ap_info.bcn);
+    AML_RECY_FREE(aml_recy->ap_info.settings);
+    AML_RECY_FREE(aml_recy);
+#undef AML_RECY_FREE
 
     return 0;
 }

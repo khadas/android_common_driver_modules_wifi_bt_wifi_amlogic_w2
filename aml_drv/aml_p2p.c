@@ -18,7 +18,7 @@
 #include "aml_tx.h"
 
 /*Table 61—P2P public action frame type*/
-char pub_action_trace[][30] = {
+char p2p_pub_action_trace[][30] = {
     "P2P NEG REQ",
     "P2P NEG RSP",
     "P2P NEG CFM",

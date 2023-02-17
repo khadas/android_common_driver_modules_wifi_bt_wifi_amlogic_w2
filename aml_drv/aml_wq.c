@@ -12,6 +12,8 @@
 
 #include "aml_wq.h"
 #include "aml_recy.h"
+#include "aml_msg_tx.h"
+#include "aml_scc.h"
 
 
 struct aml_wq *aml_wq_alloc(int len)
@@ -66,6 +68,7 @@ void aml_wq_del(struct aml_hw *aml_hw)
     flush_work(&aml_hw->work);
 }
 
+extern void aml_show_tx_msg(struct aml_hw *aml_hw,struct aml_wq *aml_wq);
 static void aml_wq_doit(struct work_struct *work)
 {
     struct aml_wq *aml_wq = NULL;
@@ -76,24 +79,25 @@ static void aml_wq_doit(struct work_struct *work)
         if (!aml_wq)
             return;
 
-        AML_INFO("wq type(%d) do it", aml_wq->id);
         switch (aml_wq->id) {
 #ifdef CONFIG_AML_RECOVERY
-            case AML_WQ_RECY_CMDCSH:
-                aml_recy_cmdcsh_doit(aml_hw);
-                break;
-
-            case AML_WQ_RECY_TXHANG:
-                aml_recy_txhang_doit(aml_hw);
-                break;
-
-            case AML_WQ_RECY_PCIERR:
-                aml_recy_pcierr_doit(aml_hw);
+            case AML_WQ_RECY:
+                aml_recy_doit(aml_hw);
                 break;
 #endif
-        default:
-            AML_INFO("wq type(%d) unknow", aml_wq->id);
-            break;
+            case AML_WQ_SYNC_TRACE:
+                aml_send_sync_trace(aml_hw);
+                break;
+            case AML_WQ_SYNC_BEACON:
+                aml_scc_sync_bcn(aml_hw, aml_wq);
+                break;
+            case AML_WQ_SHOW_TX_MSG:
+                aml_show_tx_msg(aml_hw, aml_wq);
+                break;
+
+            default:
+                AML_INFO("wq type(%d) unknown", aml_wq->id);
+                break;
         }
         kfree(aml_wq);
     }

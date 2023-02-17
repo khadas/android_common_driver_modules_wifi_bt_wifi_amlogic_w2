@@ -63,9 +63,9 @@ struct aml_vif *aml_rx_get_vif(struct aml_hw *aml_hw, int vif_idx)
 static void aml_rx_statistic(struct aml_hw *aml_hw, struct hw_rxhdr *hw_rxhdr,
                               struct aml_sta *sta)
 {
-    struct aml_stats *stats = &aml_hw->stats;
-    struct aml_vif *aml_vif;
 #ifdef CONFIG_AML_DEBUGFS
+    struct aml_stats *stats = aml_hw->stats;
+    struct aml_vif *aml_vif;
     struct aml_rx_rate_stats *rate_stats = &sta->stats.rx_rate;
     struct rx_vector_1 *rxvect = &hw_rxhdr->hwvect.rx_vect1;
     int mpdu, ampdu, mpdu_prev, rate_idx;
@@ -148,7 +148,7 @@ static void aml_rx_statistic(struct aml_hw *aml_hw, struct hw_rxhdr *hw_rxhdr,
             rate_idx = N_CCK + idx - 4;
         }
     }
-    if (rate_idx < rate_stats->size) {
+    if ((rate_idx < rate_stats->size) && (rate_stats->table != NULL)) {
         if (!rate_stats->table[rate_idx])
             rate_stats->rate_cnt++;
         rate_stats->table[rate_idx]++;
@@ -157,7 +157,6 @@ static void aml_rx_statistic(struct aml_hw *aml_hw, struct hw_rxhdr *hw_rxhdr,
         wiphy_err(aml_hw->wiphy, "RX: Invalid index conversion => %d/%d\n",
                   rate_idx, rate_stats->size);
     }
-#endif
 
     aml_vif = aml_rx_get_vif(aml_hw, hw_rxhdr->flags_vif_idx);
     /* Always save complete hwvect */
@@ -165,6 +164,7 @@ static void aml_rx_statistic(struct aml_hw *aml_hw, struct hw_rxhdr *hw_rxhdr,
     sta->stats.rx_pkts ++;
     sta->stats.rx_bytes += hw_rxhdr->hwvect.len;
     sta->stats.last_act = jiffies;
+#endif
 }
 
 /**
@@ -213,6 +213,7 @@ void aml_rx_defer_skb(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
  * Whether it has been forwarded and/or resent the skb is always consumed
  * and as such it shall no longer be used after calling this function.
  */
+
 static int aml_rx_data_skb(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
                             struct sk_buff *skb,  struct hw_rxhdr *rxhdr)
 {
@@ -248,7 +249,6 @@ static int aml_rx_data_skb(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
                               hostid);
                     continue;
                 }
-
                 rx_skb = ipc_buf->addr;
                 // Index for amsdu_len is different (+1) than the one for amsdu_hostids
                 if (!rxhdr->amsdu_len[count] || (rxhdr->amsdu_len[count] > skb_tailroom(rx_skb))) {
@@ -263,7 +263,7 @@ static int aml_rx_data_skb(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
                 res++;
             }
 
-            aml_hw->stats.amsdus_rx[count - 1]++;
+            aml_hw->stats->amsdus_rx[count - 1]++;
             if (!forward) {
                 wiphy_err(aml_hw->wiphy, "A-MSDU truncated, skip it\n");
                 goto resend_n_forward;
@@ -272,7 +272,8 @@ static int aml_rx_data_skb(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
             u32 frm_len = le32_to_cpu(rxhdr->hwvect.len);
 
             __skb_queue_tail(&list, skb);
-            aml_hw->stats.amsdus_rx[0]++;
+            aml_hw->stats->amsdus_rx[0]++;
+            aml_filter_sp_data_frame(skb,aml_vif,SP_STATUS_RX);
 
             if (frm_len > skb_tailroom(skb)) {
                 wiphy_err(aml_hw->wiphy, "A-MSDU truncated, skip it\n");
@@ -290,13 +291,13 @@ static int aml_rx_data_skb(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
                                  AML_VIF_TYPE(aml_vif), 0, NULL, NULL);
 
                 count = skb_queue_len(&list);
-                if (count > ARRAY_SIZE(aml_hw->stats.amsdus_rx))
-                    count = ARRAY_SIZE(aml_hw->stats.amsdus_rx);
+                if (count > ARRAY_SIZE(aml_hw->stats->amsdus_rx))
+                    count = ARRAY_SIZE(aml_hw->stats->amsdus_rx);
                 if (count > 0)
-                    aml_hw->stats.amsdus_rx[count - 1]++;
+                    aml_hw->stats->amsdus_rx[count - 1]++;
             } else {
                 skb_put(skb, le32_to_cpu(rxhdr->hwvect.len));
-                aml_hw->stats.amsdus_rx[0]++;
+                aml_hw->stats->amsdus_rx[0]++;
                 __skb_queue_head(&list, skb);
         }
     }
@@ -321,7 +322,7 @@ static int aml_rx_data_skb(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
                layer simply resend on wireless interface */
             if (rxhdr->flags_dst_idx != AML_INVALID_STA)
             {
-                struct aml_sta *sta = &aml_hw->sta_table[rxhdr->flags_dst_idx];
+                struct aml_sta *sta = aml_hw->sta_table + rxhdr->flags_dst_idx;
                 if (sta->valid && (sta->vlan_idx == aml_vif->vif_index))
                 {
                     forward = false;
@@ -1685,7 +1686,7 @@ check_len_update:
 
         if (hw_rxhdr->flags_sta_idx != AML_INVALID_STA &&
             hw_rxhdr->flags_sta_idx < (NX_REMOTE_STA_MAX + NX_VIRT_DEV_MAX)) {
-            sta = &aml_hw->sta_table[hw_rxhdr->flags_sta_idx];
+            sta = aml_hw->sta_table + hw_rxhdr->flags_sta_idx;
             /* coverity[remediation] -	hwvect won't cross the line*/
             aml_rx_statistic(aml_hw, hw_rxhdr, sta);
         }
@@ -1819,6 +1820,8 @@ s8 aml_sdio_rxdataind(void *pthis, void *arg)
     uint32_t trans_len = 0;
     uint32_t fw_buf_pos = aml_hw->fw_buf_pos & ~AML_WRAP;
     uint32_t fw_new_pos = aml_hw->fw_new_pos & ~AML_WRAP;
+    uint32_t print_cnt = 0;
+    uint32_t print_cnt1 = 0;
 
     REG_SW_SET_PROFILING(aml_hw, SW_PROF_AMLDATAIND);
     if (aml_bus_type == SDIO_MODE)
@@ -1832,11 +1835,29 @@ s8 aml_sdio_rxdataind(void *pthis, void *arg)
 
     trans_len = need_len + SDIO_BLKSIZE;
     if ((trans_len > remain_len) && (remain_len != aml_hw->rx_buf_len)) {
-        if (trans_len < aml_hw->rx_buf_len / 2)
-            return result;
+        if (trans_len < aml_hw->rx_buf_len / 2) {
+            print_cnt1++;
+            if (print_cnt1 > 50) {
+                printk("%s: trans: %x, remain: %x, rx_buf_len: %x, need_len: %x, fw_pre_pos: %x, fw_new_pos:%x,  h_buf_s: %x, h_buf_e: %x\n",
+                    __func__, trans_len, remain_len, aml_hw->rx_buf_len, need_len, fw_buf_pos, fw_new_pos,
+                    aml_hw->host_buf_start, aml_hw->host_buf_end);
+                print_cnt1 = 0;
+            }
 
-        while ((trans_len > remain_len) && (remain_len != aml_hw->rx_buf_len)) {
+            return result;
+        }
+
+        while ((trans_len > remain_len) && (remain_len != aml_hw->rx_buf_len)
+            && ((aml_hw->rx_buf_len - remain_len) > RX_DESC_SIZE)) {
             remain_len = CIRCLE_Subtract2(aml_hw->host_buf_start, aml_hw->host_buf_end, aml_hw->rx_buf_len);
+            print_cnt++;
+            if (print_cnt > 20) {
+                printk("%s: trans: %x, remain: %x, rx_buf_len: %x, need_len: %x, fw_pre_pos: %x, fw_new_pos:%x,  h_buf_s: %x, h_buf_e: %x\n",
+                    __func__, trans_len, remain_len, aml_hw->rx_buf_len, need_len, fw_buf_pos, fw_new_pos,
+                    aml_hw->host_buf_start, aml_hw->host_buf_end);
+                print_cnt = 0;
+                up(&aml_hw->aml_rx_task_sem);
+            }
             udelay(10);
         }
     }
@@ -1944,7 +1965,9 @@ int aml_rx_task(void *data)
         while ((aml_hw->host_buf_start != aml_hw->host_buf_end) || has_data) {
             next_fw_pkt = (uint32_t *)(aml_hw->host_buf_start + NEXT_PKT_OFFSET);
             if (*next_fw_pkt > aml_hw->rx_buf_end || *next_fw_pkt < RXBUF_START_ADDR) {
-                printk("=======error:invalid address %08x, start:%08x, end:%08x\n", *next_fw_pkt, aml_hw->host_buf_start, aml_hw->host_buf_end);
+                printk("=======error:invalid address %08x, start:%08x, end:%08x, fw_pre_pos: %x, fw_new_pos: %x, last_fw_pos: %x\n",
+                    *next_fw_pkt, aml_hw->host_buf_start, aml_hw->host_buf_end,
+                    aml_hw->fw_buf_pos, aml_hw->fw_new_pos, aml_hw->last_fw_pos);
                 break;
             }
 
@@ -2225,7 +2248,7 @@ check_len_update:
 
         if (hw_rxhdr->flags_sta_idx != AML_INVALID_STA &&
             hw_rxhdr->flags_sta_idx < (NX_REMOTE_STA_MAX + NX_VIRT_DEV_MAX)) {
-            sta = &aml_hw->sta_table[hw_rxhdr->flags_sta_idx];
+            sta = aml_hw->sta_table + hw_rxhdr->flags_sta_idx;
             /* coverity[remediation] -  hwvect won't cross the line*/
             aml_rx_statistic(aml_hw, hw_rxhdr, sta);
         }
@@ -2234,7 +2257,6 @@ check_len_update:
             aml_rx_mgmt_any(aml_hw, skb, hw_rxhdr);
         } else {
             aml_vif = aml_rx_get_vif(aml_hw, hw_rxhdr->flags_vif_idx);
-
             if (!aml_vif) {
                 dev_err(aml_hw->dev, "Frame received but no active vif (%d)",
                         hw_rxhdr->flags_vif_idx);

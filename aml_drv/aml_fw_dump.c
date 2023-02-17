@@ -464,6 +464,7 @@ DEBUGFS_READ_WRITE_FILE_OPS(um_helper);
 /*
  * Calls a userspace pgm
  */
+#ifdef CONFIG_AML_DEBUGFS
 int aml_um_helper(struct aml_debugfs *aml_debugfs, const char *cmd)
 {
     struct aml_hw *aml_hw = container_of(aml_debugfs, struct aml_hw,
@@ -527,14 +528,14 @@ void aml_wait_um_helper(struct aml_hw *aml_hw)
 {
     flush_work(&aml_hw->debugfs.helper_work);
 }
+#endif
 
 int aml_dbgfs_register_fw_dump(struct aml_hw *aml_hw,
                                 struct dentry *dir_drv,
                                 struct dentry *dir_diags)
 {
-
+#ifdef CONFIG_AML_DEBUGFS
     struct aml_debugfs *aml_debugfs = &aml_hw->debugfs;
-
     BUILD_BUG_ON(sizeof(CONFIG_AML_UM_HELPER_DFLT) >=
                  sizeof(aml_debugfs->helper_cmd));
     strncpy(aml_debugfs->helper_cmd,
@@ -567,7 +568,7 @@ int aml_dbgfs_register_fw_dump(struct aml_hw *aml_hw,
     DEBUGFS_ADD_FILE(chaninfo,  dir_diags, S_IRUSR);
 
     return 0;
-
-  err:
+err:
+#endif
     return -1;
 }

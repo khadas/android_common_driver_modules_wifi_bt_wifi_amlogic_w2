@@ -15,6 +15,7 @@
 
 #include "aml_defs.h"
 
+extern unsigned char g_pci_shutdown;
 int aml_send_reset(struct aml_hw *aml_hw);
 int aml_send_start(struct aml_hw *aml_hw);
 int aml_send_version_req(struct aml_hw *aml_hw, struct mm_version_cfm *cfm);
@@ -204,7 +205,6 @@ int aml_send_arp_agent_req(struct aml_hw *aml_hw, struct aml_vif *vif, u8 enable
 int aml_set_rekey_data(struct aml_vif *aml_vif, const u8 *kek, const u8 *kck, const u8 *replay_ctr);
 int aml_tko_config_req(struct aml_hw *aml_hw, struct aml_vif *vif,
                         u16 interval, u16 retry_interval, u16 retry_count);
-int aml_tko_activate_req(struct aml_hw *aml_hw, struct aml_vif *vif, u8 active);
 int aml_set_cali_param_req(struct aml_hw *aml_hw, struct Cali_Param *cali_param);
 int aml_fw_reset(struct aml_vif *aml_vif);
 int _aml_get_efuse(struct aml_vif *aml_vif, u32 addr);
@@ -226,18 +226,14 @@ int _aml_set_pt_calibration(struct aml_vif *aml_vif, int pt_cali_val);
 int aml_send_notify_ip(struct aml_vif *aml_vif,u8_l ip_ver,u8_l*ip_addr);
 int _aml_enable_wf(struct aml_vif *aml_vif, u32 addr);
 int aml_send_fwlog_cmd(struct aml_vif *aml_vif, int mode);
-int aml_send_scc_conflict_nofify(struct aml_vif *ap_vif, u8 sta_vif_idx, struct mm_scc_cfm *scc_cfm);
-void aml_sync_trace_timer_attach(struct aml_hw *aml_hw);
-void aml_sync_trace_timer_cancel(struct aml_hw *aml_hw);
+int aml_send_scc_conflict_notify(struct aml_vif *ap_vif, u8 sta_vif_idx, struct mm_scc_cfm *scc_cfm);
 int aml_send_sync_trace(struct aml_hw *aml_hw);
 int aml_send_dhcp_req(struct aml_hw *aml_hw, struct aml_vif *aml_vif, uint8_t work);
 int aml_send_extcapab_req(struct aml_hw *aml_hw);
 
-#define UP_MISC_SEM(aml_hw)    do {\
-    if(aml_bus_type == PCIE_MODE)\
-        up(&aml_hw->misc->task_sem);\
-    else\
-        up(&aml_hw->aml_misc_sem);\
-} while (0);
+int aml_sync_trace_init(struct aml_hw *aml_hw);
+int aml_sync_trace_deinit(struct aml_hw *aml_hw);
+int aml_set_limit_power(struct aml_hw *aml_hw, int limit_power_switch);
+int aml_txq_unexpection(struct aml_hw *aml_hw);
 
 #endif /* _AML_MSG_TX_H_ */

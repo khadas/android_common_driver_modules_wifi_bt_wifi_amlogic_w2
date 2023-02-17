@@ -49,7 +49,9 @@ extern struct mutex auc_usb_mutex;
 #define W2_VENDOR  0x414D
 
 #define W2u_VENDOR_AMLOGIC_EFUSE 0x1B8E
-#define W2u_PRODUCT_AMLOGIC_EFUSE 0x0601
+#define W2u_PRODUCT_A_AMLOGIC_EFUSE 0x0601
+#define W2u_PRODUCT_B_AMLOGIC_EFUSE 0x0641
+
 /*Macro for Write/Read reg via endpoin 0*/
 //#define REG_CTRL_EP0
 

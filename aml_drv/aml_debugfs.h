@@ -268,21 +268,57 @@ int compare_idx(const void *st1, const void *st2);
 #else
 
 struct aml_debugfs {
+    unsigned long long rateidx;
+    struct dentry *dir;
+    struct dentry *dir_stas;
+    bool trace_prst;
+
+    char helper_cmd[64];
+    struct work_struct helper_work;
+    bool helper_scheduled;
+    spinlock_t umh_lock;
+    bool unregistering;
+
+#ifndef CONFIG_AML_FHOST
+    struct aml_fw_trace fw_trace;
+#endif /* CONFIG_AML_FHOST */
+
+#ifdef CONFIG_AML_FULLMAC
+    struct work_struct sta_work;
+    struct dentry *dir_sta[NX_REMOTE_STA_MAX + NX_VIRT_DEV_MAX];
+    uint8_t sta_idx;
+    struct dentry *dir_rc;
+    struct dentry *dir_rc_sta[NX_REMOTE_STA_MAX + NX_VIRT_DEV_MAX];
+    int rc_config[NX_REMOTE_STA_MAX + NX_VIRT_DEV_MAX];
+    struct list_head rc_config_save;
+    struct dentry *dir_twt;
+    struct dentry *dir_twt_sta[NX_REMOTE_STA_MAX + NX_VIRT_DEV_MAX];
+#endif
+
 };
 
-static inline int aml_dbgfs_register(struct aml_hw *aml_hw, const char *name) { return 0; }
+static inline int aml_dbgfs_register(struct aml_hw *aml_hw, const char *name) {return 0;}
 static inline void aml_dbgfs_unregister(struct aml_hw *aml_hw) {}
-static inline int aml_um_helper(struct aml_debugfs *aml_debugfs, const char *cmd) { return 0; }
+static inline int aml_um_helper(struct aml_debugfs *aml_debugfs, const char *cmd) {return 0;}
 static inline int aml_trigger_um_helper(struct aml_debugfs *aml_debugfs) {return 0;}
 static inline void aml_wait_um_helper(struct aml_hw *aml_hw) {}
 #ifdef CONFIG_AML_FULLMAC
-static inline void aml_dbgfs_register_sta(struct aml_hw *aml_hw, struct aml_sta *sta)  {}
-static inline void aml_dbgfs_unregister_sta(struct aml_hw *aml_hw, struct aml_sta *sta)  {}
+static inline void aml_dbgfs_register_sta(struct aml_hw *aml_hw, struct aml_sta *sta) {}
+static inline void aml_dbgfs_unregister_sta(struct aml_hw *aml_hw, struct aml_sta *sta) {}
 #endif
 
-void aml_fw_trace_dump(struct aml_hw *aml_hw) {}
-void aml_fw_trace_reset(struct aml_hw *aml_hw) {}
+static inline void aml_fw_trace_dump(struct aml_hw *aml_hw) {}
+static inline void aml_fw_trace_reset(struct aml_hw *aml_hw) {}
 
+static inline void idx_to_rate_cfg(int idx, union aml_rate_ctrl_info *r_cfg, int *ru_size) {}
+static inline int print_rate_from_cfg(char *buf, int size, u32 rate_config,
+            int *r_idx, int ru_size) {return 0;}
+static inline int print_rate(char *buf, int size, int format, int nss, int mcs, int bw,
+            int sgi, int pre, int dcm, int *r_idx) {return 0;}
+static inline void aml_dbgfs_trigger_fw_dump(struct aml_hw *aml_hw, char *reason) {}
+static inline int compare_idx(const void *st1, const void *st2) {return 0;}
+static inline int aml_dbgfs_txq_vif(char *buf, size_t size,
+            struct aml_vif *aml_vif, struct aml_hw *aml_hw) {return 0;}
 
 #endif /* CONFIG_AML_DEBUGFS */
 

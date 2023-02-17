@@ -39,24 +39,32 @@ void *aml_prealloc_get(int type, size_t size, size_t *out_size)
                 printk("not enough pre-alloc buffer size(%ld) for dump\n", size);
                 return NULL;
             }
-            prealloc_buf = bcmdhd_mem_prealloc(BCMDHD_MEM_DUMP_RAM, size);
+            prealloc_buf = aml_mem_prealloc(AML_PREALLOC_BUF_TYPE_DUMP, size);
             *out_size = PREALLOC_BUF_DUMP_SIZE;
             break;
         case PREALLOC_BUF_TYPE_RX:
-            if (size > FW_VERBOSE_RING_SIZE) {
+            if (size > WLAN_AML_HW_RX_SIZE) {
                 printk("not enough pre-alloc buffer size(%ld) for rx\n", size);
                 return NULL;
             }
-            prealloc_buf = bcmdhd_mem_prealloc(DHD_PREALLOC_FW_VERBOSE_RING, size);
-            *out_size = FW_VERBOSE_RING_SIZE;
+            prealloc_buf = aml_mem_prealloc(AML_PREALLOC_HW_RX, size);
+            *out_size = WLAN_AML_HW_RX_SIZE;
             break;
         case PREALLOC_BUF_TYPE_TXQ:
             if (size > PREALLOC_BUF_INFO_SIZE) {
                 printk("not enough pre-alloc buffer size(%ld) for txq\n", size);
                 return NULL;
             }
-            prealloc_buf = bcmdhd_mem_prealloc(DHD_PREALLOC_DHD_INFO, size);
+            prealloc_buf = aml_mem_prealloc(AML_PREALLOC_BUF_TYPE_TXQ, size);
             *out_size = PREALLOC_BUF_INFO_SIZE;
+            break;
+        case PREALLOC_BUF_TYPE_AMSDU:
+            if (size > WLAN_AML_AMSDU_SIZE) {
+                printk("not enough pre-alloc buffer size(%ld) for amsdu\n", size);
+                return NULL;
+            }
+            prealloc_buf = aml_mem_prealloc(AML_PREALLOC_AMSDU, size);
+            *out_size = WLAN_AML_AMSDU_SIZE;
             break;
         default:
             printk("not support pre-alloc buffer type(%d)\n", type);

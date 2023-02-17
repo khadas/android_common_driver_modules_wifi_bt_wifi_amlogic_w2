@@ -20,6 +20,9 @@
 #define AML_CFGFILE_CHIPID_HIGH    0x9
 #define AML_CFGFILE_CHIPID_LEN     12
 
+#define AML_CFGFILE_MACADDR_LOW    0x1
+#define AML_CFGFILE_MACADDR_HIGH   0x2
+
 enum aml_cfgfile_flag {
     AML_CFGFILE_ERROR,
     AML_CFGFILE_EXIST,

@@ -9,6 +9,8 @@
 #include "aml_defs.h"
 #include "sdio_common.h"
 #include "sg_common.h"
+#include "aml_static_buf.h"
+
 uint8_t *g_mmc_misc;
 struct aml_hwif_sdio g_hwif_sdio;
 struct aml_hwif_sdio g_hwif_rx_sdio;
@@ -1003,7 +1005,7 @@ void aml_sdio_init_ops(void)
 
 void aml_sdio_init_base_addr(void)
 {
-    g_func_kmalloc_buf = (unsigned char *)ZMALLOC(LEN_128K, "func_sdio_read", GFP_DMA | GFP_ATOMIC);
+    g_func_kmalloc_buf = (unsigned char *)aml_mem_prealloc(AML_PREALLOC_SDIO, LEN_128K);
     if (!g_func_kmalloc_buf) {
          printk(">>>sdio kmalloc failed!");
     }
@@ -1118,7 +1120,8 @@ static const struct sdio_device_id aml_sdio[] =
 {
     {SDIO_DEVICE(W2_VENDOR_AMLOGIC,W2_PRODUCT_AMLOGIC) },
     {SDIO_DEVICE(W2_VENDOR_AMLOGIC_EFUSE,W2_PRODUCT_AMLOGIC_EFUSE)},
-    {SDIO_DEVICE(W2s_VENDOR_AMLOGIC_EFUSE,W2s_PRODUCT_AMLOGIC_EFUSE)},
+    {SDIO_DEVICE(W2s_VENDOR_AMLOGIC_EFUSE,W2s_A_PRODUCT_AMLOGIC_EFUSE)},
+    {SDIO_DEVICE(W2s_VENDOR_AMLOGIC_EFUSE,W2s_B_PRODUCT_AMLOGIC_EFUSE)},
     {}
 };
 
@@ -1155,7 +1158,7 @@ void  aml_sdio_exit(void)
     g_sdio_driver_insmoded = 0;
     g_sdio_after_porbe = 0;
     if (g_func_kmalloc_buf) {
-        FREE(g_func_kmalloc_buf, "func_sdio_read");
+        //FREE(g_func_kmalloc_buf, "func_sdio_read");
         g_func_kmalloc_buf = NULL;
     }
     printk("*****************aml sdio common driver is rmmoded********************\n");
@@ -1293,7 +1296,7 @@ unsigned char aml_download_wifi_fw_img(char *firmware_filename)
 #endif
 
     src = (unsigned char *)fw->data + (offset / 4) * BYTE_IN_LINE;
-    kmalloc_buf = (unsigned char *)ZMALLOC(len, "sdio_write", GFP_DMA | GFP_ATOMIC);
+    kmalloc_buf = (unsigned char *)aml_mem_prealloc(AML_PREALLOC_DOWNLOAD_FW, len);
     if (!kmalloc_buf) {
         ERROR_DEBUG_OUT("kmalloc buf fail\n");
         release_firmware(fw);
@@ -1305,7 +1308,7 @@ unsigned char aml_download_wifi_fw_img(char *firmware_filename)
         strncpy(tmp_buf, (char *)src, 8);
         if ((err = kstrtouint(tmp_buf, 16, &tmp_val))) {
             release_firmware(fw);
-            FREE(kmalloc_buf, "sdio_write");
+            //FREE(kmalloc_buf, "sdio_write");
             return err;
         }
         *(unsigned int *)&kmalloc_buf[4 * i] = __swab32(tmp_val);
@@ -1351,7 +1354,7 @@ unsigned char aml_download_wifi_fw_img(char *firmware_filename)
     if (memcmp(buf_iccm_rd, kmalloc_buf, ICCM_CHECK_LEN)) {
         ERROR_DEBUG_OUT("Host HAL: write ICCM ERROR!!!! \n");
         release_firmware(fw);
-        FREE(kmalloc_buf, "sdio_write");
+        //FREE(kmalloc_buf, "sdio_write");
         return false;
 
     } else {
@@ -1369,7 +1372,7 @@ unsigned char aml_download_wifi_fw_img(char *firmware_filename)
         strncpy(tmp_buf, (char *)src, 8);
         if ((err = kstrtouint(tmp_buf, 16, &tmp_val))) {
             release_firmware(fw);
-            FREE(kmalloc_buf, "sdio_write");
+            //FREE(kmalloc_buf, "sdio_write");
             return err;
         }
         *(unsigned int *)&kmalloc_buf[4 * i] = __swab32(tmp_val);
@@ -1406,7 +1409,7 @@ unsigned char aml_download_wifi_fw_img(char *firmware_filename)
     if (memcmp(buf_iccm_rd, kmalloc_buf, DCCM_CHECK_LEN)) {
         ERROR_DEBUG_OUT("Host HAL: write DCCM ERROR!!!! \n");
         release_firmware(fw);
-        FREE(kmalloc_buf, "sdio_write");
+        //FREE(kmalloc_buf, "sdio_write");
         return false;
 
     } else {
@@ -1415,7 +1418,7 @@ unsigned char aml_download_wifi_fw_img(char *firmware_filename)
 #endif
 
     release_firmware(fw);
-    FREE(kmalloc_buf, "sdio_write");
+    //FREE(kmalloc_buf, "sdio_write");
 
     wifi_cpu_clk_switch(0x4f770033);
     /* mac clock 160 Mhz */

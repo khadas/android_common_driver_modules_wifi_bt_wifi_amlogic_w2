@@ -89,6 +89,8 @@
 #define   FPGA_B_RESET                 BIT(1)
 #define   SOFT_RESET                   BIT(0)
 
+#define   PHY_RESET                    BIT(0)
+#define   MAC_RESET                    BIT(1)
 #define   CPU_RESET                    BIT(2)
 
 /* MAC platform */
@@ -148,6 +150,8 @@
 #define   NXMAC_EXC_UNENCRYPTED_BIT             BIT(0)
 
 #define NXMAC_DEBUG_PORT_SEL_ADDR      0x00B00510
+#define NXMAC_MAC_CNTRL_2_ADDR         0x00B08050
+#define NXMAC_SOFT_RESET_BIT           BIT(0)
 #define NXMAC_SW_SET_PROFILING_ADDR    0x00B08564
 #define NXMAC_SW_CLEAR_PROFILING_ADDR  0x00B08568
 

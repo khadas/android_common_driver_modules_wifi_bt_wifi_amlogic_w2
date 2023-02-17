@@ -21,6 +21,7 @@
 #include "share_mem_map.h"
 #include "aml_scc.h"
 #include "aml_recy.h"
+#include "aml_wq.h"
 
 const struct mac_addr mac_addr_bcst = {{0xFFFF, 0xFFFF, 0xFFFF}};
 
@@ -383,7 +384,6 @@ static void aml_msg_free(struct aml_hw *aml_hw, const void *msg_params)
     kfree(msg);
 }
 
-#if 0
 static void aml_priv_msg_free(struct aml_hw *aml_hw, const void *msg_params)
 {
     void *msg;
@@ -395,7 +395,6 @@ static void aml_priv_msg_free(struct aml_hw *aml_hw, const void *msg_params)
 
     aml_msg_free(aml_hw, msg);
 }
-#endif
 
 static int aml_send_msg(struct aml_hw *aml_hw, const void *msg_params,
                          int reqcfm, lmac_msg_id_t reqid, void *cfm)
@@ -409,9 +408,10 @@ static int aml_send_msg(struct aml_hw *aml_hw, const void *msg_params,
     AML_DBG(AML_FN_ENTRY_STR);
 
     msg = container_of((void *)msg_params, struct lmac_msg, param);
-    if (aml_hw->state > WIFI_SUSPEND_STATE_NONE && (*(msg->param) != MM_SUB_SET_SUSPEND_REQ)
+    if ((aml_hw->state > WIFI_SUSPEND_STATE_NONE || g_pci_shutdown) && (*(msg->param) != MM_SUB_SET_SUSPEND_REQ)
         && (*(msg->param) != MM_SUB_SCANU_CANCEL_REQ)) {
-        printk("driver in suspend, cmd not allow to send, id:%d\n", msg->id);
+        printk("driver in suspend, cmd not allow to send, id:%d,aml_hw->state:%d g_pci_shutdown:%d\n",
+            msg->id, aml_hw->state, g_pci_shutdown);
         kfree(msg);
         return -EBUSY;
     }
@@ -783,7 +783,7 @@ int aml_send_roc(struct aml_hw *aml_hw, struct aml_vif *vif,
     struct mm_remain_on_channel_req *req;
     struct cfg80211_chan_def chandef = {0};
 
-    AML_DBG(AML_FN_ENTRY_STR);
+    AML_INFO("op_code:%d,vif_index:%d,dur_ms:%d",MM_ROC_OP_START,vif->vif_index,duration);
 
     /* Create channel definition structure */
     cfg80211_chandef_create(&chandef, chan, NL80211_CHAN_NO_HT);
@@ -2176,7 +2176,7 @@ int aml_send_sm_disconnect_req(struct aml_hw *aml_hw,
     req->reason_code = reason;
     req->vif_idx = aml_vif->vif_index;
 #ifdef CONFIG_AML_RECOVERY
-    aml_recy_conn_update(aml_hw, 0);
+    aml_recy_flags_clr(AML_RECY_ASSOC_INFO_SAVED|AML_RECY_EXTAUTH_REQUIRED);
 #endif
 
     /* Send the SM_DISCONNECT_REQ message to LMAC FW */
@@ -2247,14 +2247,31 @@ int aml_send_apm_start_req(struct aml_hw *aml_hw, struct aml_vif *vif,
 
     // Build the beacon
     bcn->dtim = (u8)settings->dtim_period;
-    bcn_buf = aml_build_bcn(bcn, &settings->beacon);
-    if (!bcn_buf) {
-        aml_msg_free(aml_hw, req);
-        /* coverity[leaked_storage] - req have already freed */
-        return -ENOMEM;
+#ifdef CONFIG_AML_RECOVERY
+    if (aml_recy->flags & AML_RECY_BCN_INFO_SAVED) {
+        size_t bcn_len = aml_recy->ap_info.bcn_len;
+        bcn_buf = kmalloc(bcn_len, GFP_KERNEL);
+        if (!bcn_buf) {
+            aml_msg_free(aml_hw, req);
+            /* coverity[leaked_storage] - req have already freed */
+            return -ENOMEM;
+        }
+        memcpy(bcn_buf, aml_recy->ap_info.bcn, bcn_len);
+    } else
+#endif
+    {
+        bcn_buf = aml_build_bcn(bcn, &settings->beacon);
+        if (!bcn_buf) {
+            aml_msg_free(aml_hw, req);
+            /* coverity[leaked_storage] - req have already freed */
+            return -ENOMEM;
+        }
+#ifdef CONFIG_AML_RECOVERY
+        aml_recy_save_bcn_info(bcn_buf, bcn->len);
+#endif
     }
 #ifdef SCC_STA_SOFTAP
-    aml_scc_save_bcn_buf(bcn_buf,bcn->len);
+    aml_scc_save_bcn_buf(bcn_buf, bcn->len);
     aml_scc_save_init_band(settings->chandef.chan->band);
 #endif
     // Retrieve the basic rate set from the beacon buffer
@@ -3266,6 +3283,20 @@ int aml_scan_hang(struct aml_vif *aml_vif, int scan_hang)
     return aml_priv_send_msg(aml_hw, scan_hang_param, 0, 0, NULL);
 }
 
+int aml_set_limit_power(struct aml_hw *aml_hw, int limit_power_switch)
+{
+    int *fw_limit_power_switch = NULL;
+
+    fw_limit_power_switch = aml_priv_msg_zalloc(MM_SUB_LIMIT_POWER, sizeof(int));
+    if (!fw_limit_power_switch)
+        return -ENOMEM;
+
+    *fw_limit_power_switch = limit_power_switch;
+
+    return aml_priv_send_msg(aml_hw, fw_limit_power_switch, 0, 0, NULL);
+}
+
+
 int aml_send_suspend_req(struct aml_hw *aml_hw, u8_l filter, enum wifi_suspend_state state)
 {
     struct mm_set_suspend_req *req;
@@ -3360,12 +3391,13 @@ int aml_get_sched_scan_req(struct aml_vif *aml_vif, struct cfg80211_sched_scan_r
     uint8_t chan_flags = 0;
 
     sched_start_req->reqid = request->reqid;
+    sched_start_req->min_rssi_thold = request->match_sets->rssi_thold;
 
      /* Set parameters */
     req->vif_idx = aml_vif->vif_index;
     req->chan_cnt = (u8)min_t(int, SCAN_CHANNEL_MAX, request->n_channels);
     req->ssid_cnt = (u8)min_t(int, SCAN_SSID_MAX, request->n_ssids);
-    req->bssid = mac_addr_bcst;
+    memcpy(&req->bssid, request->match_sets->bssid, 6);
 
     if (req->ssid_cnt == 0)
         chan_flags |= CHAN_NO_IR;
@@ -3380,7 +3412,7 @@ int aml_get_sched_scan_req(struct aml_vif *aml_vif, struct cfg80211_sched_scan_r
         if (aml_ipc_buf_a2e_alloc(aml_hw, &aml_hw->scan_ie,
                                    request->ie_len, request->ie)) {
             netdev_err(aml_vif->ndev, "Failed to allocate IPC buf for SCAN IEs\n");
-            goto error;
+            return -ENOMEM;
         }
 
         req->add_ie_len = request->ie_len;
@@ -3419,9 +3451,7 @@ int aml_get_sched_scan_req(struct aml_vif *aml_vif, struct cfg80211_sched_scan_r
     }
 
     return 0;
-error:
-        aml_msg_free(aml_hw, req);
-        return -ENOMEM;
+
 }
 
 int aml_set_rekey_data(struct aml_vif *aml_vif, const u8 *kek, const u8 *kck, const u8 *replay_ctr)
@@ -3455,20 +3485,6 @@ int aml_tko_config_req(struct aml_hw *aml_hw, struct aml_vif *vif,
     req->interval = interval;
     req->retry_interval = retry_interval;
     req->retry_count = retry_count;
-
-    /* coverity[leaked_storage] - req will be freed later */
-    return aml_priv_send_msg(aml_hw, req, 0, 0, NULL);
-}
-
-int aml_tko_activate_req(struct aml_hw *aml_hw, struct aml_vif *vif, u8 active)
-{
-    struct tko_activate_req *req;
-
-    req = aml_priv_msg_zalloc(MM_SUB_TKO_ACTIVATE_REQ, sizeof(struct tko_activate_req));
-    if (!req)
-        return -ENOMEM;
-
-    req->active = active;
 
     /* coverity[leaked_storage] - req will be freed later */
     return aml_priv_send_msg(aml_hw, req, 0, 0, NULL);
@@ -3607,6 +3623,7 @@ int aml_send_sched_scan_req(struct aml_vif *aml_vif,
 
     if (aml_get_sched_scan_req(aml_vif, request, sched_start_req)) {
         /* coverity[leaked_storage] - sched_start_req have be freed*/
+        aml_priv_msg_free(aml_hw, sched_start_req);
         return -ENOMEM;
     }
 
@@ -3899,7 +3916,7 @@ int aml_send_fwlog_cmd(struct aml_vif *aml_vif, int mode)
     return aml_priv_send_msg(aml_hw, fwlog_param, 0, 0, NULL);
 }
 
-int aml_send_scc_conflict_nofify(struct aml_vif *ap_vif,u8 sta_vif_idx, struct mm_scc_cfm *scc_cfm)
+int aml_send_scc_conflict_notify(struct aml_vif *ap_vif, u8 sta_vif_idx, struct mm_scc_cfm *scc_cfm)
 {
     struct aml_hw *aml_hw = ap_vif->aml_hw;
     scc_conflict_t *scc_conflict;
@@ -3916,17 +3933,16 @@ int aml_send_sync_trace(struct aml_hw *aml_hw)
 {
     static u32 sync_token = 0;
     sync_trace_t *sync_trace;
-    if (sync_token == 0)
-    {
+
+    if (sync_token == 0) {
         get_random_bytes(&sync_token, 2);
     }
     sync_trace =  aml_priv_msg_zalloc(MM_SYNC_TRACE, sizeof(sync_trace_t));
     if (!sync_trace) {
         return -ENOMEM;
     }
-    printk("aml_set_trace_sync,token[%d]\n",sync_token);
-    sync_trace->token = sync_token;
-    sync_token ++;
+    AML_INFO("sync token[%d]", sync_token);
+    sync_trace->token = sync_token++;
     return aml_priv_send_msg(aml_hw, sync_trace, 0, 0, NULL);
 }
 
@@ -3961,29 +3977,53 @@ int aml_send_extcapab_req(struct aml_hw *aml_hw)
     return aml_priv_send_msg(aml_hw, req, 0, MM_MSG_BYPASS_ID, NULL);
 }
 
-static enum hrtimer_restart aml_sync_trace_timeout(struct hrtimer *timer)
+#define AML_SYNC_TRACE_MON_INTERVAL    (60 * HZ)
+
+void aml_sync_trace_cb(struct timer_list *t)
 {
-    struct aml_hw *aml_hw = container_of(timer, struct aml_hw, sync_trace_timer);
-    struct misc_msg_t misc_msg = {0,};
-    hrtimer_start(&aml_hw->sync_trace_timer, aml_hw->sync_kt, HRTIMER_MODE_REL);
-#ifdef CONFIG_AML_USE_TASK
-    misc_msg.id = MISC_EVENT_SYNC_TRACE;
-    aml_enqueue(&(aml_hw->aml_misc_q), &misc_msg);
-    UP_MISC_SEM(aml_hw);
-#endif
-    return HRTIMER_NORESTART;
+    struct aml_hw *aml_hw = from_timer(aml_hw, t, sync_trace_timer);
+    enum aml_wq_type type = AML_WQ_SYNC_TRACE;
+    struct aml_wq *aml_wq;
+
+    aml_wq = aml_wq_alloc(1);
+    if (!aml_wq) {
+        AML_INFO("alloc workqueue out of memory");
+        return;
+    }
+    aml_wq->id = AML_WQ_SYNC_TRACE;
+    memcpy(aml_wq->data, &type, 1);
+    aml_wq_add(aml_hw, aml_wq);
+    mod_timer(&aml_hw->sync_trace_timer, jiffies + AML_SYNC_TRACE_MON_INTERVAL);
 }
 
-void aml_sync_trace_timer_attach(struct aml_hw *aml_hw)
+int aml_sync_trace_init(struct aml_hw *aml_hw)
 {
-    aml_hw->sync_kt = ktime_set(60, 0);//60 seconds
-    hrtimer_init(&aml_hw->sync_trace_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
-    aml_hw->sync_trace_timer.function = aml_sync_trace_timeout;
-    hrtimer_start(&aml_hw->sync_trace_timer, aml_hw->sync_kt, HRTIMER_MODE_REL);
+    timer_setup(&aml_hw->sync_trace_timer, aml_sync_trace_cb, 0);
+    mod_timer(&aml_hw->sync_trace_timer, jiffies + AML_SYNC_TRACE_MON_INTERVAL);
     aml_send_sync_trace(aml_hw);
+    return 0;
 }
 
-void aml_sync_trace_timer_cancel(struct aml_hw *aml_hw)
+int aml_sync_trace_deinit(struct aml_hw *aml_hw)
 {
-    hrtimer_cancel(&aml_hw->sync_trace_timer);
+    del_timer_sync(&aml_hw->sync_trace_timer);
+    return 0;
 }
+
+int aml_txq_unexpection(struct aml_hw *aml_hw)
+{
+    static u32 token = 0;
+    struct show_tx_msg_req_t *show_tx_msg_req;
+
+    if (token == 0) {
+        get_random_bytes(&token, 2);
+    }
+    show_tx_msg_req =  aml_priv_msg_zalloc(MM_SUB_SHOW_TX_MSG, sizeof(struct show_tx_msg_req_t));
+    if (!show_tx_msg_req) {
+        return -ENOMEM;
+    }
+    AML_INFO("token[%d]", token);
+    show_tx_msg_req->token = token++;
+    return aml_priv_send_msg(aml_hw, show_tx_msg_req, 0, 0, NULL);
+}
+

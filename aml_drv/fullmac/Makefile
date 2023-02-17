@@ -62,9 +62,9 @@ w2-y := aml_msg_tx.o        \
         aml_iwpriv_cmds.o   \
         aml_p2p.o           \
         aml_scc.o           \
-        aml_queue.o         \
         aml_wq.o            \
-        aml_recy.o
+        aml_recy.o          \
+        aml_task.o
 
 obj-m += w2_comm.o
 w2_comm-objs := \
@@ -72,6 +72,7 @@ w2_comm-objs := \
         usb_common.o    \
         sdio_common.o   \
         aml_pci.o       \
+        aml_static_buf.o\
         aml_v7.o
 
 w2-$(CONFIG_AML_RADAR)       += aml_radar.o

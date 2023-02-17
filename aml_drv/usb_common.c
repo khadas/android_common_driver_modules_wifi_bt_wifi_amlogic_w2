@@ -3,6 +3,8 @@
 #include "../../common/wifi_intf_addr.h"
 #include "sg_common.h"
 #include "../../common/fi_sdio.h"
+#include "aml_static_buf.h"
+
  /* memory mapping for wifi space */
 #define MAC_ICCM_AHB_BASE    0x00000000
 #define MAC_SRAM_BASE        0x00a10000
@@ -1104,6 +1106,11 @@ static void auc_disconnect(struct usb_interface *interface)
 }
 
 #ifdef CONFIG_PM
+static int auc_reset_resume(struct usb_interface *interface)
+{
+    return 0;
+}
+
 static int auc_suspend(struct usb_interface *interface,pm_message_t state)
 {
     return 0;
@@ -1118,7 +1125,8 @@ static int auc_resume(struct usb_interface *interface)
 static const struct usb_device_id auc_devices[] =
 {
     {USB_DEVICE(W2_VENDOR,W2_PRODUCT)},
-    {USB_DEVICE(W2u_VENDOR_AMLOGIC_EFUSE,W2u_PRODUCT_AMLOGIC_EFUSE)},
+    {USB_DEVICE(W2u_VENDOR_AMLOGIC_EFUSE,W2u_PRODUCT_A_AMLOGIC_EFUSE)},
+    {USB_DEVICE(W2u_VENDOR_AMLOGIC_EFUSE,W2u_PRODUCT_B_AMLOGIC_EFUSE)},
     {}
 };
 
@@ -1131,6 +1139,7 @@ static struct usb_driver aml_usb_common_driver = {
     .probe = auc_probe,
     .disconnect = auc_disconnect,
 #ifdef CONFIG_PM
+    .reset_resume = auc_reset_resume,
     .suspend = auc_suspend,
     .resume = auc_resume,
 #endif
@@ -1290,7 +1299,7 @@ int wifi_fw_download(char * firmware_filename)
     }
 #endif
 
-    kmalloc_buf = (unsigned char *)ZMALLOC(len, "usb_write", GFP_DMA | GFP_ATOMIC);
+    kmalloc_buf = (unsigned char *)aml_mem_prealloc(AML_PREALLOC_DOWNLOAD_FW, len);
     if (kmalloc_buf == NULL) {
         ERROR_DEBUG_OUT("kmalloc buf fail\n");
         release_firmware(fw);
@@ -1302,7 +1311,7 @@ int wifi_fw_download(char * firmware_filename)
         strncpy(tmp_buf, (char *)src, 8);
         if ((err = kstrtouint(tmp_buf, 16, &tmp_val))) {
             release_firmware(fw);
-            FREE(kmalloc_buf, "usb_write");
+            //FREE(kmalloc_buf, "usb_write");
             return err;
         }
         *(unsigned int *)&kmalloc_buf[4 * i] = __swab32(tmp_val);
@@ -1328,7 +1337,7 @@ int wifi_fw_download(char * firmware_filename)
         strncpy(tmp_buf, (char *)src, 8);
         if ((err = kstrtouint(tmp_buf, 16, &tmp_val))) {
             release_firmware(fw);
-            FREE(kmalloc_buf, "usb_write");
+            //FREE(kmalloc_buf, "usb_write");
             return err;
         }
         *(unsigned int *)&kmalloc_buf[4 * i] = __swab32(tmp_val);
@@ -1349,7 +1358,7 @@ int wifi_fw_download(char * firmware_filename)
         strncpy(tmp_buf, (char *)src, 8);
         if ((err = kstrtouint(tmp_buf, 16, &tmp_val))) {
             release_firmware(fw);
-            FREE(kmalloc_buf, "usb_write");
+            //FREE(kmalloc_buf, "usb_write");
             return err;
         }
         *(unsigned int *)&kmalloc_buf[4 * i] = __swab32(tmp_val);
@@ -1359,7 +1368,7 @@ int wifi_fw_download(char * firmware_filename)
     wifi_dccm_download(kmalloc_buf, len, offset);
 
     release_firmware(fw);
-    FREE(kmalloc_buf, "usb_write");
+    //FREE(kmalloc_buf, "usb_write");
 
     printk("finished fw downloading!\n");
     return 0;

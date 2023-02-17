@@ -11,13 +11,17 @@
 #include "aml_defs.h"
 #include "ipc_host.h"
 #include "aml_prof.h"
-#include "aml_msg_tx.h"
-#include "aml_scc.h"
-#include "aml_queue.h"
 
+extern bool b_usb_suspend;
 int aml_irq_usb_hdlr(struct urb *urb)
 {
     struct aml_hw *aml_hw = (struct aml_hw *)(urb->context);
+
+    if (b_usb_suspend)
+    {
+        return IRQ_HANDLED;
+    }
+
     up(&aml_hw->aml_task_sem);
     return IRQ_HANDLED;
 }
@@ -57,7 +61,7 @@ int aml_task(void *data)
         spin_unlock_bh(&aml_hw->tx_lock);
 
         if (aml_bus_type == SDIO_MODE) {
-            enable_irq(aml_hw->irq);
+             enable_irq(aml_hw->irq);
 
         } else if (aml_bus_type == USB_MODE) {
             ret = usb_submit_urb(aml_hw->g_urb, GFP_ATOMIC);
@@ -91,107 +95,6 @@ irqreturn_t aml_irq_pcie_hdlr(int irq, void *dev_id)
     return IRQ_HANDLED;
 }
 
-#ifdef CONFIG_AML_USE_TASK
-#define AML_TASK_IRQHDLR(data, name, pri)   do { \
-    struct aml_hw *aml_hw = (struct aml_hw *)data; \
-    struct sched_param param = {0};   \
-    u32 status; \
-    param.sched_priority = pri; \
-    sched_setscheduler(current, SCHED_FIFO, &param); \
-    while (!aml_hw->name->task_quit) { \
-        if (down_interruptible(&aml_hw->name->task_sem) != 0) { \
-            enable_irq(aml_platform_get_irq(aml_hw->plat)); \
-            break; \
-        } \
-        if (aml_hw->name->task_quit) break; \
-        while ((status = ipc_host_get_status(aml_hw->ipc_env))) { \
-            ipc_host_irq_ext(aml_hw->ipc_env, status); \
-        } \
-        aml_spin_lock(&aml_hw->tx_lock); \
-        aml_hwq_process_all(aml_hw); \
-        aml_spin_unlock(&aml_hw->tx_lock); \
-        enable_irq(aml_platform_get_irq(aml_hw->plat)); \
-        aml_hw->plat->ack_irq(aml_hw); \
-    } \
-    complete_and_exit(&aml_hw->name->task_cmpl, 0); \
-} while (0);
-
-void aml_handle_misc_events(struct aml_hw *aml_hw)
-{
-    struct misc_msg_t msg = {0,};
-    while (aml_dequeue(&(aml_hw->aml_misc_q), (void *)(&msg)) == true) {
-        u32 id = msg.id;
-        switch (id) {
-            case MISC_EVENT_SYNC_TRACE:
-            {
-                aml_send_sync_trace(aml_hw);
-            }
-            break;
-            case MISC_EVENT_BCN_UPDATE:
-            {
-                struct aml_vif *aml_vif = (struct aml_vif *)msg.env;
-                if (AML_SCC_BEACON_WAIT_DOWNLOAD()) {
-                    if (!aml_scc_change_beacon(aml_hw, aml_vif)) {
-                        AML_SCC_CLEAR_BEACON_UPDATE();
-                    }
-                }
-            }
-            break;
-            default:
-                break;
-        }
-    }
-}
-#define AML_TASK_FUNC(data, name, pri)   do { \
-    struct aml_hw *aml_hw = (struct aml_hw *)data; \
-    struct sched_param param = {0};   \
-    param.sched_priority = pri; \
-    sched_setscheduler(current, SCHED_FIFO, &param); \
-    while (!aml_hw->name->task_quit) { \
-        if (down_interruptible(&aml_hw->name->task_sem) != 0) break; \
-        if (aml_hw->name->task_quit) break; \
-        ipc_host_##name##_handler(aml_hw->ipc_env); \
-    } \
-    complete_and_exit(&aml_hw->name->task_cmpl, 0); \
-} while (0);
-
-#define AML_TASK_MISC(data, name, pri)   do { \
-    struct aml_hw *aml_hw = (struct aml_hw *)data; \
-    struct sched_param param = {0};   \
-    param.sched_priority = pri; \
-    sched_setscheduler(current, SCHED_FIFO, &param); \
-    while (!aml_hw->name->task_quit) { \
-        if (down_interruptible(&aml_hw->name->task_sem) != 0) break; \
-        if (aml_hw->name->task_quit) break; \
-        aml_handle_misc_events(aml_hw);\
-    } \
-    complete_and_exit(&aml_hw->name->task_cmpl, 0); \
-} while (0);
-
-int aml_pcie_irqhdlr_task(void *data)
-{
-    AML_TASK_IRQHDLR(data, irqhdlr, 20);
-    return 0;
-}
-
-int aml_pcie_rxdesc_task(void *data)
-{
-    AML_TASK_FUNC(data, rxdesc, 20);
-    return 0;
-}
-
-int aml_pcie_txcfm_task(void *data)
-{
-    AML_TASK_FUNC(data, txcfm, 20);
-    return 0;
-}
-
-int aml_pcie_misc_task(void *data)
-{
-    AML_TASK_MISC(data, misc, 20);
-}
-
-#else
 /**
  * aml_task - Bottom half for IRQ handler
  *
@@ -223,27 +126,3 @@ void aml_pcie_task(unsigned long data)
     enable_irq(aml_platform_get_irq(aml_plat));
     REG_SW_CLEAR_PROFILING(aml_hw, SW_PROF_AML_IPC_IRQ_HDLR);
 }
-#endif
-
-int aml_misc_task(void *data)
-{
-    struct aml_hw *aml_hw = (struct aml_hw *)data;
-    struct sched_param sch_param;
-
-    sch_param.sched_priority = 91;
-    sched_setscheduler(current,SCHED_FIFO,&sch_param);
-
-    while (1) {
-        /* wait for work */
-        if (down_interruptible(&aml_hw->aml_misc_sem) != 0) {
-            /* interrupted, exit */
-            printk("%s:%d wait aml_misc_sem fail!\n", __func__, __LINE__);
-            break;
-        }
-
-        aml_handle_misc_events(aml_hw);
-    }
-
-    return 0;
-}
-

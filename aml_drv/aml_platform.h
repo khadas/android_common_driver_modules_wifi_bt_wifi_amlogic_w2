@@ -23,7 +23,10 @@
 #define AML_CONFIG_FW_NAME             "aml_settings.ini"
 #define AML_PHY_CONFIG_TRD_NAME        "aml_trident.ini"
 #define AML_PHY_CONFIG_KARST_NAME      "aml_karst.ini"
-#define AML_AGC_FW_NAME                "agcram.bin"
+
+//change version when update agcram configuration
+#define AML_AGC_FW_NAME                "agcram_ind_20230223.bin"
+
 #define AML_LDPC_RAM_NAME              "ldpcram.bin"
 #define AML_CATAXIA_FW_NAME            "cataxia.fw"
 #ifdef CONFIG_AML_SOFTMAC
@@ -46,7 +49,7 @@
 
 #define AML_FCU_FW_NAME                "fcuram.bin"
 #define MAC_SRAM_BASE 0x00a10000
-#define REG_OF_BEACON_RSSI (MAC_SRAM_BASE + 0x14)
+#define REG_OF_SYNC_RSSI (MAC_SRAM_BASE + 0x14)
 #define REG_OF_VENDOR_ID (MAC_SRAM_BASE + 0x4)
 
 
@@ -347,5 +350,9 @@ void aml_platform_unregister_usb_drv(void);
 int aml_platform_register_sdio_drv(void);
 void aml_platform_unregister_sdio_drv(void);
 void aml_get_vid(struct aml_plat *aml_plat);
+
+int aml_platform_reset(struct aml_plat *aml_plat);
+int aml_plat_lmac_load(struct aml_plat *aml_plat);
+void aml_plat_mpif_sel(struct aml_plat *aml_plat);
 
 #endif /* _AML_PLAT_H_ */

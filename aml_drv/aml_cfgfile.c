@@ -163,22 +163,45 @@ static void aml_cfgfile_store_chipid(struct aml_hw *aml_hw, struct file *fp, cha
     aml_cfgfile_store_tag(fp, "CHIP_ID", chipid_buf);
 }
 
-static void aml_cfgfile_store_randmac(struct file *fp)
+static void aml_cfgfile_store_randmac(struct aml_hw *aml_hw, struct file *fp)
 {
 #define AML_CFGFILE_TOGGLE_BIT(b, n) (b ^= (1 << n))
     u8 vif0_mac[ETH_ALEN] = { 0x1c, 0xa4, 0x10, 0x00, 0x00, 0x00 };
     u8 vif1_mac[ETH_ALEN] = { 0x1c, 0xa4, 0x10, 0x00, 0x00, 0x00 };
     char mac_str[strlen("00:00:00:00:00:00") + 1];
     u64 rand_num = 0;
+    unsigned int efuse_data_l = 0;
+    unsigned int efuse_data_h = 0;
 
-    get_random_bytes(&rand_num, sizeof(u64));
+    efuse_data_l = aml_efuse_read(aml_hw, AML_CFGFILE_MACADDR_LOW);
+    efuse_data_h = aml_efuse_read(aml_hw, AML_CFGFILE_MACADDR_HIGH);
+    if (efuse_data_l != 0 && efuse_data_h != 0) {
+        AML_INFO("efuse WIFI MAC addr is: "MACFMT"\n",
+            (efuse_data_h & 0xff00) >> 8, efuse_data_h & 0x00ff, (efuse_data_l & 0xff000000) >> 24,
+            (efuse_data_l & 0x00ff0000) >> 16, (efuse_data_l & 0xff00) >> 8, efuse_data_l & 0xff);
 
-    vif0_mac[3] = (rand_num & 0xff);
-    vif0_mac[4] = ((rand_num >> 8) & 0xff);
-    vif0_mac[5] = ((rand_num >> 16) & 0xff);
+        vif0_mac[0] = (efuse_data_h & 0xff00) >> 8;
+        vif0_mac[1] = efuse_data_h & 0x00ff;
+        vif0_mac[2] = (efuse_data_l & 0xff000000) >> 24;
+        vif0_mac[3] = (efuse_data_l & 0x00ff0000) >> 16;
+        vif0_mac[4] = (efuse_data_l & 0xff00) >> 8;
+        vif0_mac[5] = efuse_data_l & 0xff;
+    } else {
+        get_random_bytes(&rand_num, sizeof(u64));
+
+        vif0_mac[3] = (rand_num & 0xff);
+        vif0_mac[4] = ((rand_num >> 8) & 0xff);
+        vif0_mac[5] = ((rand_num >> 16) & 0xff);
+    }
+
+    if (vif0_mac[0] & 0x3) {
+        printk("change the mac addr from [0x%x] ", vif0_mac[0]);
+        vif0_mac[0] &= ~0x3;
+        printk("to [0x%x] \n", vif0_mac[0]);
+    }
+
     sprintf(mac_str, MACFMT, MACARG(vif0_mac));
     aml_cfgfile_store_tag(fp, "VIF0_MACADDR", mac_str);
-
 
     memcpy(vif1_mac, vif0_mac, ETH_ALEN);
     AML_CFGFILE_TOGGLE_BIT(vif1_mac[5], 0);
@@ -210,7 +233,7 @@ int aml_cfgfile_parse(struct aml_hw *aml_hw, struct aml_cfgfile *cfg)
     aml_get_chip_id_from_efuse(aml_hw, chipid_buf);
     if (ret == AML_CFGFILE_CREATE) {
         aml_cfgfile_store_chipid(aml_hw, fp, chipid_buf);
-        aml_cfgfile_store_randmac(fp);
+        aml_cfgfile_store_randmac(aml_hw, fp);
     }
     aml_cfgfile_close(fp);
 

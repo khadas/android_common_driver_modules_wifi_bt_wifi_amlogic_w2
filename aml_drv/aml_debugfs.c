@@ -41,9 +41,9 @@ static ssize_t aml_dbgfs_stats_read(struct file *file,
     if (buf == NULL)
         return 0;
 
-    if (priv->stats.agg_done)
-        per = DIV_ROUND_UP((priv->stats.agg_retries + priv->stats.agg_died) *
-                           100, priv->stats.agg_done);
+    if (priv->stats->agg_done)
+        per = DIV_ROUND_UP((priv->stats->agg_retries + priv->stats->agg_died) *
+                           100, priv->stats->agg_done);
     else
         per = 0;
 
@@ -55,28 +55,28 @@ static ssize_t aml_dbgfs_stats_read(struct file *file,
                     "ampdu_all_ko     %10d\n"
                     "agg_PER (%%)      %10d\n"
                     "queues_stops     %10d\n\n",
-                    priv->stats.agg_done,
-                    priv->stats.agg_retries,
-                    priv->stats.agg_retries_last,
-                    priv->stats.agg_died,
-                    priv->stats.ampdu_all_ko,
+                    priv->stats->agg_done,
+                    priv->stats->agg_retries,
+                    priv->stats->agg_retries_last,
+                    priv->stats->agg_died,
+                    priv->stats->ampdu_all_ko,
                     per,
-                    priv->stats.queues_stops);
+                    priv->stats->queues_stops);
 
     ret += scnprintf(&buf[ret], min_t(size_t, bufsz - 1, count - ret),
                      "TXQs CFM balances ");
     for (i = 0; i < NX_TXQ_CNT; i++)
         ret += scnprintf(&buf[ret], min_t(size_t, bufsz - 1, count - ret),
                          "  [%1d]:%3d", i,
-                         priv->stats.cfm_balance[i]);
+                         priv->stats->cfm_balance[i]);
 
 #ifdef CONFIG_AML_SPLIT_TX_BUF
     ret += scnprintf(&buf[ret], min_t(size_t, bufsz - 1, count - ret),
                      "\n\nAMSDU[len]             done   failed(%%)\n");
     for (i = skipped = 0; i < NX_TX_PAYLOAD_MAX; i++) {
-        if (priv->stats.amsdus[i].done) {
-            per = DIV_ROUND_UP((priv->stats.amsdus[i].failed) *
-                               100, priv->stats.amsdus[i].done);
+        if (priv->stats->amsdus[i].done) {
+            per = DIV_ROUND_UP((priv->stats->amsdus[i].failed) *
+                               100, priv->stats->amsdus[i].done);
         } else {
             per = 0;
             skipped = 1;
@@ -90,7 +90,7 @@ static ssize_t aml_dbgfs_stats_read(struct file *file,
 
         ret += scnprintf(&buf[ret], min_t(size_t, bufsz - 1, count - ret),
                          "   [%1d]           %10d  %10d\n", i + 1,
-                         priv->stats.amsdus[i].done, per);
+                         priv->stats->amsdus[i].done, per);
     }
     if (skipped)
         ret += scnprintf(&buf[ret], min_t(size_t, bufsz - 1, count - ret),
@@ -102,11 +102,11 @@ static ssize_t aml_dbgfs_stats_read(struct file *file,
     for (i = skipped = 0; i < IEEE80211_MAX_AMPDU_BUF; i++) {
         int failed;
 
-        if (priv->stats.in_ampdu[i].done) {
-            failed = DIV_ROUND_UP(priv->stats.in_ampdu[i].failed *
-                                  100, priv->stats.in_ampdu[i].done);
+        if (priv->stats->in_ampdu[i].done) {
+            failed = DIV_ROUND_UP(priv->stats->in_ampdu[i].failed *
+                                  100, priv->stats->in_ampdu[i].done);
         } else {
-            if (!priv->stats.rx_in_ampdu[i].cnt) {
+            if (!priv->stats->rx_in_ampdu[i].cnt) {
                 skipped = 1;
                 continue;
             }
@@ -121,7 +121,7 @@ static ssize_t aml_dbgfs_stats_read(struct file *file,
         ret += scnprintf(&buf[ret],
                          min_t(size_t, bufsz - ret - 1, count - ret),
                          "   mpdu#%2d       %10d  %10d\n", i, failed,
-                         priv->stats.rx_in_ampdu[i].cnt);
+                         priv->stats->rx_in_ampdu[i].cnt);
 
     }
     if (skipped)
@@ -150,8 +150,8 @@ static ssize_t aml_dbgfs_stats_read(struct file *file,
     int per;
 #endif
     ssize_t read;
-    int bufsz = (NX_TXQ_CNT) * 20 + (ARRAY_SIZE(priv->stats.amsdus_rx) + 1) * 40
-        + (ARRAY_SIZE(priv->stats.ampdus_tx) * 30);
+    int bufsz = (NX_TXQ_CNT) * 20 + (ARRAY_SIZE(priv->stats->amsdus_rx) + 1) * 40
+        + (ARRAY_SIZE(priv->stats->ampdus_tx) * 30);
 
     if (*ppos)
         return 0;
@@ -164,7 +164,7 @@ static ssize_t aml_dbgfs_stats_read(struct file *file,
     for (i = 0; i < NX_TXQ_CNT; i++)
         ret += scnprintf(&buf[ret], bufsz - ret,
                          "  [%1d]:%3d", i,
-                         priv->stats.cfm_balance[i]);
+                         priv->stats->cfm_balance[i]);
 
     ret += scnprintf(&buf[ret], bufsz - ret, "\n");
 
@@ -172,10 +172,10 @@ static ssize_t aml_dbgfs_stats_read(struct file *file,
     ret += scnprintf(&buf[ret], bufsz - ret,
                      "\nAMSDU[len]       done         failed   received\n");
     for (i = skipped = 0; i < NX_TX_PAYLOAD_MAX; i++) {
-        if (priv->stats.amsdus[i].done) {
-            per = DIV_ROUND_UP((priv->stats.amsdus[i].failed) *
-                               100, priv->stats.amsdus[i].done);
-        } else if (priv->stats.amsdus_rx[i]) {
+        if (priv->stats->amsdus[i].done) {
+            per = DIV_ROUND_UP((priv->stats->amsdus[i].failed) *
+                               100, priv->stats->amsdus[i].done);
+        } else if (priv->stats->amsdus_rx[i]) {
             per = 0;
         } else {
             per = 0;
@@ -189,13 +189,13 @@ static ssize_t aml_dbgfs_stats_read(struct file *file,
 
         ret += scnprintf(&buf[ret], bufsz - ret,
                          "   [%2d]    %10d %8d(%3d%%) %10d\n",  i ? i + 1 : i,
-                         priv->stats.amsdus[i].done,
-                         priv->stats.amsdus[i].failed, per,
-                         priv->stats.amsdus_rx[i]);
+                         priv->stats->amsdus[i].done,
+                         priv->stats->amsdus[i].failed, per,
+                         priv->stats->amsdus_rx[i]);
     }
 
-    for (; i < ARRAY_SIZE(priv->stats.amsdus_rx); i++) {
-        if (!priv->stats.amsdus_rx[i]) {
+    for (; i < ARRAY_SIZE(priv->stats->amsdus_rx); i++) {
+        if (!priv->stats->amsdus_rx[i]) {
             skipped = 1;
             continue;
         }
@@ -206,13 +206,13 @@ static ssize_t aml_dbgfs_stats_read(struct file *file,
 
         ret += scnprintf(&buf[ret], bufsz - ret,
                          "   [%2d]                              %10d\n",
-                         i + 1, priv->stats.amsdus_rx[i]);
+                         i + 1, priv->stats->amsdus_rx[i]);
     }
 #else
     ret += scnprintf(&buf[ret], bufsz - ret,
                      "\nAMSDU[len]   received\n");
-    for (i = skipped = 0; i < ARRAY_SIZE(priv->stats.amsdus_rx); i++) {
-        if (!priv->stats.amsdus_rx[i]) {
+    for (i = skipped = 0; i < ARRAY_SIZE(priv->stats->amsdus_rx); i++) {
+        if (!priv->stats->amsdus_rx[i]) {
             skipped = 1;
             continue;
         }
@@ -224,15 +224,15 @@ static ssize_t aml_dbgfs_stats_read(struct file *file,
 
         ret += scnprintf(&buf[ret], bufsz - ret,
                          "   [%2d]    %10d\n",
-                         i + 1, priv->stats.amsdus_rx[i]);
+                         i + 1, priv->stats->amsdus_rx[i]);
     }
 
 #endif /* CONFIG_AML_SPLIT_TX_BUF */
 
     ret += scnprintf(&buf[ret], bufsz - ret,
                      "\nAMPDU[len]     done  received\n");
-    for (i = skipped = 0; i < ARRAY_SIZE(priv->stats.ampdus_tx); i++) {
-        if (!priv->stats.ampdus_tx[i] && !priv->stats.ampdus_rx[i]) {
+    for (i = skipped = 0; i < ARRAY_SIZE(priv->stats->ampdus_tx); i++) {
+        if (!priv->stats->ampdus_tx[i] && !priv->stats->ampdus_rx[i]) {
             skipped = 1;
             continue;
         }
@@ -244,12 +244,12 @@ static ssize_t aml_dbgfs_stats_read(struct file *file,
 
         ret += scnprintf(&buf[ret], bufsz - ret,
                          "   [%2d]   %9d %9d\n", i ? i + 1 : i,
-                         priv->stats.ampdus_tx[i], priv->stats.ampdus_rx[i]);
+                         priv->stats->ampdus_tx[i], priv->stats->ampdus_rx[i]);
     }
 
     ret += scnprintf(&buf[ret], bufsz - ret,
                      "#mpdu missed        %9d\n",
-                     priv->stats.ampdus_rx_miss);
+                     priv->stats->ampdus_rx_miss);
     read = simple_read_from_buffer(user_buf, count, ppos, buf, ret);
 
     kfree(buf);
@@ -268,7 +268,7 @@ static ssize_t aml_dbgfs_stats_write(struct file *file,
      * interrupt */
     spin_lock_bh(&priv->tx_lock);
 
-    memset(&priv->stats, 0, sizeof(priv->stats));
+    memset(priv->stats, 0, sizeof(struct aml_stats));
 
     spin_unlock_bh(&priv->tx_lock);
 
@@ -392,6 +392,7 @@ int aml_dbgfs_txq_sta(char *buf, size_t size, struct aml_sta *aml_sta,
     return idx;
 }
 
+#ifdef CONFIG_AML_DEBUGFS
 int aml_dbgfs_txq_vif(char *buf, size_t size, struct aml_vif *aml_vif,
                               struct aml_hw *aml_hw)
 {
@@ -430,7 +431,7 @@ int aml_dbgfs_txq_vif(char *buf, size_t size, struct aml_vif *aml_vif,
         res = aml_dbgfs_txq(&buf[idx], size, txq, VIF_TXQ, 0, "BCMC");
         idx += res;
         size -= res;
-        aml_sta = &aml_hw->sta_table[aml_vif->ap.bcmc_index];
+        aml_sta = aml_hw->sta_table + aml_vif->ap.bcmc_index;
         if (aml_sta->ps.active) {
             res = scnprintf(&buf[idx], size, PS_HDR_LEGACY "\n",
                             aml_sta->ps.sp_cnt[LEGACY_PS_ID],
@@ -477,6 +478,7 @@ int aml_dbgfs_txq_vif(char *buf, size_t size, struct aml_vif *aml_vif,
 #endif /* CONFIG_AML_FULLMAC */
     return idx;
 }
+#endif
 
 static ssize_t aml_dbgfs_txq_read(struct file *file ,
                                    char __user *user_buf,
@@ -540,16 +542,17 @@ static ssize_t aml_dbgfs_acsinfo_read(struct file *file,
     struct wiphy *wiphy = priv->wiphy;
     #endif //CONFIG_AML_SOFTMAC
     char *buf = NULL;
+    int buf_size = (SCAN_CHANNEL_MAX + 1) * 43;
     int survey_cnt = 0;
     int len = 0, ret = 0;
     int band, chan_cnt;
 
-    if ((buf = vmalloc((SCAN_CHANNEL_MAX + 1) * 43)) == NULL)
+    if ((buf = vmalloc(buf_size)) == NULL)
         return -1;
 
     mutex_lock(&priv->dbgdump.mutex);
 
-    len += scnprintf(buf, min_t(size_t, sizeof(buf) - 1, count),
+    len += scnprintf(buf, min_t(size_t, buf_size - 1, count),
                      "FREQ    TIME(ms)    BUSY(ms)    NOISE(dBm)\n");
 
     for (band = NL80211_BAND_2GHZ; band <= NL80211_BAND_5GHZ; band++) {
@@ -558,14 +561,14 @@ static ssize_t aml_dbgfs_acsinfo_read(struct file *file,
             struct ieee80211_channel *p_chan = &wiphy->bands[band]->channels[chan_cnt];
 
             if (p_survey_info->filled) {
-                len += scnprintf(&buf[len], min_t(size_t, sizeof(buf) - len - 1, count),
+                len += scnprintf(&buf[len], min_t(size_t, buf_size - len - 1, count),
                                  "%d    %03d         %03d         %d\n",
                                  p_chan->center_freq,
                                  p_survey_info->chan_time_ms,
                                  p_survey_info->chan_time_busy_ms,
                                  p_survey_info->noise_dbm);
             } else {
-                len += scnprintf(&buf[len], min_t(size_t, sizeof(buf) -len -1, count),
+                len += scnprintf(&buf[len], min_t(size_t, buf_size -len -1, count),
                                  "%d    NOT AVAILABLE\n",
                                  p_chan->center_freq);
             }
@@ -1328,17 +1331,6 @@ DEBUGFS_READ_WRITE_FILE_OPS(set);
 
 #ifdef CONFIG_AML_FULLMAC
 
-int compare_idx(const void *st1, const void *st2)
-{
-    int index1 = ((struct st *)st1)->r_idx;
-    int index2 = ((struct st *)st2)->r_idx;
-
-    if (index1 > index2) return 1;
-    if (index1 < index2) return -1;
-
-    return 0;
-}
-
 static const int ru_size_he_er[] =
 {
     242,
@@ -1354,6 +1346,18 @@ static const int ru_size_he_mu[] =
     484,
     996
 };
+
+#ifdef CONFIG_AML_DEBUGFS
+int compare_idx(const void *st1, const void *st2)
+{
+    int index1 = ((struct st *)st1)->r_idx;
+    int index2 = ((struct st *)st2)->r_idx;
+
+    if (index1 > index2) return 1;
+    if (index1 < index2) return -1;
+
+    return 0;
+}
 
 int print_rate(char *buf, int size, int format, int nss, int mcs, int bw,
                       int sgi, int pre, int dcm, int *r_idx)
@@ -1537,6 +1541,7 @@ void idx_to_rate_cfg(int idx, union aml_rate_ctrl_info *r_cfg, int *ru_size)
         r->vht.nss = 0;
     }
 }
+#endif
 
 static struct aml_sta* aml_dbgfs_get_sta(struct aml_hw *aml_hw,
                                            char* mac_addr)
@@ -1993,12 +1998,13 @@ static ssize_t aml_dbgfs_last_rx_read(struct file *file,
                                        char __user *user_buf,
                                        size_t count, loff_t *ppos)
 {
+    ssize_t read = 0;
+#ifdef CONFIG_AML_DEBUGFS
     struct aml_sta *sta = NULL;
     struct aml_hw *priv = file->private_data;
     struct aml_rx_rate_stats *rate_stats;
     char *buf;
     int bufsz, i, len = 0;
-    ssize_t read;
     unsigned int fmt, pre, bw, nss, mcs, gi, dcm = 0;
     struct rx_vector_1 *last_rx;
     char hist[] = "##################################################";
@@ -2112,6 +2118,7 @@ static ssize_t aml_dbgfs_last_rx_read(struct file *file,
     read = simple_read_from_buffer(user_buf, count, ppos, buf, len);
 
     kfree(buf);
+#endif
     return read;
 }
 
@@ -2129,13 +2136,14 @@ static ssize_t aml_dbgfs_last_rx_write(struct file *file,
 
     /* Prevent from interrupt preemption as these statistics are updated under
      * interrupt */
+#ifdef CONFIG_AML_DEBUGFS
     spin_lock_bh(&priv->tx_lock);
     memset(sta->stats.rx_rate.table, 0,
            sta->stats.rx_rate.size * sizeof(sta->stats.rx_rate.table[0]));
     sta->stats.rx_rate.cpt = 0;
     sta->stats.rx_rate.rate_cnt = 0;
     spin_unlock_bh(&priv->tx_lock);
-
+#endif
     return count;
 }
 
@@ -2146,6 +2154,7 @@ DEBUGFS_READ_WRITE_FILE_OPS(last_rx);
 /*
  * trace helper
  */
+#ifdef CONFIG_AML_DEBUGFS
 void aml_fw_trace_dump(struct aml_hw *aml_hw)
 {
     /* may be called before aml_dbgfs_register */
@@ -2337,7 +2346,7 @@ static void aml_sta_work(struct work_struct *ws)
     }
 
     aml_debugfs->sta_idx = AML_INVALID_STA;
-    sta = &aml_hw->sta_table[sta_idx];
+    sta = aml_hw->sta_table + sta_idx;
     if (!sta) {
         WARN(1, "Invalid sta %d", sta_idx);
         return;
@@ -2532,4 +2541,4 @@ void aml_dbgfs_unregister(struct aml_hw *aml_hw)
     debugfs_remove_recursive(aml_hw->debugfs.dir);
     aml_hw->debugfs.dir = NULL;
 }
-
+#endif

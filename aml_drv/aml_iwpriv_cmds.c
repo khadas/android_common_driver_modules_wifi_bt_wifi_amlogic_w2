@@ -12,6 +12,9 @@
 #include "aml_utils.h"
 #include "aml_compat.h"
 #include "aml_recy.h"
+#ifdef SDIO_SPEED_DEBUG
+#include "sg_common.h"
+#endif
 
 #define RC_AUTO_RATE_INDEX -1
 #define MAX_CHAR_SIZE 40
@@ -77,6 +80,9 @@ typedef unsigned char   U8;
 #define EFUSE_BASE_1E 0X1E
 #define EFUSE_BASE_1F 0X1F
 #define EFUSE_BASE_05 0X05
+#define EFUSE_BASE_01 0x1
+#define EFUSE_BASE_02 0x2
+#define EFUSE_BASE_03 0x3
 
 
 /** To calculate the index:
@@ -155,7 +161,7 @@ static int aml_set_fixed_rate(struct net_device *dev,  int fixed_rate_idx)
 
     // Forward the request to the LMAC
     for (i = 0; i < NX_REMOTE_STA_MAX; i++) {
-        sta = &aml_hw->sta_table[i];
+        sta = aml_hw->sta_table + i;
 
         if (sta && sta->valid && (aml_vif->vif_index == sta->vif_idx)) {
              if ((error = aml_send_me_rc_set_rate(aml_hw, sta->sta_idx,
@@ -234,6 +240,18 @@ static int aml_set_scan_hang(struct net_device *dev, int scan_hang)
     aml_scan_hang(aml_vif, scan_hang);
 
     return 0;
+}
+
+static int aml_set_limit_power_status(struct net_device *dev, int limit_power_switch)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
+    if (limit_power_switch > 0x2)
+    {
+        AML_INFO("param error \n")
+    }
+
+    return aml_set_limit_power(aml_hw, limit_power_switch);
 }
 
 static int aml_set_scan_time(struct net_device *dev, int scan_duration)
@@ -630,15 +648,16 @@ int aml_print_acs_info(struct aml_hw *priv)
 {
     struct wiphy *wiphy = priv->wiphy;
     char *buf = NULL;
+    int buf_size = (SCAN_CHANNEL_MAX + 1) * 43;
     int survey_cnt = 0;
     int len = 0;
     int band, chan_cnt;
 
-    if ((buf = vmalloc((SCAN_CHANNEL_MAX + 1) * 43)) == NULL)
+    if ((buf = vmalloc(buf_size)) == NULL)
         return -1;
 
     mutex_lock(&priv->dbgdump.mutex);
-    len += scnprintf(buf, sizeof(buf) - 1,  "FREQ      TIME(ms)     BUSY(ms)     NOISE(dBm)\n");
+    len += scnprintf(buf, buf_size - 1,  "FREQ      TIME(ms)     BUSY(ms)     NOISE(dBm)\n");
 
     for (band = NL80211_BAND_2GHZ; band <= NL80211_BAND_5GHZ; band++) {
         for (chan_cnt = 0; chan_cnt < wiphy->bands[band]->n_channels; chan_cnt++) {
@@ -646,14 +665,14 @@ int aml_print_acs_info(struct aml_hw *priv)
             struct ieee80211_channel *p_chan = &wiphy->bands[band]->channels[chan_cnt];
 
             if (p_survey_info->filled) {
-                len += scnprintf(&buf[len], sizeof(buf) - len - 1,
+                len += scnprintf(&buf[len], buf_size - len - 1,
                                   "%d    %03d         %03d          %d\n",
                                   p_chan->center_freq,
                                   p_survey_info->chan_time_ms,
                                   p_survey_info->chan_time_busy_ms,
                                   p_survey_info->noise_dbm);
             } else {
-                len += scnprintf(&buf[len], sizeof(buf) -len -1,
+                len += scnprintf(&buf[len], buf_size -len -1,
                                   "%d    NOT AVAILABLE\n",
                                   p_chan->center_freq);
             }
@@ -670,6 +689,7 @@ int aml_print_acs_info(struct aml_hw *priv)
 
 int aml_print_last_rx_info(struct aml_hw *priv, struct aml_sta *sta)
 {
+#ifdef CONFIG_AML_DEBUGFS
     struct aml_rx_rate_stats *rate_stats;
     char *buf;
     int bufsz, i, len = 0;
@@ -678,7 +698,6 @@ int aml_print_last_rx_info(struct aml_hw *priv, struct aml_sta *sta)
     char hist[] = "##################################################";
     int hist_len = sizeof(hist) - 1;
     u8 nrx;
-
     rate_stats = &sta->stats.rx_rate;
     bufsz = (rate_stats->rate_cnt * ( 50 + hist_len) + 200);
     buf = kmalloc(bufsz + 1, GFP_ATOMIC);
@@ -775,6 +794,7 @@ int aml_print_last_rx_info(struct aml_hw *priv, struct aml_sta *sta)
 
     aml_print_buf(buf, len);
     kfree(buf);
+#endif
     return 0;
 }
 
@@ -786,8 +806,8 @@ int aml_print_stats(struct aml_hw *priv)
 #ifdef CONFIG_AML_SPLIT_TX_BUF
     int per;
 #endif
-    int bufsz = (NX_TXQ_CNT) * 20 + (ARRAY_SIZE(priv->stats.amsdus_rx) + 1) * 40
-        + (ARRAY_SIZE(priv->stats.ampdus_tx) * 30);
+    int bufsz = (NX_TXQ_CNT) * 20 + (ARRAY_SIZE(priv->stats->amsdus_rx) + 1) * 40
+        + (ARRAY_SIZE(priv->stats->ampdus_tx) * 30);
 
     buf = kmalloc(bufsz, GFP_ATOMIC);
     if (buf == NULL)
@@ -797,7 +817,7 @@ int aml_print_stats(struct aml_hw *priv)
     for (i = 0; i < NX_TXQ_CNT; i++)
         ret += scnprintf(&buf[ret], bufsz - ret,
                             "    [%1d]:%3d", i,
-                            priv->stats.cfm_balance[i]);
+                            priv->stats->cfm_balance[i]);
 
     ret += scnprintf(&buf[ret], bufsz - ret, "\n");
 
@@ -805,10 +825,10 @@ int aml_print_stats(struct aml_hw *priv)
     ret += scnprintf(&buf[ret], bufsz - ret,
                        "\nAMSDU[len]         done          failed   received\n");
     for (i = skipped = 0; i < NX_TX_PAYLOAD_MAX; i++) {
-        if (priv->stats.amsdus[i].done) {
-            per = DIV_ROUND_UP((priv->stats.amsdus[i].failed) *
-                                100, priv->stats.amsdus[i].done);
-        } else if (priv->stats.amsdus_rx[i]) {
+        if (priv->stats->amsdus[i].done) {
+            per = DIV_ROUND_UP((priv->stats->amsdus[i].failed) *
+                                100, priv->stats->amsdus[i].done);
+        } else if (priv->stats->amsdus_rx[i]) {
             per = 0;
         } else {
             per = 0;
@@ -822,13 +842,13 @@ int aml_print_stats(struct aml_hw *priv)
 
         ret += scnprintf(&buf[ret], bufsz - ret,
                           "     [%2d]      %10d %8d(%3d%%) %10d\n",    i ? i + 1 : i,
-                          priv->stats.amsdus[i].done,
-                          priv->stats.amsdus[i].failed, per,
-                          priv->stats.amsdus_rx[i]);
+                          priv->stats->amsdus[i].done,
+                          priv->stats->amsdus[i].failed, per,
+                          priv->stats->amsdus_rx[i]);
     }
 
-    for (; i < ARRAY_SIZE(priv->stats.amsdus_rx); i++) {
-        if (!priv->stats.amsdus_rx[i]) {
+    for (; i < ARRAY_SIZE(priv->stats->amsdus_rx); i++) {
+        if (!priv->stats->amsdus_rx[i]) {
             skipped = 1;
             continue;
         }
@@ -839,13 +859,13 @@ int aml_print_stats(struct aml_hw *priv)
 
         ret += scnprintf(&buf[ret], bufsz - ret,
                           "     [%2d]                                %10d\n",
-                          i + 1, priv->stats.amsdus_rx[i]);
+                          i + 1, priv->stats->amsdus_rx[i]);
     }
 #else
     ret += scnprintf(&buf[ret], bufsz - ret,
                       "\nAMSDU[len]     received\n");
-    for (i = skipped = 0; i < ARRAY_SIZE(priv->stats.amsdus_rx); i++) {
-        if (!priv->stats.amsdus_rx[i]) {
+    for (i = skipped = 0; i < ARRAY_SIZE(priv->stats->amsdus_rx); i++) {
+        if (!priv->stats->amsdus_rx[i]) {
             skipped = 1;
             continue;
         }
@@ -856,15 +876,15 @@ int aml_print_stats(struct aml_hw *priv)
 
         ret += scnprintf(&buf[ret], bufsz - ret,
                           "     [%2d]      %10d\n",
-                          i + 1, priv->stats.amsdus_rx[i]);
+                          i + 1, priv->stats->amsdus_rx[i]);
     }
 
 #endif /* CONFIG_AML_SPLIT_TX_BUF */
 
     ret += scnprintf(&buf[ret], bufsz - ret,
                        "\nAMPDU[len]       done  received\n");
-    for (i = skipped = 0; i < ARRAY_SIZE(priv->stats.ampdus_tx); i++) {
-        if (!priv->stats.ampdus_tx[i] && !priv->stats.ampdus_rx[i]) {
+    for (i = skipped = 0; i < ARRAY_SIZE(priv->stats->ampdus_tx); i++) {
+        if (!priv->stats->ampdus_tx[i] && !priv->stats->ampdus_rx[i]) {
             skipped = 1;
             continue;
         }
@@ -875,12 +895,12 @@ int aml_print_stats(struct aml_hw *priv)
 
         ret += scnprintf(&buf[ret], bufsz - ret,
                          "     [%2d]     %9d %9d\n", i ? i + 1 : i,
-                         priv->stats.ampdus_tx[i], priv->stats.ampdus_rx[i]);
+                         priv->stats->ampdus_tx[i], priv->stats->ampdus_rx[i]);
     }
     /* coverity[assigned_value] - len is used */
     ret += scnprintf(&buf[ret], bufsz - ret,
                      "#mpdu missed          %9d\n",
-                     priv->stats.ampdus_rx_miss);
+                     priv->stats->ampdus_rx_miss);
 
     aml_print_buf(buf, ret);
     kfree(buf);
@@ -1013,7 +1033,7 @@ static int aml_get_rate_info(struct net_device *dev)
     u8 i = 0;
     struct aml_sta *sta = NULL;
     for (i = 0; i < NX_REMOTE_STA_MAX; i++) {
-        sta = &aml_hw->sta_table[i];
+        sta = aml_hw->sta_table + i;
         if (sta && sta->valid && (aml_vif->vif_index == sta->vif_idx)) {
             aml_print_rate_info(aml_hw, sta);
         }
@@ -1151,6 +1171,10 @@ static void aml_get_rx_regvalue(struct aml_plat *aml_plat)
 
     printk("SNR        :0x%x\n", AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, 0xc0005c)&0xfff);
 
+    printk("data avg rssi :%d dBm\n", ((AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, REG_OF_SYNC_RSSI)&0xffff0000) >> 16) - 256);
+
+    printk("bcn  avg rssi :%d dBm\n", (AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, REG_OF_SYNC_RSSI)&0xffff) - 256);
+
     printk("<-------------------rx reg value end ---------------------->\n");
 }
 static int aml_get_last_rx(struct net_device *dev)
@@ -1161,7 +1185,7 @@ static int aml_get_last_rx(struct net_device *dev)
     u8 i = 0;
     struct aml_sta *sta = NULL;
     for (i = 0; i < NX_REMOTE_STA_MAX; i++) {
-        sta = &aml_hw->sta_table[i];
+        sta = aml_hw->sta_table + i;
         if (sta && sta->valid && (aml_vif->vif_index == sta->vif_idx)) {
             aml_print_last_rx_info(aml_hw, sta);
             aml_get_rx_regvalue(aml_plat);
@@ -1172,12 +1196,14 @@ static int aml_get_last_rx(struct net_device *dev)
 
 static int aml_clear_last_rx(struct net_device *dev)
 {
+#ifdef CONFIG_AML_DEBUGFS
     struct aml_vif *aml_vif = netdev_priv(dev);
     struct aml_hw *aml_hw = aml_vif->aml_hw;
     u8 i = 0;
     struct aml_sta *sta = NULL;
+
     for (i = 0; i < NX_REMOTE_STA_MAX; i++) {
-        sta = &aml_hw->sta_table[i];
+        sta = aml_hw->sta_table + i;
         if (sta && sta->valid && (aml_vif->vif_index == sta->vif_idx)) {
             /* Prevent from interrupt preemption as these statistics are updated under
              * interrupt */
@@ -1189,6 +1215,7 @@ static int aml_clear_last_rx(struct net_device *dev)
             spin_unlock_bh(&aml_hw->tx_lock);
         }
     }
+#endif
     return 0;
 }
 
@@ -1226,7 +1253,7 @@ static int aml_get_tx_lft(struct net_device *dev)
 }
 
 
-static int aml_get_txq(struct net_device *dev)
+int aml_get_txq(struct net_device *dev)
 {
     struct aml_vif *aml_vif = netdev_priv(dev);
     struct aml_hw *aml_hw = aml_vif->aml_hw;
@@ -1542,6 +1569,74 @@ int aml_set_pt_calibration(struct net_device *dev, int pt_cali_val)
     return 0;
 }
 
+int aml_get_xosc_offset(struct net_device *dev,union iwreq_data *wrqu, char *extra)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    unsigned int reg_val = 0;
+    U8 xosc_ctune = 0;
+    U8 offset_power_wf0_2g_l = 0;
+    U8 offset_power_wf0_2g_m = 0;
+    U8 offset_power_wf0_2g_h = 0;
+    U8 offset_power_wf0_5200 = 0;
+    U8 offset_power_wf0_5300 = 0;
+    U8 offset_power_wf0_5530 = 0;
+    U8 offset_power_wf0_5660 = 0;
+    U8 offset_power_wf0_5780 = 0;
+    U8 offset_power_wf1_2g_l = 0;
+    U8 offset_power_wf1_2g_m = 0;
+    U8 offset_power_wf1_2g_h = 0;
+    U8 offset_power_wf1_5200 = 0;
+    U8 offset_power_wf1_5300 = 0;
+    U8 offset_power_wf1_5530 = 0;
+    U8 offset_power_wf1_5660 = 0;
+    U8 offset_power_wf1_5780 = 0;
+
+    reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_05);
+    xosc_ctune = (reg_val & 0xFF000000) >> 24;
+    reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1A);
+    offset_power_wf0_2g_l = (reg_val & 0x1F0000) >> 16;
+    offset_power_wf0_2g_m = (reg_val & 0x1F000000) >> 24;
+    reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1B);
+    offset_power_wf0_2g_h = (reg_val & 0x1F);
+    offset_power_wf0_5200 = (reg_val & 0x1F00) >> 8;
+    offset_power_wf0_5300 = (reg_val & 0x1F0000) >> 16;
+    offset_power_wf0_5530 = (reg_val & 0x1F000000) >> 24;
+    reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1C);
+    offset_power_wf0_5660 = (reg_val & 0x1F);
+    offset_power_wf0_5780 = (reg_val & 0x1F00) >> 8;
+    reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1E);
+    offset_power_wf1_2g_l = (reg_val & 0x1F);
+    offset_power_wf1_2g_m = (reg_val & 0x1F00) >> 8;
+    offset_power_wf1_2g_h = (reg_val & 0x1F0000) >> 16;
+    offset_power_wf1_5200 = (reg_val & 0x1F000000) >> 24;
+    reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1F);
+    offset_power_wf1_5300 = (reg_val & 0x1F);
+    offset_power_wf1_5530 = (reg_val & 0x1F00) >> 8;
+    offset_power_wf1_5660 = (reg_val & 0x1F0000) >> 16;
+    offset_power_wf1_5780 = (reg_val & 0x1F000000) >> 24;
+
+    printk("xosc_ctune=0x%02x\n", xosc_ctune);
+    printk("offset_power_wf0_2g_l=0x%02x,offset_power_wf0_2g_m=0x%02x,offset_power_wf0_2g_h=0x%02x\n",
+           offset_power_wf0_2g_l, offset_power_wf0_2g_m, offset_power_wf0_2g_h);
+    printk("offset_power_wf0_5200=0x%02x,offset_power_wf0_5300=0x%02x,offset_power_wf0_5530=0x%02x,offset_power_wf0_5660=0x%02x,offset_power_wf0_5780=0x%02x\n",
+           offset_power_wf0_5200, offset_power_wf0_5300, offset_power_wf0_5530,offset_power_wf0_5660, offset_power_wf0_5780);
+    printk("offset_power_wf1_2g_l=0x%02x,offset_power_wf1_2g_m=0x%02x,offset_power_wf1_2g_h=0x%02x\n",
+           offset_power_wf1_2g_l, offset_power_wf1_2g_m, offset_power_wf1_2g_h);
+    printk("offset_power_wf1_5200=0x%02x,offset_power_wf1_5300=0x%02x,offset_power_wf1_5530=0x%02x,offset_power_wf1_5660=0x%02x,offset_power_wf1_5780=0x%02x\n",
+           offset_power_wf1_5200, offset_power_wf1_5300, offset_power_wf1_5530,offset_power_wf1_5660, offset_power_wf1_5780);
+
+    wrqu->data.length = scnprintf(extra, IW_PRIV_SIZE_MASK, "&xosc_ctune=0x%02x\n\
+        offset_power_wf0_2g_l=0x%02x,offset_power_wf0_2g_m=0x%02x,offset_power_wf0_2g_h=0x%02x\n\
+        offset_power_wf0_5200=0x%02x,offset_power_wf0_5300=0x%02x,offset_power_wf0_5530=0x%02x,offset_power_wf0_5660=0x%02x,offset_power_wf0_5780=0x%02x\n\
+        offset_power_wf1_2g_l=0x%02x,offset_power_wf1_2g_m=0x%02x,offset_power_wf1_2g_h=0x%02x\n\
+        offset_power_wf1_5200=0x%02x,offset_power_wf1_5300=0x%02x,offset_power_wf1_5530=0x%02x,offset_power_wf1_5660=0x%02x,offset_power_wf1_5780=0x%02x\n",
+        xosc_ctune,offset_power_wf0_2g_l, offset_power_wf0_2g_m, offset_power_wf0_2g_h,
+        offset_power_wf0_5200, offset_power_wf0_5300, offset_power_wf0_5530,offset_power_wf0_5660, offset_power_wf0_5780,
+        offset_power_wf1_2g_l, offset_power_wf1_2g_m, offset_power_wf1_2g_h,
+        offset_power_wf1_5200, offset_power_wf1_5300, offset_power_wf1_5530,offset_power_wf1_5660, offset_power_wf1_5780);
+    wrqu->data.length++;
+    return 0;
+}
 int aml_set_rx_start(struct net_device *dev)
 {
     aml_set_reg(dev, 0X60C0600C, 0x00000001);
@@ -1563,6 +1658,9 @@ int aml_set_rx_end(struct net_device *dev,union iwreq_data *wrqu, char *extra)
     fcs_rx_end = aml_get_reg_2(dev, 0x60c06088, wrqu, extra);
     rx_err = aml_get_reg_2(dev, 0x60c0608c, wrqu, extra);
     printk("PT Rx result:fcs_ok=%d, fcs_err=%d, fcs_rx_end=%d, rx_err=%d\n", fcs_ok, fcs_err, fcs_rx_end, rx_err);
+
+    wrqu->data.length = scnprintf(extra, IW_PRIV_SIZE_MASK, "fcs_ok=%d, fcs_err=%d, fcs_rx_end=%d, rx_err=%d\n", fcs_ok, fcs_err, fcs_rx_end, rx_err);
+    wrqu->data.length++;
     return 0;
 }
 
@@ -1571,7 +1669,7 @@ int aml_set_rx(struct net_device *dev, int antenna, int channel)
     printk("set antenna :%x\n", antenna);
     switch (antenna) {
         case 1:
-            if (channel < 14) {
+            if (channel <= 14) {
                 aml_rf_reg_write(dev, 0x80000008, 0x01393917);
                 aml_rf_reg_write(dev, 0x80001008, 0x01393914);
                 aml_set_reg(dev, 0x60c0b500, 0x00041000);
@@ -1581,7 +1679,7 @@ int aml_set_rx(struct net_device *dev, int antenna, int channel)
             }
             break;
         case 2:
-            if (channel < 14) {
+            if (channel <= 14) {
                 aml_rf_reg_write(dev, 0x80000008, 0x01393915);
                 aml_rf_reg_write(dev, 0x80001008, 0x01393917);
                 aml_set_reg(dev, 0x60c0b500, 0x00041030);
@@ -1591,7 +1689,7 @@ int aml_set_rx(struct net_device *dev, int antenna, int channel)
             }
             break;
         case 3:
-            if (channel < 14) {
+            if (channel <= 14) {
                 aml_rf_reg_write(dev, 0x80000008, 0x01393900);
                 aml_rf_reg_write(dev, 0x80001008, 0x01393900);
                 aml_set_reg(dev, 0x60c0b500, 0x00041000);
@@ -2459,7 +2557,7 @@ int aml_hesu_siso_wf1_tx(struct net_device *dev, U8 bw, U8 rate, U8 tx_pwr, U8 l
 
 int aml_set_tx_prot(struct net_device *dev, int tx_pam, int tx_pam1)
 {
-    int model = (tx_pam & 0x00f00000) >> 20; //0x0 wf0 0x1 wf1 0x2 mimo
+    int model = (tx_pam & 0x00f00000) >> 20; //0x1 wf0 0x2 wf1 0x3 mimo
     int prot = (tx_pam & 0x000f0000) >> 16; //11b/11ag/ht/vht/hesu
     U8 bw = (tx_pam & 0x0000ff00) >> 8;
     U8 rate = tx_pam & 0x000000ff;
@@ -2468,31 +2566,31 @@ int aml_set_tx_prot(struct net_device *dev, int tx_pam, int tx_pam1)
     U8 length1 = (tx_pam1 & 0x0000ff00) >> 8;
     U8 tx_pwr = tx_pam1 & 0x000000ff;
 
-    if (prot == 0x0 && model == 0x0) {
+    if (prot == 0x0 && model == 0x1) {
         aml_11b_siso_wf0_tx(dev, rate, tx_pwr, length, length1, length2);
-    } else if (prot == 0x0 && model == 0x1) {
+    } else if (prot == 0x0 && model == 0x2) {
         aml_11b_siso_wf1_tx(dev, rate, tx_pwr, length, length1, length2);
-    } else if (prot == 0x1 && model == 0x0) {
-        aml_11ag_siso_wf0_tx(dev, rate, tx_pwr, length, length1, length2);
     } else if (prot == 0x1 && model == 0x1) {
+        aml_11ag_siso_wf0_tx(dev, rate, tx_pwr, length, length1, length2);
+    } else if (prot == 0x1 && model == 0x2) {
         aml_11ag_siso_wf1_tx(dev, rate, tx_pwr, length, length1, length2);
-    } else if (prot == 0x2 && model == 0x0) {
-        aml_ht_siso_wf0_tx(dev,bw, rate, tx_pwr, length, length1, length2);
     } else if (prot == 0x2 && model == 0x1) {
-        aml_ht_siso_wf1_tx(dev,bw, rate, tx_pwr, length, length1, length2);
+        aml_ht_siso_wf0_tx(dev,bw, rate, tx_pwr, length, length1, length2);
     } else if (prot == 0x2 && model == 0x2) {
+        aml_ht_siso_wf1_tx(dev,bw, rate, tx_pwr, length, length1, length2);
+    } else if (prot == 0x2 && model == 0x3) {
         aml_ht_mimo_tx(dev,bw, rate, tx_pwr, length, length1, length2);
-    } else if (prot == 0x3 && model == 0x0) {
-        aml_vht_siso_wf0_tx(dev,bw, rate, tx_pwr, length, length1, length2);
     } else if (prot == 0x3 && model == 0x1) {
-        aml_vht_siso_wf1_tx(dev,bw, rate, tx_pwr, length, length1, length2);
+        aml_vht_siso_wf0_tx(dev,bw, rate, tx_pwr, length, length1, length2);
     } else if (prot == 0x3 && model == 0x2) {
+        aml_vht_siso_wf1_tx(dev,bw, rate, tx_pwr, length, length1, length2);
+    } else if (prot == 0x3 && model == 0x3) {
         aml_vht_mimo_tx(dev,bw, rate, tx_pwr, length, length1, length2);
-    } else if (prot == 0x4 && model == 0x0) {
-        aml_hesu_siso_wf0_tx(dev,bw, rate, tx_pwr, length, length1, length2);
     } else if (prot == 0x4 && model == 0x1) {
-        aml_hesu_siso_wf1_tx(dev,bw, rate, tx_pwr, length, length1, length2);
+        aml_hesu_siso_wf0_tx(dev,bw, rate, tx_pwr, length, length1, length2);
     } else if (prot == 0x4 && model == 0x2) {
+        aml_hesu_siso_wf1_tx(dev,bw, rate, tx_pwr, length, length1, length2);
+    } else if (prot == 0x4 && model == 0x3) {
         aml_hesu_mimo_tx(dev,bw, rate, tx_pwr, length, length1, length2);
     } else {
         printk("tx param error\n");
@@ -2532,15 +2630,7 @@ int aml_recy_ctrl(struct net_device *dev, int recy_id)
 #ifdef CONFIG_AML_RECOVERY
         case 1:
             AML_INFO("do cmd queue crashed recovery");
-            aml_recy_cmdcsh_doit(aml_hw);
-            break;
-        case 2:
-            AML_INFO("do txhang recovery");
-            aml_recy_txhang_doit(aml_hw);
-            break;
-        case 3:
-            AML_INFO("do pci error recovery");
-            aml_recy_pcierr_doit(aml_hw);
+            aml_recy_doit(aml_hw);
             break;
         case 4:
             AML_INFO("trigger cmd crash, for test only");
@@ -2556,18 +2646,51 @@ int aml_recy_ctrl(struct net_device *dev, int recy_id)
     return 0;
 }
 
-int aml_set_tx_path(struct net_device *dev, int path)
+int aml_set_tx_path(struct net_device *dev, int path, int channel)
 {
-    tx_path = path;//mode:wf0 0x0 wf1 0x1 mimo 0x2
+    tx_path = path;//mode:wf0 0x1 wf1 0x2 mimo 0x3
 
-    if (tx_path > 0x2) {
+    if (tx_path > 0x3) {
         printk("set_tx_path error:%d\n",tx_path);
         return -1;
     }
-    tx_path = (tx_path & 0x0000000f)<<20;
+    tx_path = (tx_path & 0x0000000f) << 20;
     tx_param = tx_param & 0xff0fffff;
     tx_param = tx_param | tx_path;
     printk("aml_set_tx_path:%d\n", path);
+    switch (path) {
+        case 1:
+            if (channel <= 14) {
+                aml_rf_reg_write(dev, 0x80000008, 0x01393916);
+                aml_rf_reg_write(dev, 0x80001008, 0x01393914);
+            } else {
+                aml_rf_reg_write(dev, 0x80000008, 0x00393912);
+                aml_rf_reg_write(dev, 0x80001008, 0x00393911);
+            }
+            break;
+        case 2:
+            if (channel <= 14) {
+                aml_rf_reg_write(dev, 0x80000008, 0x01393915);
+                aml_rf_reg_write(dev, 0x80001008, 0x01393916);
+            } else {
+                aml_rf_reg_write(dev, 0x80000008, 0x00393910);
+                aml_rf_reg_write(dev, 0x80001008, 0x00393912);
+            }
+            break;
+        case 3:
+            if (channel <= 14) {
+                aml_rf_reg_write(dev, 0x80000008, 0x01393900);
+                aml_rf_reg_write(dev, 0x80001008, 0x01393900);
+                aml_set_reg(dev, 0x60c0b500, 0x00041000);
+            } else {
+                aml_rf_reg_write(dev, 0x80000008, 0x00393900);
+                aml_rf_reg_write(dev, 0x80001008, 0x00393900);
+            }
+            break;
+        default:
+            printk("set antenna error :%x\n", path);
+            break;
+    }
     return 0;
 }
 
@@ -2866,6 +2989,273 @@ int aml_set_fwlog_cmd(struct net_device *dev, int mode, int size)
     return 0;
 }
 
+// Returns a char * arr [] and size is the length of the returned array
+char **aml_cmd_char_phrase(char sep, const char *str, int *size)
+{
+    int count = 0;
+    int i;
+    char **ret;
+    int lastindex = -1;
+    int j = 0;
+
+    for (i = 0; i < strlen(str); i++) {
+        if (str[i] == sep) {
+            count++;
+        }
+    }
+
+    ret = (char **)kzalloc((++count) * sizeof(char *), GFP_KERNEL);
+
+    for (i = 0; i < strlen(str); i++) {
+        if (str[i] == sep) {
+            // kzalloc the memory space of substring length + 1
+            ret[j] = (char *)kzalloc((i - lastindex) * sizeof(char), GFP_KERNEL);
+            memcpy(ret[j], str + lastindex + 1, i - lastindex - 1);
+            j++;
+            lastindex = i;
+        }
+    }
+    // Processing the last substring
+    if (lastindex <= strlen(str) - 1) {
+        ret[j] = (char *)kzalloc((strlen(str) - lastindex) * sizeof(char), GFP_KERNEL);
+        memcpy(ret[j], str + lastindex + 1, strlen(str) - 1 - lastindex);
+        j++;
+    }
+
+    *size = j;
+
+    return ret;
+}
+
+void aml_set_wifi_mac_addr(struct net_device *dev, char* arg_iw)
+{
+    char **mac_cmd;
+    int cmd_arg;
+    char sep = ':';
+    unsigned int efuse_data_l = 0;
+    unsigned int efuse_data_h = 0;
+    struct aml_vif *aml_vif = netdev_priv(dev);
+
+    mac_cmd = aml_cmd_char_phrase(sep, arg_iw, &cmd_arg);
+    if (mac_cmd) {
+        efuse_data_l = (simple_strtoul(mac_cmd[2], NULL,16) << 24) | (simple_strtoul(mac_cmd[3], NULL,16) << 16)
+                       | (simple_strtoul(mac_cmd[4], NULL,16) << 8) | simple_strtoul(mac_cmd[5], NULL,16);
+        efuse_data_h = (simple_strtoul(mac_cmd[0], NULL,16) << 8) | (simple_strtoul(mac_cmd[1], NULL,16));
+
+        _aml_set_efuse(aml_vif, EFUSE_BASE_01, efuse_data_l);
+        efuse_data_h = (efuse_data_h & 0xffff);
+        _aml_set_efuse(aml_vif, EFUSE_BASE_02, efuse_data_h);
+
+        printk("iwpriv write WIFI MAC addr is:  %02x:%02x:%02x:%02x:%02x:%02x\n",
+                (efuse_data_h & 0xff00) >> 8, efuse_data_h & 0x00ff, (efuse_data_l & 0xff000000) >> 24,
+                (efuse_data_l & 0x00ff0000) >> 16, (efuse_data_l & 0xff00) >> 8, efuse_data_l & 0xff);
+    }
+    kfree(mac_cmd);
+}
+
+int aml_get_mac_addr(struct net_device *dev,union iwreq_data *wrqu, char *extra)
+{
+    unsigned int efuse_data_l = 0;
+    unsigned int efuse_data_h = 0;
+    struct aml_vif *aml_vif = netdev_priv(dev);
+
+    efuse_data_l = _aml_get_efuse(aml_vif, EFUSE_BASE_01);
+    efuse_data_h = _aml_get_efuse(aml_vif, EFUSE_BASE_02);
+    if (efuse_data_l != 0 && efuse_data_h != 0) {
+        printk("efuse addr:%08x,%08x, MAC addr is: %02x:%02x:%02x:%02x:%02x:%02x\n", EFUSE_BASE_01, EFUSE_BASE_02,
+            (efuse_data_h & 0xff00) >> 8,efuse_data_h & 0x00ff, (efuse_data_l & 0xff000000) >> 24,
+            (efuse_data_l & 0x00ff0000) >> 16,(efuse_data_l & 0xff00) >> 8,efuse_data_l & 0xff);
+
+        wrqu->data.length = scnprintf(extra, IW_PRIV_SIZE_MASK, " %02x:%02x:%02x:%02x:%02x:%02x\n",
+            (efuse_data_h & 0xff00) >> 8,efuse_data_h & 0x00ff, (efuse_data_l & 0xff000000) >> 24,
+            (efuse_data_l & 0x00ff0000) >> 16,(efuse_data_l & 0xff00) >> 8,efuse_data_l & 0xff);
+        wrqu->data.length++;
+    } else {
+        printk("No mac address is written into efuse!");
+    }
+    return 0;
+}
+
+void aml_set_bt_mac_addr(struct net_device *dev, char* arg_iw)
+{
+    char **mac_cmd;
+    int cmd_arg;
+    char sep = ':';
+    unsigned int efuse_data_l = 0;
+    unsigned int efuse_data_h = 0;
+    struct aml_vif *aml_vif = netdev_priv(dev);
+
+    mac_cmd = aml_cmd_char_phrase(sep, arg_iw, &cmd_arg);
+    if (mac_cmd) {
+        efuse_data_h = (simple_strtoul(mac_cmd[0], NULL,16) << 24) | (simple_strtoul(mac_cmd[1], NULL,16) << 16)
+                       | (simple_strtoul(mac_cmd[2], NULL,16) << 8) | simple_strtoul(mac_cmd[3], NULL,16);
+        efuse_data_l = (simple_strtoul(mac_cmd[4], NULL,16) << 24) | (simple_strtoul(mac_cmd[5], NULL,16) << 16);
+
+        _aml_set_efuse(aml_vif, EFUSE_BASE_03, efuse_data_h);
+        efuse_data_l = (efuse_data_l & 0xffff0000);
+        _aml_set_efuse(aml_vif, EFUSE_BASE_02, efuse_data_l);
+
+        printk("iwpriv write BT MAC addr is:  %02x:%02x:%02x:%02x:%02x:%02x\n",
+            (efuse_data_h & 0xff000000) >> 24,(efuse_data_h & 0x00ff0000) >> 16,
+            (efuse_data_h & 0xff00) >> 8, efuse_data_h & 0xff,
+            (efuse_data_l & 0xff000000) >> 24, (efuse_data_l & 0x00ff0000) >> 16);
+    }
+    kfree(mac_cmd);
+}
+
+int aml_get_bt_mac_addr(struct net_device *dev,union iwreq_data *wrqu, char *extra)
+{
+    unsigned int efuse_data_l = 0;
+    unsigned int efuse_data_h = 0;
+    struct aml_vif *aml_vif = netdev_priv(dev);
+
+    efuse_data_l = _aml_get_efuse(aml_vif, EFUSE_BASE_02);
+    efuse_data_h = _aml_get_efuse(aml_vif, EFUSE_BASE_03);
+    if (efuse_data_l != 0 && efuse_data_h != 0) {
+        printk("BT MAC addr is: %02x:%02x:%02x:%02x:%02x:%02x\n",
+            (efuse_data_h & 0xff000000) >> 24,(efuse_data_h & 0x00ff0000) >> 16,
+            (efuse_data_h & 0xff00) >> 8, efuse_data_h & 0xff,
+            (efuse_data_l & 0xff000000) >> 24, (efuse_data_l & 0x00ff0000) >> 16);
+
+        wrqu->data.length = scnprintf(extra, IW_PRIV_SIZE_MASK, " %02x:%02x:%02x:%02x:%02x:%02x\n",
+            (efuse_data_h & 0xff000000) >> 24,(efuse_data_h & 0x00ff0000) >> 16,
+            (efuse_data_h & 0xff00) >> 8, efuse_data_h & 0xff,
+            (efuse_data_l & 0xff000000) >> 24, (efuse_data_l & 0x00ff0000) >> 16);
+        wrqu->data.length++;
+    } else {
+        printk("No bt mac address is written into efuse!");
+    }
+    return 0;
+}
+
+#ifdef SDIO_SPEED_DEBUG
+#define TEST_SDIO_ONLY
+//#define SDIO_NORMAL_TX
+#define SDIO_TX
+//#define SDIO_SCATTER
+#define DATA_LEN (1024*128)
+static unsigned long payload_total = 0;
+static unsigned char start_flag = 0;
+static unsigned long in_time;
+int g_test_times = 3;
+
+void aml_datarate_monitor(void)
+{
+    static unsigned int sdio_speed = 0;
+
+    if (time_after(jiffies, in_time + HZ)) {
+        sdio_speed = payload_total >> 17;
+        sdio_speed = (sdio_speed * HZ) / (jiffies - in_time);
+        start_flag = 0;
+        payload_total = 0;
+        g_test_times--;
+        printk(">>>sdio_speed :%d mbps, time:%d\n", sdio_speed, (jiffies - in_time));
+    }
+}
+
+int aml_sdio_max_speed_test_cmd(struct net_device *dev, int enable)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
+    struct amlw_hif_scatter_req * scat_req = NULL;
+    unsigned char *data = kmalloc(DATA_LEN, GFP_ATOMIC);
+    if (!data) {
+        ASSERT_ERR(0);
+        return -1;
+    }
+    memset(data, 0x66, DATA_LEN);
+
+    scat_req = aml_hw->plat->hif_sdio_ops->hi_get_scatreq(&g_hwif_sdio);
+    if (scat_req != NULL) {
+        scat_req->req = HIF_WRITE | HIF_ASYNCHRONOUS;
+        scat_req->addr = 0x0;
+    }
+
+    g_test_times = 3;
+    while (enable && g_test_times) {
+        if (!start_flag) {
+            start_flag = 1;
+            in_time = jiffies;
+        }
+#ifndef TEST_SDIO_ONLY
+#ifdef SDIO_NORMAL_TX
+        unsigned int i = 0;
+        for (i = 0; i < DATA_LEN / 10240; ++i) {
+            scat_req->scat_list[i].packet = data + 10240 * i;
+            scat_req->scat_list[i].page_num = 10;
+            scat_req->scat_list[i].len = 10240;
+            scat_req->scat_count++;
+            scat_req->len += scat_req->scat_list[i].len;
+        }
+
+        //printk("count:%d, len:%d\n", scat_req->scat_count, scat_req->len);
+        if (DATA_LEN % 10240) {
+            scat_req->scat_list[i].packet = data + 10240 * i;
+            scat_req->scat_list[i].page_num = ((DATA_LEN % 10240) % 1024) > 0 ? (DATA_LEN % 10240) / 1024 + 1: (DATA_LEN % 10240) / 1024;
+            scat_req->scat_list[i].len = (DATA_LEN % 10240);
+            scat_req->scat_count++;
+            scat_req->len += scat_req->scat_list[i].len;
+        }
+        //printk("count:%d, len:%d\n", scat_req->scat_count, scat_req->len);
+        aml_hw->plat->hif_sdio_ops->hi_send_frame(scat_req);
+
+        //ack irq
+        aml_hw->plat->hif_sdio_ops->hi_tx_buffer_read((unsigned char *)data, (unsigned char *)0x60038000, 8);
+        //read cfm
+        aml_hw->plat->hif_sdio_ops->hi_tx_buffer_read((unsigned char *)data, (unsigned char *)0x60038000, 1028);
+#else
+        //rx
+        aml_hw->plat->hif_sdio_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf,
+            (unsigned char *)(unsigned long)RXBUF_START_ADDR, DATA_LEN, 0);
+        aml_hw->plat->hif_sdio_ops->hi_random_word_write((unsigned int)(SYS_TYPE)(0x60038000), (unsigned int)1);
+        //ack irq
+        aml_hw->plat->hif_sdio_ops->hi_tx_buffer_read((unsigned char *)data, (unsigned char *)0x60038000, 8);
+#endif
+
+#else
+#ifdef SDIO_TX
+#ifndef SDIO_SCATTER
+        //need delete base addr set procedure
+        aml_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)data, (unsigned char *)0x60038000, DATA_LEN);
+        //aml_hw->plat->hif_sdio_ops->hi_random_word_write(0x00a070a0, 0x5678);// for revb irq trigger
+
+#else
+        unsigned int i = 0;
+        for (i = 0; i < DATA_LEN / 10240; ++i) {
+            scat_req->scat_list[i].packet = data + 10240 * i;
+            scat_req->scat_list[i].page_num = 10;
+            scat_req->scat_list[i].len = 10240;
+            scat_req->scat_count++;
+            scat_req->len += scat_req->scat_list[i].len;
+        }
+
+        if (DATA_LEN % 10240) {
+            scat_req->scat_list[i].packet = data + 10240 * i;
+            scat_req->scat_list[i].page_num = ((DATA_LEN % 10240) % 1024) > 0 ? (DATA_LEN % 10240) / 1024 + 1: (DATA_LEN % 10240) / 1024;
+            scat_req->scat_list[i].len = (DATA_LEN % 10240);
+            scat_req->scat_count++;
+            scat_req->len += scat_req->scat_list[i].len;
+        }
+        aml_hw->plat->hif_sdio_ops->hi_send_frame(scat_req);
+        //aml_hw->plat->hif_sdio_ops->hi_random_word_write(0x00a070a0, 0x5678);
+
+#endif
+#else
+        aml_hw->plat->hif_sdio_ops->hi_tx_buffer_read((unsigned char *)data, (unsigned char *)0x60038000, DATA_LEN);
+#endif
+#endif
+        payload_total += DATA_LEN;
+        aml_datarate_monitor();
+    }
+
+    if (data) {
+        FREE(data, "test data.");
+        data = NULL;
+    }
+    return 0;
+}
+#endif
+
 #if defined(CONFIG_WEXT_PRIV)
 static int aml_iwpriv_send_para1(struct net_device *dev,
     struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
@@ -2916,11 +3306,13 @@ static int aml_iwpriv_send_para1(struct net_device *dev,
         case AML_IWP_ENABLE_WF:
             aml_enable_wf(dev, set1);
             break;
+#ifdef SDIO_SPEED_DEBUG
+        case AML_IWP_ENABLE_SDIO_CAL_SPEED:
+            aml_sdio_max_speed_test_cmd(dev, set1);
+            break;
+#endif
         case AML_IWP_SEND_TWT_TEARDOWN:
             aml_send_twt_teardown(dev, set1);
-            break;
-        case AML_IWP_SET_TX_PATH:
-            aml_set_tx_path(dev,set1);
             break;
         case AML_IWP_SET_TX_MODE:
             aml_set_tx_mode(dev,set1);
@@ -2960,6 +3352,9 @@ static int aml_iwpriv_send_para1(struct net_device *dev,
             break;
         case AML_IWP_RECY_CTRL:
             aml_recy_ctrl(dev, set1);
+            break;
+        case AML_IWP_SET_LIMIT_POWER:
+            aml_set_limit_power_status(dev, set1);
             break;
         default:
             printk("%s %d: param err\n", __func__, __LINE__);
@@ -3003,6 +3398,9 @@ static int aml_iwpriv_send_para2(struct net_device *dev,
             break;
         case AML_IWP_SET_TX_PROT:
             aml_set_tx_prot(dev, set1, set2);
+            break;
+        case AML_IWP_SET_TX_PATH:
+            aml_set_tx_path(dev, set1, set2);
             break;
         default:
             break;
@@ -3147,9 +3545,6 @@ static int aml_iwpriv_get(struct net_device *dev,
         case AML_IWP_SET_RX_START:
             aml_set_rx_start(dev);
             break;
-        case AML_IWP_SET_RX_END:
-            aml_set_rx_end(dev,wrqu, extra);
-            break;
         case AML_IWP_SET_TX_END:
             aml_set_tx_end(dev);
             break;
@@ -3198,6 +3593,23 @@ static int aml_iwpriv_get_char(struct net_device *dev,
             break;
         case AML_IWP_GET_EFUSE:
             aml_get_efuse(dev, set, wrqu, extra);
+            break;
+        case AML_IWP_SET_WIFI_MAC_EFUSE:
+            aml_set_wifi_mac_addr(dev, set);
+        case AML_IWP_SET_RX_END:
+            aml_set_rx_end(dev,wrqu, extra);
+            break;
+        case AML_IWP_GET_WIFI_MAC_FROM_EFUSE:
+            aml_get_mac_addr(dev,wrqu, extra);
+            break;
+        case AML_IWP_SET_BT_MAC_EFUSE:
+            aml_set_bt_mac_addr(dev, set);
+            break;
+        case AML_IWP_GET_BT_MAC_FROM_EFUSE:
+            aml_get_bt_mac_addr(dev,wrqu, extra);
+            break;
+        case AML_IWP_GET_XOSC_OFFSET:
+            aml_get_xosc_offset(dev,wrqu, extra);
             break;
     }
 
@@ -3307,9 +3719,6 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
         AML_IWP_SET_RX_START,
         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "pt_rx_start"},
     {
-        AML_IWP_SET_RX_END,
-        0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "pt_rx_end"},
-    {
         AML_IWP_SET_TX_END,
         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "pt_tx_end"},
     {
@@ -3360,12 +3769,14 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_IWP_ENABLE_WF,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "enable_wf"},
+#ifdef SDIO_SPEED_DEBUG
+    {
+        AML_IWP_ENABLE_SDIO_CAL_SPEED,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "sdio_speed"},
+#endif
     {
         AML_IWP_SEND_TWT_TEARDOWN,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "send_twt_td"},
-    {
-        AML_IWP_SET_TX_PATH,
-        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_tx_path"},
     {
         AML_IWP_SET_TX_MODE,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_tx_mode"},
@@ -3403,6 +3814,9 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
         AML_IWP_SET_TXCFM_TRI_TX,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_tri_tx_thr"},
     {
+        AML_IWP_SET_LIMIT_POWER,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_limit_power"},
+    {
         SIOCIWFIRSTPRIV + 2,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 2, 0, ""},
     {
@@ -3429,6 +3843,9 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_IWP_SET_TX_PROT,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 2, 0, "set_tx_prot"},
+    {
+        AML_IWP_SET_TX_PATH,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 2, 0, "set_tx_path"},
     {
         SIOCIWFIRSTPRIV + 3,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 3, 0, ""},
@@ -3470,7 +3887,18 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_IWP_GET_EFUSE,
         IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "get_efuse"},
-
+    {
+        AML_IWP_SET_BT_MAC_EFUSE,
+        IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "set_bt_mac"},
+    {
+        AML_IWP_GET_BT_MAC_FROM_EFUSE,
+        IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "get_bt_mac"},
+    {
+        AML_IWP_SET_RX_END,
+        IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "pt_rx_end"},
+    {
+        AML_IWP_GET_XOSC_OFFSET,
+        IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "get_xosc_offset"},
     {
         SIOCIWFIRSTPRIV + 7,
         IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_FIXED | 4, 0, ""},
@@ -3483,6 +3911,13 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_IWP_GET_CLK,
         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "clk_msr"},
+    {
+        AML_IWP_SET_WIFI_MAC_EFUSE,
+        IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "set_wifi_mac"},
+    {
+        AML_IWP_GET_WIFI_MAC_FROM_EFUSE,
+        IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "get_wifi_mac"},
+
 };
 #endif
 

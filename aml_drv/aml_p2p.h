@@ -43,7 +43,7 @@ enum p2p_action_type {
     P2P_ACTION_PROV_DISC_RSP,       /* Provision Discovery Response */
 };
 
-extern char pub_action_trace[][30];
+extern char p2p_pub_action_trace[][30];
 extern char p2p_action_trace[][30];
 extern u32 aml_get_p2p_ie_offset(const u8 *buf,u32 frame_len);
 extern void aml_change_p2p_chanlist(struct aml_vif *vif, u8 *buf, u32 frame_len,u32* frame_len_offset,u8 chan_no);

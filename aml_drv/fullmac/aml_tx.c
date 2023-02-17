@@ -34,7 +34,30 @@ char sp_frame_status_trace[][25] = {
     "[SP FRAME TX] ",
     "[SP FRAME RX] ",
     "[SP FRAME TX SUC] ",
-    "[SP FRAME TX FAIL] ",
+    "[SP FRAME TX FAIL] "
+};
+
+/*Table 31-DPP Public Action Frame Type [easy connect v2.0]*/
+char dpp_pub_action_trace[][50] = {
+    "Authentication Request",
+    "Authentication Response",
+    "Authentication Confirm",
+    "Reserved",
+    "Reserved",
+    "Peer Discovery Request",
+    "Peer Discovery Response",
+    "PKEX Version 1 Exchange Request",
+    "PKEX Exchange Response",
+    "PKEX Commit-Reveal Request",
+    "PKEX Commit-Reveal Response",
+    "Configuration Result",
+    "Connection Status Result",
+    "Presence Announcement",
+    "Reconfiguration Announcement",
+    "Reconfiguration Authentication Request",
+    "Reconfiguration Authentication Response",
+    "Reconfiguration Authentication Confirm",
+    "PKEX Exchange Request"
 };
 
 /******************************************************************************
@@ -344,7 +367,7 @@ u16 aml_select_txq(struct aml_vif *aml_vif, struct sk_buff *skb)
         struct ethhdr *eth = (struct ethhdr *)skb->data;
 
         if (is_multicast_ether_addr(eth->h_dest)) {
-            sta = &aml_hw->sta_table[aml_vif->ap.bcmc_index];
+            sta = aml_hw->sta_table + aml_vif->ap.bcmc_index;
         } else {
             list_for_each_entry(cur, &aml_vif->ap.sta_list, list) {
                 if (!memcmp(cur->mac_addr, eth->h_dest, ETH_ALEN)) {
@@ -374,7 +397,7 @@ u16 aml_select_txq(struct aml_vif *aml_vif, struct sk_buff *skb)
         }
 
         if (is_multicast_ether_addr(eth->h_dest)) {
-            sta = &aml_hw->sta_table[aml_vif->ap.bcmc_index];
+            sta = aml_hw->sta_table + aml_vif->ap.bcmc_index;
         } else {
             /* Path to be used */
             struct aml_mesh_path *p_mesh_path = NULL;
@@ -522,7 +545,7 @@ static struct aml_sta *aml_get_tx_info(struct aml_vif *aml_vif,
         else
             sta_idx = ndev_idx / NX_NB_TID_PER_STA;
 
-        sta = &aml_hw->sta_table[sta_idx];
+        sta = aml_hw->sta_table + sta_idx;
     }
 
     return sta;
@@ -622,11 +645,11 @@ void aml_tx_push(struct aml_hw *aml_hw, struct aml_txhdr *txhdr, int flags)
 #ifdef CONFIG_AML_AMSDUS_TX
     if (txq->amsdu == sw_txhdr) {
         WARN((flags & AML_PUSH_RETRY), "End A-MSDU on a retry");
-        aml_hw->stats.amsdus[sw_txhdr->amsdu.nb - 1].done++;
+        aml_hw->stats->amsdus[sw_txhdr->amsdu.nb - 1].done++;
         txq->amsdu = NULL;
     } else if (!(flags & AML_PUSH_RETRY) &&
                !(sw_txhdr->desc.api.host.flags & TXU_CNTRL_AMSDU)) {
-        aml_hw->stats.amsdus[0].done++;
+        aml_hw->stats->amsdus[0].done++;
     }
 #endif /* CONFIG_AML_AMSDUS_TX */
 
@@ -656,7 +679,7 @@ void aml_tx_push(struct aml_hw *aml_hw, struct aml_txhdr *txhdr, int flags)
 
     aml_ipc_txdesc_push(aml_hw, sw_txhdr, skb, hw_queue);
     txq->hwq->credits[user]--;
-    aml_hw->stats.cfm_balance[hw_queue]++;
+    aml_hw->stats->cfm_balance[hw_queue]++;
 }
 
 
@@ -939,7 +962,7 @@ static bool aml_amsdu_add_subframe(struct aml_hw *aml_hw, struct sk_buff *skb,
         }
 
         if (sw_txhdr->amsdu.nb >= aml_hw->mod_params->amsdu_maxnb) {
-            aml_hw->stats.amsdus[sw_txhdr->amsdu.nb - 1].done++;
+            aml_hw->stats->amsdus[sw_txhdr->amsdu.nb - 1].done++;
             /* max number of subframes reached */
             txq->amsdu = NULL;
         }
@@ -987,7 +1010,7 @@ static bool aml_amsdu_add_subframe(struct aml_hw *aml_hw, struct sk_buff *skb,
         if (sw_txhdr->amsdu.nb < aml_hw->mod_params->amsdu_maxnb)
             txq->amsdu = sw_txhdr;
         else
-            aml_hw->stats.amsdus[sw_txhdr->amsdu.nb - 1].done++;
+            aml_hw->stats->amsdus[sw_txhdr->amsdu.nb - 1].done++;
     }
 
     res = true;
@@ -1019,7 +1042,7 @@ static void aml_amsdu_dismantle(struct aml_hw *aml_hw, struct aml_sw_txhdr *sw_t
 
     trace_amsdu_dismantle(sw_txhdr_main);
 
-    aml_hw->stats.amsdus[sw_txhdr_main->amsdu.nb - 1].done--;
+    aml_hw->stats->amsdus[sw_txhdr_main->amsdu.nb - 1].done--;
     sw_txhdr_main->amsdu.len = 0;
     sw_txhdr_main->amsdu.nb = 0;
     sw_txhdr_main->desc.api.host.flags &= ~TXU_CNTRL_AMSDU;
@@ -1171,7 +1194,7 @@ static void aml_amsdu_update_len(struct aml_hw *aml_hw, struct aml_txq *txq,
 
 #endif /* CONFIG_AML_AMSDUS_TX */
 
-bool aml_filter_sp_data_frame(struct sk_buff *skb,struct aml_vif *aml_vif)
+bool aml_filter_sp_data_frame(struct sk_buff *skb, struct aml_vif *aml_vif, AML_SP_STATUS_E sp_status)
 {
     struct ethhdr *ethhdr = (struct ethhdr *)skb->data;
     struct udphdr *udphdr;
@@ -1180,25 +1203,45 @@ bool aml_filter_sp_data_frame(struct sk_buff *skb,struct aml_vif *aml_vif)
     struct ipv6hdr *ipv6hdr;
     bool is_dhcpv4;
     bool is_dhcpv6;
+    u8 str[200];
+    u32 offset = 0;
+    u8 *p = str;
 
     //filter eapol
-    if (skb->protocol == cpu_to_be16(ETH_P_PAE) || skb->protocol == cpu_to_be16(WAPI_TYPE)) {
-        printk("[SP FRAME TX] eapol,vif_idx:%d\n", aml_vif->vif_index);
+    if (ethhdr->h_proto == htons(ETH_P_PAE)) {
+        offset += sprintf(p + offset, sp_frame_status_trace[sp_status]);
+        offset += sprintf(p + offset, "eapol,vif_idx:%d",aml_vif->vif_index);
+        printk("%s\n", p);
         return true;
     }
 
     //filter arp
     if (ethhdr->h_proto == htons(ETH_P_ARP)) {
         u16 op = (*(skb->data + ETH_HDR_LEN + 6) << 8) | (*(skb->data + ETH_HDR_LEN + 7));
+        u8 *sender_mac = skb->data + ETH_HDR_LEN + 8;
+        u8 *sender_ip = skb->data + ETH_HDR_LEN + 14;
+        u8 *target_mac = skb->data + ETH_HDR_LEN + 18;
+        u8 *target_ip = skb->data + ETH_HDR_LEN + 24;
+
+        offset += sprintf(p + offset, sp_frame_status_trace[sp_status]);
         if (op == 1) {
-            printk("[SP FRAME TX] arp req,vif_idx:%d\n", aml_vif->vif_index);
+            offset += sprintf(p + offset, "arp req,vif_idx:%d ", aml_vif->vif_index);
         }
         else if (op == 2) {
-            printk("[SP FRAME TX] arp rsp,vif_idx:%d\n", aml_vif->vif_index);
+            offset += sprintf(p + offset, "arp rsp,vif_idx:%d ", aml_vif->vif_index);
         }
         else {
-            printk("[SP FRAME TX] arp unknown:%x,vif_idx:%d\n", op,aml_vif->vif_index);
+            offset += sprintf(p + offset, "arp unknown:%x,vif_idx:%d ", op, aml_vif->vif_index);
         }
+        offset += sprintf(p + offset, "sender:[%02x:%02x:%02x:%02x:%02x:%02x ",
+                    sender_mac[0], sender_mac[1], sender_mac[2], sender_mac[3], sender_mac[4], sender_mac[5]);
+        offset += sprintf(p + offset, "%d.%d.%d.%d]",
+                    sender_ip[0], sender_ip[1], sender_ip[2], sender_ip[3]);
+        offset += sprintf(p + offset, "receiver:[%02x:%02x:%02x:%02x:%02x:%02x ",
+                    target_mac[0], target_mac[1], target_mac[2], target_mac[3], target_mac[4], target_mac[5]);
+        offset += sprintf(p + offset, "%d.%d.%d.%d]",
+                    target_ip[0], target_ip[1], target_ip[2], target_ip[3]);
+        printk("%s\n", p);
         return true;
     }
 
@@ -1214,11 +1257,7 @@ bool aml_filter_sp_data_frame(struct sk_buff *skb,struct aml_vif *aml_vif)
         /* check for udp header */
         if (iphdr->protocol != IPPROTO_UDP)
             return false;
-#if LINUX_VERSION_CODE > KERNEL_VERSION(3, 10, 0)
-        iphdrlen = ip_hdrlen(skb);
-#else
         iphdrlen = iphdr->ihl * 4;
-#endif
     } else {
         return false;
     }
@@ -1229,7 +1268,9 @@ bool aml_filter_sp_data_frame(struct sk_buff *skb,struct aml_vif *aml_vif)
         is_dhcpv6 = ((ethhdr->h_proto == htons(ETH_P_IPV6)) &&
                      ((udphdr->source == htons(DHCP_SP_V6)) || (udphdr->source == htons(DHCP_CP_V6))));
         if (is_dhcpv4 || is_dhcpv6) {
-            printk("[SP FRAME TX] DHCP[%d %d], vif_idx:%d\n", is_dhcpv4,is_dhcpv6, aml_vif->vif_index);
+            offset += sprintf(p + offset, sp_frame_status_trace[sp_status]);
+            offset += sprintf(p + offset, "DHCP[%d %d], vif_idx:%d", is_dhcpv4,is_dhcpv6, aml_vif->vif_index);
+            printk("%s\n", p);
             return true;
         }
     }
@@ -1254,31 +1295,58 @@ uint32_t aml_filter_sp_mgmt_frame(struct aml_vif *vif, u8 *buf, AML_SP_STATUS_E 
             action_code = *(buf + ACTION_CODE_OFFSET);
             oui_type = *(buf + OUI_TYPE_OFFSET);
             oui_subtype = *(buf + OUI_SUBTYPE_OFFSET);
-            if ((category == PUBLIC_ACTION)
-                && (action_code == ACTION_CODE_VENDOR)
-                && (*(buf + OUI_OFFSET) == 0x50)
-                && (*(buf + OUI_OFFSET + 1) == 0x6f)
-                && (*(buf + OUI_OFFSET + 2) == 0x9a)
-                && (oui_type == OUI_TYPE_P2P)) {
-                offset += sprintf(p + offset, "PUBLIC ACTION->%s ", pub_action_trace[oui_subtype]);
-                ret |= AML_P2P_ACTION_FRAME;
-                //P2P_ACTION_GO_NEG_RSP & P2P_ACTION_GO_NEG_CFM & P2P_ACTION_INVIT_RSP:need sw retry
-                if ((oui_subtype == P2P_ACTION_GO_NEG_RSP) || (oui_subtype == P2P_ACTION_GO_NEG_CFM) || (oui_subtype == P2P_ACTION_INVIT_RSP)) {
-                    ret |= AML_SP_FRAME;
-                }
-#if 0
-                if (sp_status == SP_STATUS_TX_START) {
-                    if ((oui_subtype == P2P_ACTION_GO_NEG_REQ) || (oui_subtype == P2P_ACTION_GO_NEG_RSP) || (oui_subtype == P2P_ACTION_INVIT_RSP)) {
-                        aml_change_p2p_chanlist(vif,buf, frame_len,frame_len_offset,1);
-                    }
-                    if ((oui_subtype == P2P_ACTION_GO_NEG_REQ) || (oui_subtype == P2P_ACTION_GO_NEG_RSP)) {
-                        aml_change_p2p_intent(vif,buf, frame_len,frame_len_offset);
-                    }
-                }
+            if (category == PUBLIC_ACTION) {
+                if ((action_code == ACTION_CODE_VENDOR)
+                    && (*(buf + OUI_OFFSET) == 0x50)
+                    && (*(buf + OUI_OFFSET + 1) == 0x6f)
+                    && (*(buf + OUI_OFFSET + 2) == 0x9a))
+                {
+                    if (oui_type == OUI_TYPE_P2P) {
+                        offset += sprintf(p + offset, "PUBLIC ACTION->%s ", p2p_pub_action_trace[oui_subtype]);
+                        ret |= AML_P2P_ACTION_FRAME;
+                        //P2P_ACTION_GO_NEG_RSP & P2P_ACTION_GO_NEG_CFM & P2P_ACTION_INVIT_RSP:need sw retry
+                        if ((oui_subtype == P2P_ACTION_GO_NEG_RSP) || (oui_subtype == P2P_ACTION_GO_NEG_CFM) || (oui_subtype == P2P_ACTION_INVIT_RSP)) {
+                            ret |= AML_SP_FRAME;
+                        }
+#if 0 //code for debug p2p go intent & chanlist
+                        if (sp_status == SP_STATUS_TX_START) {
+                            if ((oui_subtype == P2P_ACTION_GO_NEG_REQ) || (oui_subtype == P2P_ACTION_GO_NEG_RSP) || (oui_subtype == P2P_ACTION_INVIT_RSP)) {
+                                aml_change_p2p_chanlist(vif,buf, frame_len,frame_len_offset,1);
+                            }
+                            if ((oui_subtype == P2P_ACTION_GO_NEG_REQ) || (oui_subtype == P2P_ACTION_GO_NEG_RSP)) {
+                                aml_change_p2p_intent(vif,buf, frame_len,frame_len_offset);
+                            }
+                        }
 #endif
-            } else if (category == P2P_ACTION) {
+                    }
+                    else if (oui_type == OUI_TYPE_DPP) {
+                            u8 dpp_action_subtype = *(buf + DPP_PUBLIC_ACTION_SUBTYPE_OFFSET);
+                            offset += sprintf(p + offset, "DPP ACTION->%s ", dpp_pub_action_trace[dpp_action_subtype]);
+                            ret |= AML_SP_FRAME | AML_DPP_ACTION_FRAME;
+                    }
+                }
+                else if ((action_code == ACTION_GAS_INIT_REQ)
+                        || (action_code == ACTION_GAS_INIT_RSP)) {
+                        u8 tag_len = *(buf + CATEGORY_OFFSET + 4);
+                        offset += sprintf(p + offset, "GAS ACTION,action code:%d ", action_code);
+                        ret |= AML_SP_FRAME;
+                        if ((tag_len >= 8)
+                            && (*(buf + CATEGORY_OFFSET + 6) == 0xdd)
+                            && (*(buf + CATEGORY_OFFSET + 7) == 0x05)
+                            && (*(buf + CATEGORY_OFFSET + 8) == 0x50)
+                            && (*(buf + CATEGORY_OFFSET + 9) == 0x6f)
+                            && (*(buf + CATEGORY_OFFSET + 10) == 0x9a)
+                            && (*(buf + CATEGORY_OFFSET + 11) == 0x1a)
+                            && (*(buf + CATEGORY_OFFSET + 12) == 0x01)) {
+                                offset += sprintf(p + offset, "[DPP Configuration]");
+                                ret |= AML_DPP_ACTION_FRAME;
+                            }
+                }
+            }
+            else if (category == P2P_ACTION) {
                 offset += sprintf(p + offset, "P2P ACTION->%s ", p2p_action_trace[oui_subtype]);
-            } else {
+            }
+            else {
                 offset += sprintf(p + offset, "ACTION category %d ", category);
             }
             p[offset] = '\0';
@@ -1304,7 +1372,7 @@ uint32_t aml_filter_sp_mgmt_frame(struct aml_vif *vif, u8 *buf, AML_SP_STATUS_E 
             return ret;
         }
         case PROBE_RSP_TYPE: {
-            aml_scc_save_probe_rsp(vif,(u8*)buf);
+            aml_scc_save_probe_rsp(vif, (u8*)buf, frame_len);
             return ret;
         }
         default:
@@ -1344,6 +1412,7 @@ netdev_tx_t aml_start_xmit(struct sk_buff *skb, struct net_device *dev)
 #endif
     struct aml_usb_txhdr *usb_txhdr;
     bool sp_frame = false;
+
     sk_pacing_shift_update(skb->sk, aml_hw->tcp_pacing_shift);
     if (aml_bus_type == PCIE_MODE) {
         tx_max_headroom = AML_TX_MAX_HEADROOM;
@@ -1381,12 +1450,11 @@ netdev_tx_t aml_start_xmit(struct sk_buff *skb, struct net_device *dev)
      * filer special frame,reuse TXU_CNTRL_MESH_FWD
      * TBD,use own flag in next rom version
      */
-    if (aml_filter_sp_data_frame(skb,aml_vif)) {
+    if (aml_filter_sp_data_frame(skb,aml_vif,SP_STATUS_TX_START)) {
         sp_frame = true;
         txq = aml_txq_sta_get(sta, tid, aml_hw);
         tid = 0xff;
-    }
-    else {
+    } else {
         txq = aml_txq_sta_get(sta, tid, aml_hw);
     }
 
@@ -1534,22 +1602,29 @@ int aml_start_mgmt_xmit(struct aml_vif *vif, struct aml_sta *sta,
     u32 tx_headroom;
     struct aml_usb_txhdr *usb_txhdr;
     u32 frame_len_offset = 0;
-    bool sp_mgmt = false;
+    u32 sp_mgmt_ret;
     frame_len = params->len;
 
     /* Set TID and Queues indexes */
     if (sta) {
         txq = aml_txq_sta_get(sta, 8, aml_hw);
     } else {
-        if (offchan)
+        if (offchan) {
 #ifdef CONFIG_AML_PREALLOC_BUF_STATIC
             txq = aml_hw->txq + NX_OFF_CHAN_TXQ_IDX;
 #else
             txq = &aml_hw->txq[NX_OFF_CHAN_TXQ_IDX];
 #endif
-        else
+        } else {
             txq = aml_txq_vif_get(vif, NX_UNK_TXQ_TYPE);
+        }
     }
+#ifdef CONFIG_AML_RECOVERY
+    if ((aml_recy->flags & (AML_RECY_ASSOC_INFO_SAVED | AML_RECY_EXTAUTH_REQUIRED))
+            && (vif->is_sta_mode)) {
+        txq = aml_txq_vif_get(vif, NX_UNK_TXQ_TYPE);
+    }
+#endif
     if (aml_bus_type == PCIE_MODE) {
         tx_headroom = AML_TX_HEADROOM;
     } else if (aml_bus_type == USB_MODE){
@@ -1578,8 +1653,14 @@ int aml_start_mgmt_xmit(struct aml_vif *vif, struct aml_sta *sta,
     /* Copy data in skb buffer */
     data = skb_put(skb, frame_len);
     memcpy(data, params->buf, frame_len);
-    if (aml_filter_sp_mgmt_frame(vif,data,SP_STATUS_TX_START,frame_len,&frame_len_offset) & AML_SP_FRAME) {
-        sp_mgmt = true;
+    sp_mgmt_ret = aml_filter_sp_mgmt_frame(vif,data,SP_STATUS_TX_START,frame_len,&frame_len_offset);
+    if ((sp_mgmt_ret & AML_DPP_ACTION_FRAME) && offchan) {
+#ifdef CONFIG_AML_PREALLOC_BUF_STATIC
+        txq = aml_hw->txq + NX_OFF_CHAN_TXQ_IDX;
+#else
+        txq = &aml_hw->txq[NX_OFF_CHAN_TXQ_IDX];
+#endif
+        AML_INFO("DPP change txq ---> off chan");
     }
     if (frame_len_offset)
     {
@@ -1623,7 +1704,7 @@ int aml_start_mgmt_xmit(struct aml_vif *vif, struct aml_sta *sta,
     desc->host.vif_idx = vif->vif_index;
     desc->host.tid = 0xFF;
     desc->host.flags = TXU_CNTRL_MGMT;
-    if (sp_mgmt) {
+    if (sp_mgmt_ret & AML_SP_FRAME) {
         desc->host.flags |= TXU_CNTRL_SP_FRAME;
     }
 
@@ -1633,7 +1714,7 @@ int aml_start_mgmt_xmit(struct aml_vif *vif, struct aml_sta *sta,
     if (params->no_cck)
         desc->host.flags |= TXU_CNTRL_MGMT_NO_CCK;
 
-   if (aml_bus_type == PCIE_MODE) {
+    if (aml_bus_type == PCIE_MODE) {
         /* store Tx info in skb headroom */
         txhdr = (struct aml_txhdr *)skb_push(skb, tx_headroom);
         txhdr->sw_hdr = sw_txhdr;
@@ -1651,7 +1732,7 @@ int aml_start_mgmt_xmit(struct aml_vif *vif, struct aml_sta *sta,
 
             memset(&sdio_txhdr->tx_vector, 0, sizeof(struct hw_tx_vector_bits) + sizeof(struct txdesc_host)/*8 byte alignment*/);
         }
-   }
+    }
 
     /* queue the buffer */
     spin_lock_bh(&aml_hw->tx_lock);
@@ -1683,11 +1764,11 @@ int aml_update_tx_cfm(void *pthis)
     read_cfm = aml_hw->read_cfm;
     if (aml_bus_type == USB_MODE) {
         aml_hw->plat->hif_ops->hi_read_sram((unsigned char *)read_cfm,
-            (unsigned char *)SRAM_TXCFM_START_ADDR, sizeof(struct tx_sdio_usb_cfm_tag) * TXCFM_READ_CNT, USB_EP4);
+            (unsigned char *)SRAM_TXCFM_START_ADDR, sizeof(struct tx_sdio_usb_cfm_tag) * SRAM_TXCFM_CNT, USB_EP4);
 
     } else if (aml_bus_type == SDIO_MODE) {
         aml_hw->plat->hif_sdio_ops->hi_sram_read((unsigned char *)read_cfm,
-            (unsigned char *)SRAM_TXCFM_START_ADDR, sizeof(struct tx_sdio_usb_cfm_tag) * TXCFM_READ_CNT);
+            (unsigned char *)SRAM_TXCFM_START_ADDR, sizeof(struct tx_sdio_usb_cfm_tag) * SRAM_TXCFM_CNT);
     }
 
     up(&aml_hw->aml_tx_cfm_sem);
@@ -1710,6 +1791,7 @@ int aml_tx_cfm_task(void *data)
     struct txdesc_host *txdesc_host = NULL;
     unsigned char  page_num = 0;
     struct sched_param sch_param;
+    u16 dyna_page = 0;
 
     sch_param.sched_priority = 91;
     sched_setscheduler(current, SCHED_FIFO, &sch_param);
@@ -1724,7 +1806,7 @@ int aml_tx_cfm_task(void *data)
 
         spin_lock_bh(&aml_hw->tx_lock);
         read_cfm = aml_hw->read_cfm;
-        for (i = 0; i < TXCFM_READ_CNT; i++, drv_txcfm_idx = (drv_txcfm_idx + 1) % SRAM_TXCFM_CNT) {
+        for (i = 0; i < SRAM_TXCFM_CNT; i++, drv_txcfm_idx = (drv_txcfm_idx + 1) % SRAM_TXCFM_CNT) {
             aml_hw->ipc_env->txcfm_idx = drv_txcfm_idx;
 
             cfm_data = read_cfm[drv_txcfm_idx];
@@ -1733,6 +1815,7 @@ int aml_tx_cfm_task(void *data)
 #ifdef CONFIG_AML_SPLIT_TX_BUF
             cfm.amsdu_size = cfm_data.amsdu_size;
 #endif
+            dyna_page = cfm_data.dyna_page;
             cfm.status.value = (u32)cfm_data.status.value;
             cfm.hostid = (u32_l)cfm_data.hostid;
             skb = ipc_host_tx_host_id_to_ptr_for_sdio_usb(aml_hw->ipc_env, cfm.hostid);
@@ -1755,12 +1838,13 @@ int aml_tx_cfm_task(void *data)
             spin_lock_bh(&aml_hw->tx_buf_lock);
             aml_hw->g_tx_param.tx_page_free_num += page_num;
             if (aml_bus_type == SDIO_MODE) {
-                if (cfm.ampdu_size == DYNA_PAGE_NUM)
-                    aml_hw->g_tx_param.tx_page_free_num += cfm.ampdu_size;
+                if (dyna_page == DYNA_PAGE_NUM)
+                    aml_hw->g_tx_param.tx_page_free_num += dyna_page;
                 else
-                    aml_hw->g_tx_param.tx_page_free_num -= cfm.ampdu_size;
+                    aml_hw->g_tx_param.tx_page_free_num -= dyna_page;
             }
             spin_unlock_bh(&aml_hw->tx_buf_lock);
+            AML_PRINT(AML_DBG_MODULES_TX, "%s, tx_page_free_num=%d, credit=%d, pagenum=%d, skb=%p, cfm.credits=%d\n", __func__, aml_hw->g_tx_param.tx_page_free_num, txq->credits, page_num, skb, cfm.credits);
             if (aml_hw->g_tx_param.tx_page_free_num >= aml_hw->g_tx_param.txcfm_trigger_tx_thr) {
                 up(&aml_hw->aml_tx_task_sem);
             }
@@ -1815,15 +1899,15 @@ int aml_tx_cfm_task(void *data)
                 }
             }
             /* coverity[result_independent_of_operands] - Enhance code robustness */
-            //if (cfm.ampdu_size && (cfm.ampdu_size < IEEE80211_MAX_AMPDU_BUF))
-                //aml_hw->stats.ampdus_tx[cfm.ampdu_size - 1]++;
+            if (cfm.ampdu_size && (cfm.ampdu_size < IEEE80211_MAX_AMPDU_BUF))
+                aml_hw->stats->ampdus_tx[cfm.ampdu_size - 1]++;
 
 #ifdef CONFIG_AML_AMSDUS_TX
             if (!cfm.status.acknowledged) {
                 if (sw_txhdr->desc.api.host.flags & TXU_CNTRL_AMSDU)
-                    aml_hw->stats.amsdus[sw_txhdr->amsdu.nb - 1].failed++;
+                    aml_hw->stats->amsdus[sw_txhdr->amsdu.nb - 1].failed++;
                 else if (!sw_txhdr->aml_sta || !is_multicast_sta(sw_txhdr->aml_sta->sta_idx))
-                    aml_hw->stats.amsdus[0].failed++;
+                    aml_hw->stats->amsdus[0].failed++;
             }
             aml_amsdu_update_len(aml_hw, txq, cfm.amsdu_size);
 #endif
@@ -1945,14 +2029,14 @@ int aml_txdatacfm(void *pthis, void *arg)
     }
     /* coverity[result_independent_of_operands] - Enhance code robustness */
     if (cfm->ampdu_size && (cfm->ampdu_size < IEEE80211_MAX_AMPDU_BUF))
-        aml_hw->stats.ampdus_tx[cfm->ampdu_size - 1]++;
+        aml_hw->stats->ampdus_tx[cfm->ampdu_size - 1]++;
 
 #ifdef CONFIG_AML_AMSDUS_TX
     if (!cfm->status.acknowledged) {
         if (sw_txhdr->desc.api.host.flags & TXU_CNTRL_AMSDU)
-            aml_hw->stats.amsdus[sw_txhdr->amsdu.nb - 1].failed++;
+            aml_hw->stats->amsdus[sw_txhdr->amsdu.nb - 1].failed++;
         else if (!sw_txhdr->aml_sta || !is_multicast_sta(sw_txhdr->aml_sta->sta_idx))
-            aml_hw->stats.amsdus[0].failed++;
+            aml_hw->stats->amsdus[0].failed++;
     }
 
     aml_amsdu_update_len(aml_hw, txq, cfm->amsdu_size);
@@ -2001,7 +2085,7 @@ int aml_txdatacfm(void *pthis, void *arg)
  */
 void aml_txq_credit_update(struct aml_hw *aml_hw, int sta_idx, u8 tid, s8 update)
 {
-    struct aml_sta *sta = &aml_hw->sta_table[sta_idx];
+    struct aml_sta *sta = aml_hw->sta_table + sta_idx;
     struct aml_txq *txq;
     struct sk_buff *tx_skb;
     int user = 0, credits = 0;
@@ -2011,7 +2095,7 @@ void aml_txq_credit_update(struct aml_hw *aml_hw, int sta_idx, u8 tid, s8 update
 
     aml_spin_lock(&aml_hw->tx_lock);
     if (txq->idx != TXQ_INACTIVE) {
-        if (aml_bus_type != PCIE_MODE && update > NX_TXQ_INITIAL_CREDITS) {
+        if (update > NX_TXQ_INITIAL_CREDITS) {
             update = TX_MAX_CNT - NX_TXQ_INITIAL_CREDITS;
         }
 

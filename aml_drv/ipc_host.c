@@ -364,7 +364,7 @@ static void ipc_host_rxbuf_ext_init(struct ipc_shared_rx_buf *shared_host_rxbuf)
     if (!shared_host_rxbuf)
         return;
 
-    size = (unsigned int)sizeof(struct ipc_shared_rx_buf) * IPC_RXBUF_CNT_EXT;
+    size = (unsigned int)sizeof(struct ipc_shared_rx_buf) * (IPC_RXBUF_CNT_EXT + IPC_RXBUF_CNT);
     dst = (unsigned int *)shared_host_rxbuf;
 
     for (i = 0; i < size; i += 4) {

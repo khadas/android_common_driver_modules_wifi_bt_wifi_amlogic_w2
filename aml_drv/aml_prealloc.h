@@ -13,10 +13,12 @@
 #ifndef _AML_PREALLOC_H_
 #define _AML_PREALLOC_H_
 
+#include "aml_static_buf.h"
+
 #ifdef CONFIG_AML_PREALLOC_BUF_STATIC
-#define PREALLOC_BUF_DUMP_SIZE  (1290 * 1024)
-#define FW_VERBOSE_RING_SIZE        (256 * 1024)
-#define PREALLOC_BUF_INFO_SIZE  (36 * 1024)
+
+#define PREALLOC_BUF_DUMP_SIZE AML_PREALLOC_BUF_TYPE_DUMP_SIZE
+#define PREALLOC_BUF_INFO_SIZE AML_PREALLOC_BUF_TYPE_TXQ_SIZE
 
 /* inner buffer type */
 enum prealloc_buf_type {
@@ -29,17 +31,12 @@ enum prealloc_buf_type {
     PREALLOC_BUF_TYPE_DUMP,
     PREALLOC_BUF_TYPE_RX,
     PREALLOC_BUF_TYPE_TXQ,
+    PREALLOC_BUF_TYPE_AMSDU,
     PREALLOC_BUF_TYPE_MAX,
 };
 void *aml_prealloc_get(int buf_type, size_t buf_size, size_t *alloc_size);
 
-/* outer buffer type */
-enum bcmdhd_mem_type {
-    BCMDHD_MEM_DUMP_RAM = 11,
-    DHD_PREALLOC_DHD_INFO = 7,
-    DHD_PREALLOC_FW_VERBOSE_RING = 20,
-};
-extern void *bcmdhd_mem_prealloc(int section, unsigned long size);
+
 #endif  // CONFIG_PREALLOC_BUF_STATIC
 
 #ifdef CONFIG_AML_PREALLOC_BUF_SKB

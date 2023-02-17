@@ -4,6 +4,7 @@
 #include "wifi_debug.h"
 
 extern struct iw_handler_def iw_handle;
+extern int aml_get_txq(struct net_device *dev);
 
 enum aml_iwpriv_subcmd
 {
@@ -81,6 +82,13 @@ enum aml_iwpriv_subcmd
     AML_IWP_GET_BUF_STATE = 72,
     AML_IWP_SET_TXPAGE_ONCE = 73,
     AML_IWP_SET_TXCFM_TRI_TX = 74,
+    AML_IWP_SET_WIFI_MAC_EFUSE =75,
+    AML_IWP_GET_WIFI_MAC_FROM_EFUSE = 76,
+    AML_IWP_SET_BT_MAC_EFUSE =77,
+    AML_IWP_GET_BT_MAC_FROM_EFUSE = 78,
+    AML_IWP_SET_LIMIT_POWER = 79,
+    AML_IWP_ENABLE_SDIO_CAL_SPEED = 80,
+    AML_IWP_GET_XOSC_OFFSET = 81,
 };
 
 #endif

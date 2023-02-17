@@ -257,16 +257,16 @@ static void aml_v7_platform_deinit(struct aml_plat_pci *aml_plat_pci)
 int aml_v7_platform_init(struct pci_dev *pci_dev, struct aml_plat_pci **aml_plat_pci)
 {
     struct aml_v7 *aml_v7;
-    int ret = 0;
+    int ret = -ENOMEM;
     unsigned long bar2_base_addr;
     unsigned long bar4_base_addr;
     *aml_plat_pci = kzalloc(sizeof(struct aml_plat_pci) + sizeof(struct aml_v7),
                         GFP_KERNEL);
     if (!*aml_plat_pci)
-        return -ENOMEM;
+        return ret;
 
     printk("%s:%d \n", __func__, __LINE__);
-    
+
     aml_v7 = (struct aml_v7 *)(*aml_plat_pci)->priv;
 
     if ((ret = pci_enable_device(pci_dev))) {
@@ -285,13 +285,12 @@ int aml_v7_platform_init(struct pci_dev *pci_dev, struct aml_plat_pci **aml_plat
     if (!(aml_v7->pci_bar0_vaddr = (u8 *)pci_ioremap_bar(pci_dev, 0)))
     {
         dev_err(&(pci_dev->dev), "pci_ioremap_bar(%d) failed\n", 0);
-        ret = -ENOMEM;
         goto out_bar0;
     }
 
     g_pcie_bar0_base_addr = (unsigned long)aml_v7->pci_bar0_vaddr;
 
-    printk("%s %d ep_bar0_addr:0x%lx\n", __func__, __LINE__, g_pcie_bar0_base_addr); 
+    printk("%s %d ep_bar0_addr:0x%lx\n", __func__, __LINE__, g_pcie_bar0_base_addr);
     // PCIe to AXI4 Master Address Translation Endpoint Mode
     // bar2 address translation
     pcie_addr_map(pci_dev, bar2_base_addr + PCIE_BAR2_TABLE0_OFFSET, PCIE_BAR2_TABLE0_EP_BASE_ADDR,
@@ -340,14 +339,12 @@ int aml_v7_platform_init(struct pci_dev *pci_dev, struct aml_plat_pci **aml_plat
     {
         dev_err(&(pci_dev->dev), "pci_enable_msi failed\n");
         goto out_msi;
-
     }
 
     // Get ep bar2 base addr
     if (!(aml_v7->pci_bar2_vaddr = (u8 *)pci_ioremap_bar(pci_dev, 2)))
     {
         dev_err(&(pci_dev->dev), "pci_ioremap_bar(%d) failed\n", 2);
-        ret = -ENOMEM;
         goto out_bar2;
     }
 
@@ -356,7 +353,6 @@ int aml_v7_platform_init(struct pci_dev *pci_dev, struct aml_plat_pci **aml_plat
     if (!(aml_v7->pci_bar4_vaddr = (u8 *)pci_ioremap_bar(pci_dev, 4)))
     {
         dev_err(&(pci_dev->dev), "pci_ioremap_bar(%d) failed\n", 4);
-        ret = -ENOMEM;
         goto out_bar4;
     }
 

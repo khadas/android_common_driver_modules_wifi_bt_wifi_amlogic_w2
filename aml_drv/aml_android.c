@@ -47,7 +47,7 @@ static int aml_android_get_rssi(struct aml_vif *vif, char *cmdstr, int len)
         struct aml_plat *aml_plat = vif->aml_hw->plat;
 
         // Generic info
-        rssi = AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, REG_OF_BEACON_RSSI);
+        rssi = (AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, REG_OF_SYNC_RSSI) & 0xffff) - 256;
         bytes = snprintf(&cmdstr[bytes], len, "%s rssi %d\n",
                 ssid_sprintf(vif->sta.assoc_ssid, vif->sta.assoc_ssid_len), rssi);
     }

@@ -5,6 +5,82 @@
 
 #define TSSI_5G_CAL_NUM 4
 
+typedef struct W2_EFUSE_PARAM
+{
+    unsigned char customer_efuse_en;
+    unsigned char FT_efuse_en;
+    unsigned char xosc_ctune_vld;
+
+    unsigned char absolute_power_wf0_2g_vld;
+    unsigned char absolute_power_wf0_5g_vld;
+    unsigned char absolute_power_wf1_2g_vld;
+    unsigned char absolute_power_wf1_5g_vld;
+
+    unsigned char offset_power_wf0_2g_vld;
+    unsigned char offset_power_wf0_5g_vld;
+    unsigned char offset_power_wf1_2g_vld;
+    unsigned char offset_power_wf1_5g_vld;
+
+    unsigned char pwr_delta_wf0_customer_vld;
+    unsigned char pwr_delta_wf1_customer_vld;
+
+    unsigned char xosc_ctune;
+
+    unsigned char absolute_power_wf0_2g_l;
+    unsigned char absolute_power_wf0_2g_m;
+    unsigned char absolute_power_wf0_2g_h;
+    unsigned char absolute_power_wf0_5200;
+    unsigned char absolute_power_wf0_5300;
+    unsigned char absolute_power_wf0_5530;
+    unsigned char absolute_power_wf0_5660;
+    unsigned char absolute_power_wf0_5780;
+
+    unsigned char absolute_power_wf1_2g_l;
+    unsigned char absolute_power_wf1_2g_m;
+    unsigned char absolute_power_wf1_2g_h;
+    unsigned char absolute_power_wf1_5200;
+    unsigned char absolute_power_wf1_5300;
+    unsigned char absolute_power_wf1_5530;
+    unsigned char absolute_power_wf1_5660;
+    unsigned char absolute_power_wf1_5780;
+
+    unsigned char offset_power_wf0_2g_l;
+    unsigned char offset_power_wf0_2g_m;
+    unsigned char offset_power_wf0_2g_h;
+    unsigned char offset_power_wf0_5200;
+    unsigned char offset_power_wf0_5300;
+    unsigned char offset_power_wf0_5530;
+    unsigned char offset_power_wf0_5660;
+    unsigned char offset_power_wf0_5780;
+
+    unsigned char offset_power_wf1_2g_l;
+    unsigned char offset_power_wf1_2g_m;
+    unsigned char offset_power_wf1_2g_h;
+    unsigned char offset_power_wf1_5200;
+    unsigned char offset_power_wf1_5300;
+    unsigned char offset_power_wf1_5530;
+    unsigned char offset_power_wf1_5660;
+    unsigned char offset_power_wf1_5780;
+
+    unsigned char second_offset_power_wf0_2g_l;
+    unsigned char second_offset_power_wf0_2g_m;
+    unsigned char second_offset_power_wf0_2g_h;
+    unsigned char second_offset_power_wf0_5200;
+    unsigned char second_offset_power_wf0_5300;
+    unsigned char second_offset_power_wf0_5530;
+    unsigned char second_offset_power_wf0_5660;
+    unsigned char second_offset_power_wf0_5780;
+
+    unsigned char second_offset_power_wf1_2g_l;
+    unsigned char second_offset_power_wf1_2g_m;
+    unsigned char second_offset_power_wf1_2g_h;
+    unsigned char second_offset_power_wf1_5200;
+    unsigned char second_offset_power_wf1_5300;
+    unsigned char second_offset_power_wf1_5530;
+    unsigned char second_offset_power_wf1_5660;
+    unsigned char second_offset_power_wf1_5780;
+}W2_EFUSE_PARAM;
+
 typedef struct Cali_Param
 {
     unsigned char Cmd;
@@ -35,6 +111,7 @@ typedef struct Cali_Param
     unsigned char wf5g_he20_tpwr[12];
     unsigned char wf5g_he40_tpwr[12];
     unsigned char wf5g_he80_tpwr[12];
+    W2_EFUSE_PARAM w2_efuse_param;
 } Cali_Param;
 
 

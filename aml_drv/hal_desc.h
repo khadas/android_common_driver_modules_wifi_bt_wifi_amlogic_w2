@@ -369,8 +369,10 @@ struct tx_sdio_usb_cfm_tag
 #ifdef CONFIG_AML_SPLIT_TX_BUF
     u16_l amsdu_size;
 #endif
+    u16_l dyna_page;
     union aml_sdio_usb_hw_txstatus status;
     u32_l hostid;
+    u32_l reserve;
 };
 
 struct chan_switch_ind_info

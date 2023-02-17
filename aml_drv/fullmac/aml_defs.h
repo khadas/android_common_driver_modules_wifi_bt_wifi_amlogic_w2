@@ -19,6 +19,7 @@
 #include <linux/skbuff.h>
 #include <net/cfg80211.h>
 #include <linux/slab.h>
+#include <linux/workqueue.h>
 
 #include "aml_mod_params.h"
 #include "aml_debugfs.h"
@@ -33,7 +34,7 @@
 #include "ipc_host.h"
 #include "fi_cmd.h"
 #include "aml_compat.h"
-#include "aml_queue.h"
+#include "aml_task.h"
 
 #define WPI_HDR_LEN    18
 #define WPI_PN_LEN     16
@@ -51,7 +52,7 @@
 #define NX_BCNFRAME_LEN 512
 #define BCN_TXLBUF_TAG_LEN 252
 
-#define TXCFM_READ_CNT 256
+#define SRAM_TXCFM_CNT 192
 
 #define TX_MAX_CNT  124
 
@@ -66,7 +67,11 @@
 
 // Maximum number of interface at driver level
 #define NX_ITF_MAX (NX_VIRT_DEV_MAX + MAX_AP_VLAN_ITF)
-#define WIFI_CONF_PATH "/vendor/etc/wifi/w2"
+
+// WIFI_CALI_VERSION must be consistent with the version field in "/vendor/firmware/"
+// After updating the parameters, it must be modified at the same time.
+#define WIFI_CALI_VERSION   (3)
+#define WIFI_CALI_FILENAME  "aml_wifi_rf.txt"
 
 #define STRUCT_BUFF_LEN   252
 #define MAX_HEAD_LEN      92
@@ -293,6 +298,7 @@ struct aml_vif {
     bool use_4addr;
     bool is_resending;
     bool roc_tdls;
+    bool is_sta_mode;
     u8 tdls_status;
     bool tdls_chsw_prohibited;
     int generation;
@@ -630,16 +636,6 @@ struct tx_amsdu_param {
     u8 amsdu_buf[AMSDU_BUF_MAX];
 };
 
-#ifdef CONFIG_AML_USE_TASK
-struct aml_task {
-    struct task_struct  *task;
-    struct semaphore    task_sem;
-    struct completion   task_cmpl;
-    int task_quit;
-    spinlock_t lock;
-};
-#endif
-
 /**
  * struct aml_hw - AML driver main data
  *
@@ -729,7 +725,7 @@ struct aml_hw {
     u8 is_connectting;
 
     // Stations
-    struct aml_sta sta_table[NX_REMOTE_STA_MAX + NX_VIRT_DEV_MAX];
+    struct aml_sta *sta_table;
 
     // Channels
     struct aml_chanctx chanctx_table[NX_CHAN_CTXT_CNT];
@@ -790,17 +786,9 @@ struct aml_hw {
     struct aml_task *txcfm;
     struct aml_task *misc;
     u32 txcfm_status;
-
 #endif
 
-    // recovery
-#ifdef CONFIG_AML_RECOVERY
-    bool is_connected;
-    struct timer_list cmdcsh_timer;
-    struct timer_list txhang_timer;
-    struct timer_list pcierr_timer;
-    struct aml_recy_info *recy_info;
-#endif
+    struct timer_list sync_trace_timer;
 
     // workqueue
     spinlock_t wq_lock;
@@ -830,12 +818,9 @@ struct aml_hw {
     struct aml_ipc_buf unsuprxvecs[IPC_UNSUPRXVECBUF_CNT];
     struct aml_ipc_buf scan_ie;
     struct aml_ipc_buf_pool txcfm_pool;
-    struct txdesc_host txdesc_host_list[TX_LIST_CNT];
+    struct tx_sdio_usb_cfm_tag read_cfm[SRAM_TXCFM_CNT];
 
-    struct aml_tx_cfmed tx_cfmed[TXCFM_READ_CNT];
-    struct tx_sdio_usb_cfm_tag read_cfm[TXCFM_READ_CNT];
-
-    struct scan_results scan_results[SCAN_RESULTS_MAX_CNT];
+    struct scan_results *scan_results;
     uint8_t *scanres_payload_buf;
     uint32_t scanres_payload_buf_offset;
     struct list_head scan_res_list;
@@ -851,7 +836,6 @@ struct aml_hw {
 
     struct tx_task_param g_tx_param;
 
-    struct tx_amsdu_param g_amsdu_param;
     struct list_head tx_desc_save;
     struct list_head tx_buf_free_list;
     struct list_head tx_buf_used_list;
@@ -867,15 +851,12 @@ struct aml_hw {
     struct task_struct *aml_tx_task;
     struct task_struct *aml_msg_task;
     struct task_struct *aml_tx_cfm_task;
-    struct task_struct *aml_misc_task;
-    struct msg_q_t aml_misc_q;
 
     struct semaphore aml_tx_cfm_sem;
     struct semaphore aml_msg_sem;
     struct semaphore aml_task_sem;
     struct semaphore aml_rx_task_sem;
     struct semaphore aml_tx_task_sem;
-    struct semaphore aml_misc_sem;
 
     struct urb *g_urb;
     struct usb_ctrlrequest *g_cr;
@@ -883,7 +864,7 @@ struct aml_hw {
 
     // Debug FS and stats
     struct aml_debugfs debugfs;
-    struct aml_stats stats;
+    struct aml_stats *stats;
 #ifdef TEST_MODE
     // for pcie dma pressure test
     struct aml_ipc_buf pcie_prssr_test;
@@ -893,9 +874,6 @@ struct aml_hw {
     ktime_t lock_kt;
     int g_hr_lock_timer_valid;
     u8 g_tx_to;
-
-    struct hrtimer sync_trace_timer;
-    ktime_t sync_kt;
 };
 
 u8 *aml_build_bcn(struct aml_bcn *bcn, struct cfg80211_beacon_data *new);
@@ -922,7 +900,11 @@ static inline uint8_t master_vif_idx(struct aml_vif *vif)
 
 static inline void *aml_get_shared_trace_buf(struct aml_hw *aml_hw)
 {
+#ifdef CONFIG_AML_DEBUGFS
     return (void *)&(aml_hw->debugfs.fw_trace.buf);
+#else
+    return NULL;
+#endif
 }
 extern unsigned int aml_bus_type;
 

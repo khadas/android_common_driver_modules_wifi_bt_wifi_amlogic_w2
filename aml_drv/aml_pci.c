@@ -22,6 +22,7 @@
 struct aml_plat_pci *g_aml_plat_pci;
 unsigned char g_pci_driver_insmoded;
 unsigned char g_pci_after_probe;
+unsigned char g_pci_shutdown;
 
 static const struct pci_device_id aml_pci_ids[] =
 {
@@ -128,6 +129,17 @@ out:
     return err;
 }
 
+static void aml_pci_shutdown(struct pci_dev *pdev)
+{
+    g_pci_shutdown = 1;
+
+    if (pci_is_enabled(pdev)) {
+        msleep(100);
+        pci_disable_device(pdev);
+    }
+    printk("%s\n", __func__);
+}
+
 static struct pci_driver aml_pci_drv = {
     .name     = KBUILD_MODNAME,
     .id_table = aml_pci_ids,
@@ -135,6 +147,7 @@ static struct pci_driver aml_pci_drv = {
     .remove   = aml_pci_remove,
     .suspend  = aml_pci_suspend,
     .resume   = aml_pci_resume,
+    .shutdown = aml_pci_shutdown,
 };
 
 int aml_pci_insmod(void)
@@ -143,6 +156,7 @@ int aml_pci_insmod(void)
 
     err = pci_register_driver(&aml_pci_drv);
     g_pci_driver_insmoded = 1;
+    g_pci_shutdown = 0;
 
     if(err) {
         printk("failed to register pci driver: %d \n", err);
@@ -167,6 +181,7 @@ EXPORT_SYMBOL(aml_pci_rmmod);
 EXPORT_SYMBOL(g_aml_plat_pci);
 EXPORT_SYMBOL(g_pci_driver_insmoded);
 EXPORT_SYMBOL(g_pci_after_probe);
+EXPORT_SYMBOL(g_pci_shutdown);
 #ifndef CONFIG_AML_FPGA_PCIE
 EXPORT_SYMBOL(pcie_ep_addr_range);
 #endif

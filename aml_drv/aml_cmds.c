@@ -332,7 +332,7 @@ static int cmd_mgr_msgind(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd_e2amsg *ms
                 if (AML_CMD_WAIT_COMPLETE(cmd->flags)) {
                     if (cmd->list.next != &cmd_mgr->cmds) {
                         next = (struct aml_cmd *)cmd->list.next;
-                        AML_INFO("==> next 0x%x \n", next);
+                        AML_INFO("next 0x%x \n", next);
                     }
                     cmd_complete(cmd_mgr, cmd);
                 }
@@ -344,7 +344,7 @@ static int cmd_mgr_msgind(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd_e2amsg *ms
     if (aml_bus_type == PCIE_MODE) {
         if (found && (next != NULL) && (next->flags & AML_CMD_FLAG_WAIT_PUSH)) {
             CMD_PRINT(next);
-            AML_INFO("==> next len 0x%x, queue sz %d \n", AML_CMD_A2EMSG_LEN(next->a2e_msg), cmd_mgr->queue_sz);
+            AML_INFO("next len 0x%x, queue sz %d \n", AML_CMD_A2EMSG_LEN(next->a2e_msg), cmd_mgr->queue_sz);
             next->flags &= ~AML_CMD_FLAG_WAIT_PUSH;
             aml_ipc_msg_push(aml_hw, next, AML_CMD_A2EMSG_LEN(next->a2e_msg));
             kfree(next->a2e_msg);

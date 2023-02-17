@@ -482,8 +482,7 @@ static const int aml_hwq2uapsd[NL80211_NUM_ACS] = {
     [AML_HWQ_BK] = IEEE80211_WMM_IE_STA_QOSINFO_AC_BK,
 };
 
-static char *rf_conf_path = WIFI_CONF_PATH;
-
+bool b_usb_suspend = 0;
 extern void aml_print_version(void);
 
 /*********************************************************************
@@ -494,8 +493,8 @@ struct aml_sta *aml_get_sta(struct aml_hw *aml_hw, const u8 *mac_addr)
     int i;
 
     for (i = 0; i < NX_REMOTE_STA_MAX; i++) {
-        struct aml_sta *sta = &aml_hw->sta_table[i];
-        if (sta->valid && (memcmp(mac_addr, &sta->mac_addr, 6) == 0))
+        struct aml_sta *sta = aml_hw->sta_table + i;
+        if (sta && sta->valid && (memcmp(mac_addr, &sta->mac_addr, 6) == 0))
             return sta;
     }
 
@@ -622,7 +621,7 @@ void aml_chanctx_link(struct aml_vif *vif, u8 ch_idx,
         return;
     }
 
-    AML_INFO("vif:%d ch_id:%d", vif->vif_index, ch_idx);
+    AML_INFO("vif index:%d ch_id:%d", vif->vif_index, ch_idx);
     vif->ch_index = ch_idx;
     ctxt = &vif->aml_hw->chanctx_table[ch_idx];
     ctxt->count++;
@@ -657,7 +656,7 @@ void aml_chanctx_unlink(struct aml_vif *vif)
         ctxt->count--;
     }
 
-    AML_INFO("vif:%d", vif->vif_index);
+    AML_INFO("vif index:%d", vif->vif_index);
     if (ctxt->count == 0) {
         if (vif->ch_index == vif->aml_hw->cur_chanctx) {
             /* If current chan ctxt is no longer linked to a vif
@@ -916,6 +915,8 @@ int aml_rsne_to_connect_params(const struct element *rsne,
     return 0;
 }
 
+static int g_cali_cfg_done = 0;
+static int aml_config_cali_param(struct aml_hw *aml_hw);
 /*********************************************************************
  * netdev callbacks
  ********************************************************************/
@@ -937,6 +938,12 @@ static int aml_open(struct net_device *dev)
     AML_DBG(AML_FN_ENTRY_STR);
 
     // Check if it is the first opened VIF
+    if (strcmp(dev->name, "wlan0")) {
+        memcpy(dev->dev_addr, aml_hw->wiphy->addresses[1].addr, ETH_ALEN);
+    } else {
+        memcpy(dev->dev_addr, aml_hw->wiphy->addresses[0].addr, ETH_ALEN);
+    }
+
     if (aml_hw->vif_started == 0)
     {
         // Start the FW
@@ -964,8 +971,14 @@ static int aml_open(struct net_device *dev)
             return -EIO;
         }
     }
-    AML_INFO("vif index=%d, type=%d\n",
-            add_if_cfm.inst_nbr, AML_VIF_TYPE(aml_vif));
+
+    if (strcmp(dev->name, "wlan0")) {
+        aml_vif->is_sta_mode = false;
+    } else {
+        aml_vif->is_sta_mode = true;
+    }
+    AML_INFO("vif index=%d, type=%d, name=%s sta_mode=%d",
+            add_if_cfm.inst_nbr, AML_VIF_TYPE(aml_vif), dev->name, aml_vif->is_sta_mode);
 
     /* Save the index retrieved from LMAC */
     spin_lock_bh(&aml_hw->cb_lock);
@@ -987,7 +1000,12 @@ static int aml_open(struct net_device *dev)
 
     netif_carrier_off(dev);
 
-    /*get cali param from txt*/
+    /*FIXME:
+     * config cali param to fw only need operation once.
+     * so, it's more suitable to move this to aml_cfg80211_init,
+     * however, if we do like this, fw doesn't config cali param
+     * cause software runtime sequence really.
+     * */
     aml_config_cali_param(aml_hw);
 
     return error;
@@ -1379,9 +1397,9 @@ static struct aml_sta *aml_retrieve_sta(struct aml_hw *aml_hw,
             /* Check if address is a broadcast or a multicast address */
             if (is_broadcast_ether_addr(addr) || is_multicast_ether_addr(addr)) {
                 /* Returned STA pointer */
-                struct aml_sta *aml_sta = &aml_hw->sta_table[aml_vif->ap.bcmc_index];
+                struct aml_sta *aml_sta = aml_hw->sta_table + aml_vif->ap.bcmc_index;
 
-                if (aml_sta->valid)
+                if (aml_sta && aml_sta->valid)
                     return aml_sta;
             } else {
                 /* Returned STA pointer */
@@ -1531,11 +1549,6 @@ int aml_cfg80211_change_iface(struct wiphy *wiphy,
     if (params && params->use_4addr != -1)
         vif->use_4addr = params->use_4addr;
 
-    if (strcmp(dev->name, "wlan0")) {
-        memcpy(dev->dev_addr, aml_hw->wiphy->addresses[1].addr, ETH_ALEN);
-    } else {
-        memcpy(dev->dev_addr, aml_hw->wiphy->addresses[0].addr, ETH_ALEN);
-    }
     return 0;
 }
 
@@ -1560,8 +1573,17 @@ static int aml_cfg80211_scan(struct wiphy *wiphy,
         return -EAGAIN;
     }
     if (aml_hw->roc) {
-        AML_INFO("avoid scan as roc\n");
-        return -EBUSY;
+        if (aml_hw->roc->vif->is_sta_mode) {
+            int ret = aml_send_cancel_roc(aml_hw);
+            AML_INFO("sta mode in roc,cancel roc first,ret:%d\n", ret);
+            if (ret) {
+                return -EBUSY;
+            }
+        }
+        else {
+            AML_INFO("avoid scan as roc,roc vif type:%d\n",AML_VIF_TYPE(aml_hw->roc->vif));
+            return -EBUSY;
+        }
     }
 
     if ((error = aml_send_scanu_req(aml_hw, aml_vif, request)))
@@ -1837,7 +1859,7 @@ static int aml_cfg80211_connect(struct wiphy *wiphy, struct net_device *dev,
             memcpy(&aml_vif->sta.assoc_ssid, sme->ssid, aml_vif->sta.assoc_ssid_len);
             aml_save_assoc_info_for_ft(aml_vif, sme);
 #ifdef CONFIG_AML_RECOVERY
-            aml_recy_save_info(aml_vif, sme);
+            aml_recy_save_assoc_info(sme);
 #endif
             aml_hw->is_connectting = 1;
             error = 0;
@@ -1939,7 +1961,7 @@ static int aml_cfg80211_add_station(struct wiphy *wiphy, struct net_device *dev,
     {
         case CO_OK:
         {
-            struct aml_sta *sta = &aml_hw->sta_table[me_sta_add_cfm.sta_idx];
+            struct aml_sta *sta = aml_hw->sta_table + me_sta_add_cfm.sta_idx;
             struct station_info sta_info;
             int tid;
             sta->aid = params->aid;
@@ -2076,7 +2098,7 @@ static int aml_cfg80211_del_station(struct wiphy *wiphy,
             list_del(&cur->list);
             aml_vif->generation++;
             aml_dbgfs_unregister_sta(aml_hw, cur);
-            found ++;
+            found++;
             break;
         }
     }
@@ -2129,7 +2151,7 @@ static int aml_cfg80211_change_station(struct wiphy *wiphy, struct net_device *d
                 case CO_OK:
                 {
                     int tid;
-                    sta = &aml_hw->sta_table[me_sta_add_cfm.sta_idx];
+                    sta = aml_hw->sta_table + me_sta_add_cfm.sta_idx;
                     sta->aid = params->aid;
                     sta->sta_idx = me_sta_add_cfm.sta_idx;
                     sta->ch_idx = aml_vif->ch_index;
@@ -2250,7 +2272,7 @@ static int aml_cfg80211_change_station(struct wiphy *wiphy, struct net_device *d
 /**
  * @start_ap: Start acting in AP mode defined by the parameters.
  */
-static int aml_cfg80211_start_ap(struct wiphy *wiphy, struct net_device *dev,
+int aml_cfg80211_start_ap(struct wiphy *wiphy, struct net_device *dev,
                                   struct cfg80211_ap_settings *settings)
 {
     struct aml_hw *aml_hw = wiphy_priv(wiphy);
@@ -2282,7 +2304,7 @@ static int aml_cfg80211_start_ap(struct wiphy *wiphy, struct net_device *dev,
             aml_vif->ap.bcmc_index = apm_start_cfm.bcmc_idx;
             aml_vif->ap.flags = 0;
             aml_vif->ap.bcn_interval = settings->beacon_interval;
-            sta = &aml_hw->sta_table[apm_start_cfm.bcmc_idx];
+            sta = aml_hw->sta_table + apm_start_cfm.bcmc_idx;
             sta->valid = true;
             sta->aid = 0;
             sta->sta_idx = apm_start_cfm.bcmc_idx;
@@ -2315,6 +2337,9 @@ static int aml_cfg80211_start_ap(struct wiphy *wiphy, struct net_device *dev,
             if (txq_status == 0) {
                 aml_radar_detection_enable_on_cur_channel(aml_hw);
             }
+#ifdef CONFIG_AML_RECOVERY
+            aml_recy_save_ap_info(settings);
+#endif
             break;
         }
         case CO_BUSY:
@@ -2336,7 +2361,7 @@ end:
                     aml_vif->ch_index, aml_vif->ap.bcmc_index);
 #ifdef SCC_STA_SOFTAP
         aml_scc_init();
-        aml_scc_check_chan_confilct(aml_hw);
+        aml_scc_check_chan_conflict(aml_hw);
 #endif
     }
     if (vif != NULL) {
@@ -2429,11 +2454,13 @@ static int aml_cfg80211_stop_ap(struct wiphy *wiphy, struct net_device *dev)
     }
 
     /* delete BC/MC STA */
-    //sta = &aml_hw->sta_table[aml_vif->ap.bcmc_index];
     aml_txq_vif_deinit(aml_hw, aml_vif);
     aml_del_bcn(&aml_vif->ap.bcn);
     aml_del_csa(aml_vif);
     aml_scc_deinit();
+#ifdef CONFIG_AML_RECOVERY
+    aml_recy_flags_clr(AML_RECY_BCN_INFO_SAVED|AML_RECY_AP_INFO_SAVED);
+#endif
 
     netif_tx_stop_all_queues(dev);
     netif_carrier_off(dev);
@@ -2674,7 +2701,6 @@ aml_cfg80211_remain_on_channel(struct wiphy *wiphy, struct wireless_dev *wdev,
     struct aml_roc *roc;
     int error;
 
-    AML_INFO("center:%d duration:%d \n",chan->center_freq,duration);
     if (aml_hw->scan_request) {
         struct aml_vif *vif = container_of(aml_hw->scan_request->wdev, struct aml_vif, wdev);
         AML_INFO("roc cancel scan,vif:%d\n",vif->vif_index);
@@ -2690,15 +2716,29 @@ aml_cfg80211_remain_on_channel(struct wiphy *wiphy, struct wireless_dev *wdev,
 
     /* Check that no other RoC procedure has been launched */
     if (aml_hw->roc) {
-        AML_INFO("cancel roc as launched %d\n");
-        return -EBUSY;
+        AML_INFO("lunch new roc,cancel cur,cur_cookie:0x%llu \n", aml_hw->roc);
+        if (aml_send_cancel_roc(aml_hw)) {
+            return -EBUSY;
+        }
+        else {
+            int count = 0;
+            //wait for cancel roc suc
+            while (aml_hw->roc) {
+                msleep(10);
+                if (count++ > 100) {
+                    AML_INFO("wait cancel roc fail\n");
+                    break;
+                }
+            }
+        }
     }
 
     /* Allocate a temporary RoC element */
     roc = kmalloc(sizeof(struct aml_roc), GFP_KERNEL);
-    if (!roc)
+    if (!roc) {
+        AML_INFO("alloc error\n");
         return -ENOMEM;
-
+    }
     /* Initialize the RoC information element */
     roc->vif = aml_vif;
     roc->chan = chan;
@@ -2714,6 +2754,7 @@ aml_cfg80211_remain_on_channel(struct wiphy *wiphy, struct wireless_dev *wdev,
     /* Forward the information to the FMAC */
     aml_hw->roc = roc;
     error = aml_send_roc(aml_hw, aml_vif, chan, duration);
+    AML_INFO("center:%d duration:%d ret:%d cookie:0x%llu\n", chan->center_freq, duration, error, roc);
 
     if (error) {
         kfree(roc);
@@ -2737,7 +2778,7 @@ static int aml_cfg80211_cancel_remain_on_channel(struct wiphy *wiphy,
     struct aml_hw *aml_hw = wiphy_priv(wiphy);
     struct aml_vif *aml_vif = netdev_priv(wdev->netdev);
 
-    AML_DBG(AML_FN_ENTRY_STR);
+    AML_INFO("cookie:0x%llu,aml_hw->roc:0x%llu,is_sta_mode:%d", cookie,(u64)aml_hw->roc,aml_vif->is_sta_mode);
 
     trace_cancel_roc(aml_vif->vif_index);
 
@@ -2747,6 +2788,8 @@ static int aml_cfg80211_cancel_remain_on_channel(struct wiphy *wiphy,
     if (cookie != (u64)aml_hw->roc)
         return -EINVAL;
 
+    if (aml_vif->is_sta_mode)
+        return -EINVAL;
     /* Forward the information to the FMAC */
     return aml_send_cancel_roc(aml_hw);
 }
@@ -3559,7 +3602,7 @@ static int aml_fill_station_info(struct aml_sta *sta, struct aml_vif *vif,
     struct rx_vector_1 *rx_vect1 = &stats->last_rx.rx_vect1;
 
     // Generic info
-    rx_vect1->rssi1 = AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, REG_OF_BEACON_RSSI);
+    rx_vect1->rssi1 = (AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, REG_OF_SYNC_RSSI) & 0xffff) - 256;
     sinfo->generation = vif->generation;
 
     sinfo->inactive_time = jiffies_to_msecs(jiffies - stats->last_act);
@@ -3631,7 +3674,7 @@ static int aml_fill_station_info(struct aml_sta *sta, struct aml_vif *vif,
                      BIT(NL80211_STA_INFO_SIGNAL)        |
                      BIT(NL80211_STA_INFO_RX_BITRATE));
 
-    if (aml_bus_type != PCIE_MODE) {
+    if (0) {
         aml_sta_rate_info(vif, sta, &stats->mcs_max, &stats->no_ss);
     }
     switch (stats->bw_max) {
@@ -4081,7 +4124,7 @@ static int aml_cfg80211_join_mesh(struct wiphy *wiphy, struct net_device *dev,
             if (setup->user_mpm)
                 aml_vif->ap.flags |= AML_AP_USER_MESH_PM;
 
-            sta = &aml_hw->sta_table[mesh_start_cfm.bcmc_idx];
+            sta = aml_hw->sta_table + mesh_start_cfm.bcmc_idx;
             sta->valid = true;
             sta->aid = 0;
             sta->sta_idx = mesh_start_cfm.bcmc_idx;
@@ -4335,14 +4378,22 @@ static int aml_set_arp_agent(struct aml_hw *aml_hw, struct aml_vif *aml_vif, u8 
     return aml_send_arp_agent_req(aml_hw, aml_vif, enable, ipv4, ipv6);
 }
 
+bool b_sdio_rst_flag = 0;
 static int aml_ps_wow_resume(struct aml_hw *aml_hw)
 {
     struct aml_vif *aml_vif;
     int error = 0;
+    struct aml_txq *txq;
+
 
     AML_DBG(AML_FN_ENTRY_STR);
     if (aml_hw->state == WIFI_SUSPEND_STATE_NONE) {
         return -EINVAL;
+    }
+
+    if (aml_bus_type == USB_MODE) {
+        usb_submit_urb(aml_hw->g_urb, GFP_ATOMIC);
+        b_usb_suspend = 0;
     }
 
     error = aml_send_suspend_req(aml_hw, 0, WIFI_SUSPEND_STATE_NONE);
@@ -4357,10 +4408,10 @@ static int aml_ps_wow_resume(struct aml_hw *aml_hw)
             continue;
         }
 
-        aml_txq_vif_start(aml_vif, AML_TXQ_STOP & ~AML_TXQ_STOP_CHAN, aml_hw);
-
         if (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_STATION) {
-            if (aml_bus_type != PCIE_MODE) {
+            aml_txq_vif_start(aml_vif, AML_TXQ_STOP & ~(AML_TXQ_STOP_CHAN), aml_hw);
+
+            if ((aml_bus_type != PCIE_MODE) && b_sdio_rst_flag) {
                 aml_tx_rx_buf_init(aml_hw);
             }
 
@@ -4373,8 +4424,11 @@ static int aml_ps_wow_resume(struct aml_hw *aml_hw)
 
             aml_scan_hang(aml_vif, 0);
             aml_vif->sta.scan_hang = 0;
+        } else if (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_AP) {
+            aml_txq_vif_start(aml_vif, AML_TXQ_STOP & ~(AML_TXQ_STOP_CHAN | AML_TXQ_STOP_STA_PS), aml_hw);
+            txq = aml_txq_vif_get(aml_vif, NX_UNK_TXQ_TYPE);
+            aml_txq_start(txq, AML_TXQ_STOP);
         }
-
         netif_tx_start_all_queues(aml_vif->ndev);
         netif_wake_queue(aml_vif->ndev);
     }
@@ -4481,7 +4535,12 @@ static int aml_ps_wow_suspend(struct aml_hw *aml_hw, struct cfg80211_wowlan *wow
             goto err;
         }
     }
+    b_sdio_rst_flag = 1;
     printk("after suspend cmd:%d\n", aml_hw->cmd_mgr.queue_sz);
+
+    if (aml_bus_type == USB_MODE) {
+        b_usb_suspend = 1;
+    }
 
     return 0;
 err:
@@ -4762,6 +4821,72 @@ unsigned char aml_parse_cali_param(char *varbuf, int len, struct Cali_Param *cal
     aml_get_s8_item(varbuf, len, "wf5g_hesu40_tpwr", &cali_param->wf5g_he40_tpwr[0]);
     aml_get_s8_item(varbuf, len, "wf5g_hesu80_tpwr", &cali_param->wf5g_he80_tpwr[0]);
 
+    aml_get_s8_item(varbuf, len, "customer_efuse_en", &cali_param->w2_efuse_param.customer_efuse_en);
+    aml_get_s8_item(varbuf, len, "FT_efuse_en", &cali_param->w2_efuse_param.FT_efuse_en);
+
+    aml_get_s8_item(varbuf, len, "xosc_ctune_vld", &cali_param->w2_efuse_param.xosc_ctune_vld);
+    aml_get_s8_item(varbuf, len, "absolute_power_wf0_2g_vld", &cali_param->w2_efuse_param.absolute_power_wf0_2g_vld);
+    aml_get_s8_item(varbuf, len, "absolute_power_wf0_5g_vld", &cali_param->w2_efuse_param.absolute_power_wf0_5g_vld);
+    aml_get_s8_item(varbuf, len, "absolute_power_wf1_2g_vld", &cali_param->w2_efuse_param.absolute_power_wf1_2g_vld);
+    aml_get_s8_item(varbuf, len, "absolute_power_wf1_5g_vld", &cali_param->w2_efuse_param.absolute_power_wf1_5g_vld);
+    aml_get_s8_item(varbuf, len, "offset_power_wf0_2g_vld", &cali_param->w2_efuse_param.offset_power_wf0_2g_vld);
+    aml_get_s8_item(varbuf, len, "offset_power_wf0_5g_vld", &cali_param->w2_efuse_param.offset_power_wf0_5g_vld);
+    aml_get_s8_item(varbuf, len, "offset_power_wf1_2g_vld", &cali_param->w2_efuse_param.offset_power_wf1_2g_vld);
+    aml_get_s8_item(varbuf, len, "offset_power_wf1_5g_vld", &cali_param->w2_efuse_param.offset_power_wf1_5g_vld);
+    aml_get_s8_item(varbuf, len, "pwr_delta_wf0_customer_vld", &cali_param->w2_efuse_param.pwr_delta_wf0_customer_vld);
+    aml_get_s8_item(varbuf, len, "pwr_delta_wf1_customer_vld", &cali_param->w2_efuse_param.pwr_delta_wf1_customer_vld);
+    aml_get_s8_item(varbuf, len, "xosc_ctune", &cali_param->w2_efuse_param.xosc_ctune);
+    aml_get_s8_item(varbuf, len, "absolute_power_wf0_2g_l", &cali_param->w2_efuse_param.absolute_power_wf0_2g_l);
+    aml_get_s8_item(varbuf, len, "absolute_power_wf0_2g_m", &cali_param->w2_efuse_param.absolute_power_wf0_2g_m);
+    aml_get_s8_item(varbuf, len, "absolute_power_wf0_2g_h", &cali_param->w2_efuse_param.absolute_power_wf0_2g_h);
+    aml_get_s8_item(varbuf, len, "absolute_power_wf0_5200", &cali_param->w2_efuse_param.absolute_power_wf0_5200);
+    aml_get_s8_item(varbuf, len, "absolute_power_wf0_5300", &cali_param->w2_efuse_param.absolute_power_wf0_5300);
+    aml_get_s8_item(varbuf, len, "absolute_power_wf0_5530", &cali_param->w2_efuse_param.absolute_power_wf0_5530);
+    aml_get_s8_item(varbuf, len, "absolute_power_wf0_5660", &cali_param->w2_efuse_param.absolute_power_wf0_5660);
+    aml_get_s8_item(varbuf, len, "absolute_power_wf0_5780", &cali_param->w2_efuse_param.absolute_power_wf0_5780);
+    aml_get_s8_item(varbuf, len, "absolute_power_wf1_2g_l", &cali_param->w2_efuse_param.absolute_power_wf1_2g_l);
+    aml_get_s8_item(varbuf, len, "absolute_power_wf1_2g_m", &cali_param->w2_efuse_param.absolute_power_wf1_2g_m);
+    aml_get_s8_item(varbuf, len, "absolute_power_wf1_2g_h", &cali_param->w2_efuse_param.absolute_power_wf1_2g_h);
+    aml_get_s8_item(varbuf, len, "absolute_power_wf1_5200", &cali_param->w2_efuse_param.absolute_power_wf1_5200);
+    aml_get_s8_item(varbuf, len, "absolute_power_wf1_5300", &cali_param->w2_efuse_param.absolute_power_wf1_5300);
+    aml_get_s8_item(varbuf, len, "absolute_power_wf1_5530", &cali_param->w2_efuse_param.absolute_power_wf1_5530);
+    aml_get_s8_item(varbuf, len, "absolute_power_wf1_5660", &cali_param->w2_efuse_param.absolute_power_wf1_5660);
+    aml_get_s8_item(varbuf, len, "absolute_power_wf1_5780", &cali_param->w2_efuse_param.absolute_power_wf1_5780);
+
+    aml_get_s8_item(varbuf, len, "offset_power_wf0_2g_l", &cali_param->w2_efuse_param.offset_power_wf0_2g_l);
+    aml_get_s8_item(varbuf, len, "offset_power_wf0_2g_m", &cali_param->w2_efuse_param.offset_power_wf0_2g_m);
+    aml_get_s8_item(varbuf, len, "offset_power_wf0_2g_h", &cali_param->w2_efuse_param.offset_power_wf0_2g_h);
+    aml_get_s8_item(varbuf, len, "offset_power_wf0_5200", &cali_param->w2_efuse_param.offset_power_wf0_5200);
+    aml_get_s8_item(varbuf, len, "offset_power_wf0_5300", &cali_param->w2_efuse_param.offset_power_wf0_5300);
+    aml_get_s8_item(varbuf, len, "offset_power_wf0_5530", &cali_param->w2_efuse_param.offset_power_wf0_5530);
+    aml_get_s8_item(varbuf, len, "offset_power_wf0_5660", &cali_param->w2_efuse_param.offset_power_wf0_5660);
+    aml_get_s8_item(varbuf, len, "offset_power_wf0_5780", &cali_param->w2_efuse_param.offset_power_wf0_5780);
+    aml_get_s8_item(varbuf, len, "offset_power_wf1_2g_l", &cali_param->w2_efuse_param.offset_power_wf1_2g_l);
+    aml_get_s8_item(varbuf, len, "offset_power_wf1_2g_m", &cali_param->w2_efuse_param.offset_power_wf1_2g_m);
+    aml_get_s8_item(varbuf, len, "offset_power_wf1_2g_h", &cali_param->w2_efuse_param.offset_power_wf1_2g_h);
+    aml_get_s8_item(varbuf, len, "offset_power_wf1_5200", &cali_param->w2_efuse_param.offset_power_wf1_5200);
+    aml_get_s8_item(varbuf, len, "offset_power_wf1_5300", &cali_param->w2_efuse_param.offset_power_wf1_5300);
+    aml_get_s8_item(varbuf, len, "offset_power_wf1_5530", &cali_param->w2_efuse_param.offset_power_wf1_5530);
+    aml_get_s8_item(varbuf, len, "offset_power_wf1_5660", &cali_param->w2_efuse_param.offset_power_wf1_5660);
+    aml_get_s8_item(varbuf, len, "offset_power_wf1_5780", &cali_param->w2_efuse_param.offset_power_wf1_5780);
+
+    aml_get_s8_item(varbuf, len, "second_offset_power_wf0_2g_l", &cali_param->w2_efuse_param.second_offset_power_wf0_2g_l);
+    aml_get_s8_item(varbuf, len, "second_offset_power_wf0_2g_m", &cali_param->w2_efuse_param.second_offset_power_wf0_2g_m);
+    aml_get_s8_item(varbuf, len, "second_offset_power_wf0_2g_h", &cali_param->w2_efuse_param.second_offset_power_wf0_2g_h);
+    aml_get_s8_item(varbuf, len, "second_offset_power_wf0_5200", &cali_param->w2_efuse_param.second_offset_power_wf0_5200);
+    aml_get_s8_item(varbuf, len, "second_offset_power_wf0_5300", &cali_param->w2_efuse_param.second_offset_power_wf0_5300);
+    aml_get_s8_item(varbuf, len, "second_offset_power_wf0_5530", &cali_param->w2_efuse_param.second_offset_power_wf0_5530);
+    aml_get_s8_item(varbuf, len, "second_offset_power_wf0_5660", &cali_param->w2_efuse_param.second_offset_power_wf0_5660);
+    aml_get_s8_item(varbuf, len, "second_offset_power_wf0_5780", &cali_param->w2_efuse_param.second_offset_power_wf0_5780);
+    aml_get_s8_item(varbuf, len, "second_offset_power_wf1_2g_l", &cali_param->w2_efuse_param.second_offset_power_wf1_2g_l);
+    aml_get_s8_item(varbuf, len, "second_offset_power_wf1_2g_m", &cali_param->w2_efuse_param.second_offset_power_wf1_2g_m);
+    aml_get_s8_item(varbuf, len, "second_offset_power_wf1_2g_h", &cali_param->w2_efuse_param.second_offset_power_wf1_2g_h);
+    aml_get_s8_item(varbuf, len, "second_offset_power_wf1_5200", &cali_param->w2_efuse_param.second_offset_power_wf1_5200);
+    aml_get_s8_item(varbuf, len, "second_offset_power_wf1_5300", &cali_param->w2_efuse_param.second_offset_power_wf1_5300);
+    aml_get_s8_item(varbuf, len, "second_offset_power_wf1_5530", &cali_param->w2_efuse_param.second_offset_power_wf1_5530);
+    aml_get_s8_item(varbuf, len, "second_offset_power_wf1_5660", &cali_param->w2_efuse_param.second_offset_power_wf1_5660);
+    aml_get_s8_item(varbuf, len, "second_offset_power_wf1_5780", &cali_param->w2_efuse_param.second_offset_power_wf1_5780);
+
     cali_param->version = version;
     cali_param->cali_config = cali_config;
 
@@ -4787,163 +4912,55 @@ unsigned char aml_parse_cali_param(char *varbuf, int len, struct Cali_Param *cal
     printk("======>>>>>> wf5g_he40_tpwr = %d\n", cali_param->wf5g_he40_tpwr[0]);
     printk("======>>>>>> wf5g_he80_tpwr = %d\n", cali_param->wf5g_he80_tpwr[0]);
 
+    printk("======>>>>>> customer_efuse_en = 0x%x\n", cali_param->w2_efuse_param.customer_efuse_en);
+    printk("======>>>>>> FT_efuse_en = 0x%x\n", cali_param->w2_efuse_param.FT_efuse_en);
+
 
     return 0;
 }
 
-static int aml_readFile(struct file *fp, char *buf, int len)
+static int aml_get_cali_param(struct aml_hw *aml_hw, struct Cali_Param *cali_param)
 {
-    int rlen = 0, sum = 0;
+    const struct firmware *cfg_fw = NULL;
+    int ret = 0, len = 0;
 
-    while (sum < len) {
-        rlen = FILE_READ(fp, buf + sum, len - sum, &fp->f_pos);
-        if (rlen > 0) {
-            sum += rlen;
-        } else if (0 != rlen) {
-            return rlen;
-        } else {
-            break;
-        }
+    if ((ret = request_firmware(&cfg_fw, WIFI_CALI_FILENAME, aml_hw->dev))) {
+        AML_INFO("failed to get %s (%d)", WIFI_CALI_FILENAME, ret);
+        return ret;
     }
 
-    return sum;
-}
-
-/*
-* Test if the specifi @param path is a file and readable
-* If readable, @param sz is got
-* @param path the path of the file to test
-* @return Linux specific error code
-*/
-int aml_isFileReadable(const char *path, u32 *sz)
-{
-    struct file *fp;
-    int ret = 0;
-    char buf;
-
-    fp = FILE_OPEN(path, O_RDONLY, 0);
-    if (IS_ERR(fp)) {
-        ret = PTR_ERR(fp);
-    } else {
-        if (1 != aml_readFile(fp, &buf, 1)) {
-            ret = PTR_ERR(fp);
-        }
-
-        if (ret == 0 && sz) {
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0))
-            *sz = i_size_read(fp->f_path.dentry->d_inode);
-#else
-            *sz = i_size_read(fp->f_dentry->d_inode);
-#endif
-        }
-        FILE_CLOSE(fp, NULL);
+    len = aml_process_cali_content((char *)cfg_fw->data, cfg_fw->size);
+    aml_parse_cali_param((char *)cfg_fw->data, len, cali_param);
+    if (cali_param->version != WIFI_CALI_VERSION) {
+        AML_INFO("*******************************************************");
+        AML_INFO("WARNING: rf cali %s file out of date, please update!!! ");
+        AML_INFO("*******************************************************");
+        ret = -1;
     }
+    release_firmware(cfg_fw);
+
     return ret;
 }
 
-unsigned char aml_get_cali_param(struct Cali_Param *cali_param)
-{
-#if 1 //TBD: coverity dead code, this api not used as of now. //open it for test 20220711
-    struct file *fp;
-    struct kstat stat;
-    int size, len;
-    int error = 0;
-    char *content =  NULL;
-
-    unsigned int chip_id_l = 0;
-    unsigned char chip_id_buf[100];
-
-    //chip_id_l = efuse_manual_read(0xf);
-    //chip_id_l = chip_id_l & 0xffff;
-    //sprintf(chip_id_buf, "%s/aml_wifi_rf_%04x.txt", rf_conf_path, chip_id_l);
-    sprintf(chip_id_buf, "%s/aml_wifi_rf.txt", rf_conf_path); //use default txt for test @aml_wifi_rf.txt
-    if (aml_isFileReadable(chip_id_buf, NULL) != 0) {
-        memset(chip_id_buf,'\0',sizeof(chip_id_buf));
-        switch ((chip_id_l & 0xff00) >> 8) {
-            case MODULE_ITON:
-                sprintf(chip_id_buf, "%s/aml_wifi_rf_iton.txt", rf_conf_path);
-                break;
-            case MODULE_AMPAK:
-                sprintf(chip_id_buf, "%s/aml_wifi_rf_ampak.txt", rf_conf_path);
-                break;
-            case MODULE_FN_LINK:
-                sprintf(chip_id_buf, "%s/aml_wifi_rf_fn_link.txt", rf_conf_path);
-                break;
-            default:
-                sprintf(chip_id_buf, "%s/aml_wifi_rf.txt", rf_conf_path);
-        }
-        printk("aml wifi module SN:%04x  sn txt not found, the rf config: %s\n", chip_id_l, chip_id_buf);
-    } else
-        printk("aml wifi module SN:%04x  the rf config: %s\n", chip_id_l, chip_id_buf);
-
-    fp = FILE_OPEN(chip_id_buf, O_RDONLY, 0);
-
-    if (IS_ERR(fp)) {
-        fp = NULL;
-        goto err;
-    }
-
-    error = FILE_STAT(chip_id_buf, &stat);
-    if (error) {
-        FILE_CLOSE(fp, NULL);
-        goto err;
-    }
-
-    size = (int)stat.size;
-    if (size <= 0) {
-        FILE_CLOSE(fp, NULL);
-        goto err;
-    }
-
-    content = ZMALLOC(size, "wifi_cali_param", GFP_KERNEL);
-
-    if (content == NULL) {
-        FILE_CLOSE(fp, NULL);
-        goto err;
-    }
-
-    if (FILE_READ(fp, content, size, &fp->f_pos) != size) {
-        FREE(content, "wifi_cali_param");
-        FILE_CLOSE(fp, NULL);
-        goto err;
-    }
-
-    len = aml_process_cali_content(content, size);
-    aml_parse_cali_param(content, len, cali_param);
-    if (chip_id_l & 0xf0) {
-        if (chip_id_l & BIT(5))
-            cali_param->rf_num = 2;
-        else
-            cali_param->rf_num = 1;
-        printk("rf_cout is: %d\n", cali_param->rf_num);
-    }
-    FREE(content, "wifi_cali_param");
-    FILE_CLOSE(fp, NULL);
-
-    return 0;
-err:
-    return 1;
-#else
-    return 0;
-#endif
-}
-
-void aml_config_cali_param(struct aml_hw *aml_hw)
+static int aml_config_cali_param(struct aml_hw *aml_hw)
 {
     struct Cali_Param cali_param;
-    unsigned char err = 0;
+    int err = 0;
+
+    if (g_cali_cfg_done)
+        return 0;
 
     memset((void *)&cali_param, 0, sizeof(struct Cali_Param));
 
-    err = aml_get_cali_param(&cali_param);
+    err = aml_get_cali_param(aml_hw, &cali_param);
+    if ((err == 0) && ((err = aml_set_cali_param_req(aml_hw, &cali_param)) == 0)) {
+        AML_INFO("set calibration parameter success");
+        g_cali_cfg_done = 1;
+    } else {
+        AML_INFO("set calibration parameter failed");
+    }
 
-    if (err == 0) {
-        printk("%s:%d, set calibration parameter \n", __func__, __LINE__);
-        aml_set_cali_param_req(aml_hw, &cali_param);
-    }
-    else {
-        printk("%s:%d, set calibration parameter failed\n", __func__, __LINE__);
-    }
+    return err;
 }
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 12, 0)
@@ -4997,7 +5014,7 @@ static struct cfg80211_ops aml_cfg80211_ops = {
     .del_station = aml_cfg80211_del_station,
     .change_station = aml_cfg80211_change_station,
     .mgmt_tx = aml_cfg80211_mgmt_tx,
-    .mgmt_tx_cancel_wait = aml_cfg80211_mgmt_tx_cancel_wait,
+    //.mgmt_tx_cancel_wait = aml_cfg80211_mgmt_tx_cancel_wait,
     .start_ap = aml_cfg80211_start_ap,
     .change_beacon = aml_cfg80211_change_beacon,
     .stop_ap = aml_cfg80211_stop_ap,
@@ -5066,10 +5083,12 @@ static void aml_reg_notifier(struct wiphy *wiphy,
     struct aml_hw *aml_hw = wiphy_priv(wiphy);
 
     AML_INFO("initiator=%d, hint_type=%d, alpha=%s, region=%d\n",
-                request->initiator, request->user_reg_hint_type,
-                request->alpha2, request->dfs_region);
+            request->initiator, request->user_reg_hint_type,
+            request->alpha2, request->dfs_region);
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0)
-    aml_apply_regdom(aml_hw, wiphy, request->alpha2);
+    if (aml_bus_type != PCIE_MODE) {
+        aml_apply_regdom(aml_hw, wiphy, request->alpha2);
+    }
 #endif
     // For now trust all initiator
     aml_radar_set_domain(&aml_hw->radar, request->dfs_region);
@@ -5166,7 +5185,7 @@ static int aml_inetaddr_event(struct notifier_block *this,unsigned long event, v
                 ret = aml_send_notify_ip(aml_vif, IPV4_VER,ip_addr);
                 printk("notify ip addr,ret:%d,ip:%d.%d.%d.%d\n",ret,ip_addr[0],ip_addr[1],ip_addr[2],ip_addr[3]);
 #ifdef SCC_STA_SOFTAP
-                aml_scc_check_chan_confilct(aml_vif->aml_hw);
+                aml_scc_check_chan_conflict(aml_vif->aml_hw);
 #endif
 
             }
@@ -5212,6 +5231,61 @@ static void aml_wiphy_addresses_free(struct wiphy *wiphy)
     }
 }
 
+static int aml_hwctx_buf_init(struct aml_hw *aml_hw)
+{
+    uint32_t buf_size = 0;
+    size_t out_size = 0;
+
+    if (!aml_hw)
+        return -1;
+
+    buf_size = sizeof(struct aml_sta) * (NX_REMOTE_STA_MAX + NX_VIRT_DEV_MAX);
+    aml_hw->sta_table = kmalloc(buf_size, GFP_ATOMIC);
+    if (!aml_hw->sta_table) {
+        AML_INFO("Failed to alloc sta table");
+        return -1;
+    }
+
+#ifdef CONFIG_AML_PREALLOC_BUF_STATIC
+    aml_hw->rxbufs = (struct aml_ipc_buf *)aml_prealloc_get(PREALLOC_BUF_TYPE_RX,
+            sizeof(struct aml_ipc_buf) * AML_RXBUFF_MAX, &out_size);
+    aml_hw->txq = (struct aml_txq *)aml_prealloc_get(PREALLOC_BUF_TYPE_TXQ,
+            sizeof(struct aml_txq) * NX_NB_TXQ, &out_size);
+#endif
+
+    buf_size = sizeof(struct scan_results) * (SCAN_RESULTS_MAX_CNT);
+    aml_hw->scan_results = kmalloc(buf_size, GFP_ATOMIC);
+    if (!aml_hw->scan_results) {
+        AML_INFO("Failed to alloc scan results buf");
+        kfree(aml_hw->sta_table);
+        return -1;
+    }
+
+    buf_size = sizeof(struct aml_stats);
+    aml_hw->stats = kmalloc(buf_size, GFP_ATOMIC);
+    if (!aml_hw->stats) {
+        AML_INFO("Failed to alloc stats buf");
+        kfree(aml_hw->sta_table);
+        kfree(aml_hw->scan_results);
+        return -1;
+    }
+
+    return 0;
+}
+
+static void aml_hwctx_buf_deinit(struct aml_hw *aml_hw)
+{
+    if (!aml_hw)
+        return;
+
+    if (aml_hw->sta_table)
+        kfree(aml_hw->sta_table);
+    if (aml_hw->scan_results)
+        kfree(aml_hw->scan_results);
+    if (aml_hw->stats)
+        kfree(aml_hw->stats);
+}
+
 /**
  *
  */
@@ -5224,12 +5298,11 @@ int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
     char alpha2[3] = {'0', '0', '\0'};
     int ret = 0;
     int i;
-    size_t out_size;
+
     AML_DBG(AML_FN_ENTRY_STR);
 
     /* create a new wiphy for use with cfg80211 */
     wiphy = wiphy_new(&aml_cfg80211_ops, sizeof(struct aml_hw));
-
     if (!wiphy) {
         dev_err(aml_platform_get_dev(aml_plat), "Failed to create new wiphy\n");
         ret = -ENOMEM;
@@ -5237,10 +5310,6 @@ int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
     }
 
     aml_hw = wiphy_priv(wiphy);
-#ifdef CONFIG_AML_PREALLOC_BUF_STATIC
-    aml_hw->rxbufs  = (struct aml_ipc_buf *)aml_prealloc_get(PREALLOC_BUF_TYPE_RX, sizeof(struct aml_ipc_buf) * AML_RXBUFF_MAX, &out_size);
-    aml_hw->txq  = (struct aml_txq *)aml_prealloc_get(PREALLOC_BUF_TYPE_TXQ, sizeof(struct aml_txq) * NX_NB_TXQ, &out_size);
-#endif
     aml_hw->wiphy = wiphy;
     aml_hw->plat = aml_plat;
     aml_hw->dev = aml_platform_get_dev(aml_plat);
@@ -5253,6 +5322,13 @@ int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
 
     /* set device pointer for wiphy */
     set_wiphy_dev(wiphy, aml_hw->dev);
+
+    /* init sw context buffers */
+    if ((ret = aml_hwctx_buf_init(aml_hw))) {
+        AML_INFO("Failed to init sw context buffers");
+        ret = -ENOMEM;
+        goto err_out;
+    }
 
     /* Create cache to allocate sw_txhdr */
     aml_hw->sw_txhdr_cache = KMEM_CACHE(aml_sw_txhdr, 0);
@@ -5383,7 +5459,6 @@ int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
     if ((ret = aml_handle_dynparams(aml_hw, aml_hw->wiphy)))
         goto err_lmac_reqs;
 
-    aml_misc_queue_init(&(aml_hw->aml_misc_q));
     aml_enable_mesh(aml_hw);
     aml_radar_detection_init(&aml_hw->radar);
 
@@ -5404,6 +5479,7 @@ int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
     }
 
     aml_wq_init(aml_hw);
+    aml_sync_trace_init(aml_hw);
 #ifdef CONFIG_AML_RECOVERY
     aml_recy_init(aml_hw);
 #endif
@@ -5479,7 +5555,6 @@ int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
     aml_set_temp_start(aml_hw);
 
     wiphy_info(wiphy, "New interface create %s", wdev->netdev->name);
-    aml_sync_trace_timer_attach(aml_hw);
 
     if (aml_bus_type == PCIE_MODE) {
         aml_cfgfile_update_rps();
@@ -5519,11 +5594,11 @@ void aml_cfg80211_deinit(struct aml_hw *aml_hw)
     aml_radar_detection_deinit(&aml_hw->radar);
     del_timer_sync(&aml_hw->txq_cleanup);
 #ifdef CONFIG_AML_RECOVERY
-    aml_recy_deinit(aml_hw);
+    aml_recy_deinit();
 #endif
+    aml_sync_trace_deinit(aml_hw);
     aml_wq_deinit(aml_hw);
     aml_platform_off(aml_hw, NULL);
-    aml_misc_queue_deinit(&(aml_hw->aml_misc_q));
     if (aml_bus_type != PCIE_MODE) {
         aml_rxdata_deinit();
 #ifdef CONFIG_AML_RX_SG
@@ -5532,8 +5607,9 @@ void aml_cfg80211_deinit(struct aml_hw *aml_hw)
     }
     kmem_cache_destroy(aml_hw->sw_txhdr_cache);
     aml_wiphy_addresses_free(aml_hw->wiphy);
-    aml_sync_trace_timer_cancel(aml_hw);
     wiphy_free(aml_hw->wiphy);
+    aml_hwctx_buf_deinit(aml_hw);
+    g_cali_cfg_done = 0;
 }
 
 void aml_get_version(void)
