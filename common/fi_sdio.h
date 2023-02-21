@@ -560,15 +560,6 @@ typedef struct hw_tx_vector_bits
 
            [28:29]: CH_BANDWIDTH_IN_NON_HT:
            Indicates the channel width of the transmitted PPDU when non ht
-
-           [30:31]: expansion_mat_type:
-           Enumerated type:
-           COMPRESSED_SV indicates that EXPANSION_MAT is a set of
-           compressed beamforming feedback matrices.
-           NON_COMPRESSED_SV indicates that EXPANSION_MAT is a set of
-           noncompressed beamforming feedback matrices.
-           CSI_MATRICES indicates that EXPANSION_MAT is a set of channel
-           state matrices.
          */
         unsigned int tv_usr_postion: 2,
                      tv_group_id:6,
