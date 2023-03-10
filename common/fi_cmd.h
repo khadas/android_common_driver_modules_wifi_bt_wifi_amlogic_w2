@@ -79,6 +79,42 @@ typedef struct W2_EFUSE_PARAM
     unsigned char second_offset_power_wf1_5530;
     unsigned char second_offset_power_wf1_5660;
     unsigned char second_offset_power_wf1_5780;
+
+    unsigned char pmu_efuse_en;
+
+    unsigned char rg_pmu_bucka_efuse_trim_i_osc_vld;
+    unsigned char rg_pmu_bucka_rsv3_vld;
+    unsigned char rg_pmu_buckd_efuse_trim_i_osc_vld;
+    unsigned char rg_pmu_buckd_efuse_trim_offset_vref_vld;
+    unsigned char rg_aoldo_vosel_vld;
+    unsigned char rg_strup_rsva_vld;
+    unsigned char rg_ao_hifldo_vosel_vld;
+    unsigned char rg_aldo_vo_adj_vld;
+    unsigned char rg_bg_tc_adj_vld;
+    unsigned char rg_pmu_bucka_efuse_trim_slp_csp_vld;
+    unsigned char rg_pmu_bucka_efuse_trim_iref_vlreg_vld;
+    unsigned char rg_pmu_bucka_efuse_trim_iref_vhreg_vld;
+    unsigned char rg_pmu_buckd_ton_min_trim_vld;
+    unsigned char rg_pmu_buckd_cs_gain_ramp_vld;
+    unsigned char rg_pmu_buckd_vsel_vh_vld;
+    unsigned char rg_pmu_buckd_capslp_ramp_vld;
+
+    unsigned char rg_pmu_bucka_efuse_trim_i_osc;
+    unsigned char rg_pmu_bucka_rsv3;
+    unsigned char rg_pmu_buckd_efuse_trim_i_osc;
+    unsigned char rg_pmu_buckd_efuse_trim_offset_vref;
+    unsigned char rg_aoldo_vosel;
+    unsigned char rg_strup_rsva;
+    unsigned char rg_ao_hifldo_vosel;
+    unsigned char rg_aldo_vo_adj;
+    unsigned char rg_bg_tc_adj;
+    unsigned char rg_pmu_bucka_efuse_trim_slp_csp;
+    unsigned char rg_pmu_bucka_efuse_trim_iref_vlreg;
+    unsigned char rg_pmu_bucka_efuse_trim_iref_vhreg;
+    unsigned char rg_pmu_buckd_ton_min_trim;
+    unsigned char rg_pmu_buckd_cs_gain_ramp;
+    unsigned char rg_pmu_buckd_vsel_vh;
+    unsigned char rg_pmu_buckd_capslp_ramp;
 }W2_EFUSE_PARAM;
 
 typedef struct Cali_Param

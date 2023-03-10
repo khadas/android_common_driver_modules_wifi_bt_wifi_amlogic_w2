@@ -393,7 +393,9 @@ enum priv_e2a_tag {
     PRIV_DHCP_OFFLOAD_IND,
     PRIV_SDIO_USB_REORD_INFO_IND,
     PRIV_SCC_CONFLICT_CFM,
-
+    PRIV_FT_AUTH_RSP_TIMEOUT_IND,
+    PRIV_CSI_STATUS_COM_CFM,
+    PRIV_CSI_STATUS_SP_CFM,
     PRIV_SUB_E2A_MAX,
 };
 
@@ -439,6 +441,8 @@ enum mm_sub_a2e_tag {
     MM_EXT_CAPAB,
     MM_SUB_LIMIT_POWER,
     MM_SUB_SHOW_TX_MSG,
+    MM_SUB_CSI_STATUS_COM_GET,
+    MM_SUB_CSI_STATUS_SP_GET,
     /// the MAX
     MM_SUB_A2E_MAX,
     /// New members cannot be added below
@@ -2957,6 +2961,46 @@ struct rf_read_result_ind
 {
     u32_l rf_addr;
     u32_l rf_data;
+};
+
+struct csi_status_com_get_ind
+{
+    u64_l time_stamp;
+    u8_l mac_ra[6];
+    u8_l mac_ta[6];
+    u8_l frequency_band;
+    u8_l bw;
+    s8_l rssi[4];
+    u8_l snr[4];
+    u8_l noise[4];
+    s16_l phase_incr[4];
+    u32_l protocol_mode;
+    u8_l frame_type;
+    u8_l chain_num;
+    u8_l csi_len;
+    u8_l primary_channel_index;
+    u8_l phyerr;
+    u8_l rate;
+    u8_l reserved[2];
+    u16_l agc_code;
+    u16_l channel;
+    u32_l packet_idx;
+};
+
+struct csi_status_sp_get_req
+{
+    s32_l csi_mode;
+    s32_l csi_time_interval;
+};
+
+struct csi_complex{
+    int16_t i;
+    int16_t q;
+};
+
+struct csi_status_sp_get_ind
+{
+    struct csi_complex csi[256];
 };
 
 struct efuse_read_result_ind {

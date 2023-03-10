@@ -103,6 +103,5 @@ struct aml_cmd_mgr {
 
 void aml_cmd_mgr_init(struct aml_cmd_mgr *cmd_mgr);
 void aml_cmd_mgr_deinit(struct aml_cmd_mgr *cmd_mgr);
-int hal_host_init(void);
 
 #endif /* _AML_CMDS_H_ */

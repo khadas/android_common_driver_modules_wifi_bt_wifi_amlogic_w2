@@ -1,14 +1,15 @@
 #ifndef __WIFI_TOP_ADDR_H__
 #define __WIFI_TOP_ADDR_H__
 
-//#define WIFI_TOP (0x7000)
 #define WIFI_TOP (0xa07000)
 
 #define RG_WIFI_RST_CTRL (WIFI_TOP + 0x00)
 #define RG_WIFI_RST_TIMER0 (WIFI_TOP + 0x04)
 #define RG_WIFI_RST_TIMER1 (WIFI_TOP + 0x08)
 #define RG_WIFI_MAC_ARC_CTRL (WIFI_TOP + 0x20)
+/*coverity[bad_macro_redef]*/
 #define MAC_AHBABT_CONTROL0        (WIFI_TOP + 0x28)
+/*coverity[bad_macro_redef]*/
 #define MAC_AHBABT_CONTROL1        (WIFI_TOP + 0x2c)
 
 #define RG_WIFI_IF_FW2HST_CLR     (WIFI_TOP+0x64)

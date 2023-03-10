@@ -17,8 +17,10 @@
 #include "aml_strs.h"
 #define CREATE_TRACE_POINTS
 #include "aml_events.h"
+#include "aml_interface.h"
 
-unsigned int aml_bus_type;
+
+extern unsigned int aml_bus_type;
 extern char *bus_type;
 
 /**
@@ -72,8 +74,9 @@ int aml_msg_task(void *data)
     struct sched_param sch_param;
 
     sch_param.sched_priority = 91;
+#ifndef CONFIG_PT_MODE
     sched_setscheduler(current,SCHED_RR,&sch_param);
-
+#endif
     while (1) {
         if (down_interruptible(&aml_hw->aml_msg_sem) != 0) {
             printk("%s:%d wait aml_msg_sem fail!\n", __func__, __LINE__);
@@ -237,7 +240,6 @@ static int cmd_mgr_llind(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
     struct aml_cmd *cur, *acked = NULL, *next = NULL;
     struct aml_hw *aml_hw = container_of(cmd_mgr, struct aml_hw, cmd_mgr);
     bool defer_push = true;
-    printk("%s cmd:%p\n", __func__, cmd);
 
     CMD_PRINT(cmd);
     aml_spin_lock(&cmd_mgr->lock);
@@ -429,22 +431,5 @@ void aml_cmd_mgr_deinit(struct aml_cmd_mgr *cmd_mgr)
     cmd_mgr->drain(cmd_mgr);
     cmd_mgr->print(cmd_mgr);
     memset(cmd_mgr, 0, sizeof(*cmd_mgr));
-}
-
-int hal_host_init(void)
-{
-    int ret = 0;
-
-    if (strncmp(bus_type, "usb", 3) == 0) {
-        aml_bus_type = USB_MODE;
-    } else if (strncmp(bus_type, "sdio", 4) == 0) {
-        aml_bus_type = SDIO_MODE;
-    } else if (strncmp(bus_type, "pci", 3) == 0) {
-        aml_bus_type = PCIE_MODE;
-    } else {
-        ret = -1;
-    }
-
-    return ret;
 }
 

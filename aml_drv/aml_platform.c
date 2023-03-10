@@ -16,7 +16,7 @@
 #include "reg_access.h"
 #include "hal_desc.h"
 #include "aml_main.h"
-#include "aml_pci.h"
+#include "aml_w2_pci.h"
 #ifndef CONFIG_AML_FHOST
 #include "ipc_host.h"
 #endif /* !CONFIG_AML_FHOST */
@@ -25,7 +25,7 @@
 #include "aml_irqs.h"
 #include "chip_ana_reg.h"
 #include "wifi_intf_addr.h"
-#include "../common/wifi_top_addr.h"
+#include "wifi_top_addr.h"
 #include "aml_utils.h"
 #include <linux/interrupt.h>
 #include "aml_prealloc.h"
@@ -2209,15 +2209,27 @@ extern int wifi_irq_num(void);
 static int aml_pci_platform_enable(struct aml_hw *aml_hw)
 {
     int ret;
+#ifdef CONFIG_PT_MODE
+    struct sdio_func *func = aml_priv_to_func(SDIO_FUNC1);
+#else
     unsigned int irq_flag = 0;
+#endif
 
     if (aml_bus_type == SDIO_MODE) {
+#ifdef CONFIG_PT_MODE
+        dev_set_drvdata(&func->dev, aml_hw);
+        sdio_claim_host(func);
+        ret = sdio_claim_irq(func, aml_irq_sdio_hdlr_for_pt);
+        sdio_release_host(func);
+        printk("%s(%d) claim_irq ret=%d\n",__func__,__LINE__, ret);
+#else
         aml_hw->irq = wifi_irq_num();
         irq_flag = IORESOURCE_IRQ | IORESOURCE_IRQ_LOWLEVEL | IORESOURCE_IRQ_SHAREABLE;
         printk("%s(%d) irq_flag=0x%x  irq=%d\n", __func__, __LINE__, irq_flag,  aml_hw->irq);
 
         ret = request_irq(aml_hw->irq, aml_irq_sdio_hdlr, irq_flag, "aml", aml_hw);
         printk("%s(%d) request_irq ret=%d\n",__func__,__LINE__, ret);
+#endif
     } else if (aml_bus_type == PCIE_MODE) {
         /* sched_setscheduler on ONESHOT threaded irq handler for BCNs ? */
         ret = request_irq(aml_hw->plat->pci_dev->irq, aml_irq_pcie_hdlr, 0,
@@ -2609,7 +2621,6 @@ void aml_get_vid(struct aml_plat *aml_plat)
     }
     printk("%s:%d, vendor_id : %x", __func__, __LINE__, readl(aml_plat->get_address(aml_plat, AML_ADDR_MAC_PHY, REG_OF_VENDOR_ID )));
 }
-
 
 #ifndef CONFIG_AML_SDM
 MODULE_FIRMWARE(AML_AGC_FW_NAME);

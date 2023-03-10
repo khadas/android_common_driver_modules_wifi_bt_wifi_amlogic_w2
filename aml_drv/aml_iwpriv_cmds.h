@@ -89,6 +89,8 @@ enum aml_iwpriv_subcmd
     AML_IWP_SET_LIMIT_POWER = 79,
     AML_IWP_ENABLE_SDIO_CAL_SPEED = 80,
     AML_IWP_GET_XOSC_OFFSET = 81,
+    AML_IWP_GET_CSI_STATUS_COM = 82,
+    AML_IWP_GET_CSI_STATUS_SP = 83,
 };
 
 #endif

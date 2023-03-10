@@ -26,6 +26,16 @@ u8 probe_rsp_save[AML_SCC_FRMBUF_MAXLEN];
 u32 sap_init_band;
 u32 beacon_need_update = 0;
 static u8 *scc_bcn_buf = NULL;
+char chan_width_trace[][35] = {
+    "NL80211_CHAN_WIDTH_20_NOHT",
+    "NL80211_CHAN_WIDTH_20",
+    "NL80211_CHAN_WIDTH_40",
+    "NL80211_CHAN_WIDTH_80",
+    "NL80211_CHAN_WIDTH_80P80",
+    "NL80211_CHAN_WIDTH_160",
+    "NL80211_CHAN_WIDTH_5",
+    "NL80211_CHAN_WIDTH_10"
+};
 
 /**
  * This function is used to check new vif's chan is same or diff with existing vif's chan
@@ -37,9 +47,7 @@ u8 aml_scc_get_confilct_vif_idx(struct aml_vif *sap_vif)
     u32 i;
     for (i = 0; i < NX_VIRT_DEV_MAX; i++) {
         struct aml_vif *sta_vif = sap_vif->aml_hw->vif_table[i];
-        if (sta_vif)
-            AML_INFO("i=%d, up=%d sta vif index=%d, sap vif index=%d ch_idx=%d ch_idx=%d",
-                    i, sta_vif->up, sta_vif->vif_index, sap_vif->vif_index, sta_vif->ch_index, sap_vif->ch_index);
+
         if (sta_vif && sta_vif->up &&
                 sta_vif->vif_index != sap_vif->vif_index &&
                 sta_vif->ch_index != AML_CH_NOT_SET &&
@@ -150,7 +158,7 @@ int aml_scc_change_beacon(struct aml_hw *aml_hw,struct aml_vif *vif)
  * This function change beacon frame's HT IE primary chan info
  *
  */
-int aml_scc_change_beacon_ht_ie(struct wiphy *wiphy, struct net_device *dev,struct aml_vif *target_vif)
+int aml_scc_change_beacon_ht_ie(struct wiphy *wiphy, struct net_device *dev, struct aml_vif *target_vif)
 {
     struct aml_hw *aml_hw = wiphy_priv(wiphy);
     struct aml_vif *vif = netdev_priv(dev);
@@ -163,14 +171,13 @@ int aml_scc_change_beacon_ht_ie(struct wiphy *wiphy, struct net_device *dev,stru
     u8 *var_pos;
     int var_offset = offsetof(struct ieee80211_mgmt, u.beacon.variable);
 
-    AML_INFO("change beacon start");
     // Build the beacon
     if (scc_bcn_buf == NULL) {
         scc_bcn_buf = kmalloc(bcn->len, GFP_KERNEL);
         if (!scc_bcn_buf)
             return -ENOMEM;
     }
-    memcpy(scc_bcn_buf,bcn_save,bcn->len);
+    memcpy(scc_bcn_buf, bcn_save, bcn->len);
     /*change saved buffer ht INFO CHAN*/
     len = bcn->len - var_offset;
     var_pos = scc_bcn_buf + var_offset;
@@ -181,7 +188,6 @@ int aml_scc_change_beacon_ht_ie(struct wiphy *wiphy, struct net_device *dev,stru
         u32 target_freq = vif->aml_hw->chanctx_table[target_chan_idx].chan_def.chan->center_freq;
         u8 chan_no = aml_ieee80211_freq_to_chan(target_freq, vif->aml_hw->chanctx_table[target_chan_idx].chan_def.chan->band);
         htop->primary_chan = chan_no;
-        AML_INFO("scc change ap channel num to %d", chan_no);
     }
 
     // Sync buffer for FW
@@ -274,18 +280,19 @@ u32 aml_scc_get_init_band(void)
  * 3.notify cfg80211
  *
  */
-bool aml_handle_scc_chan_switch(struct aml_vif *vif,struct aml_vif *target_vif)
+bool aml_handle_scc_chan_switch(struct aml_vif *vif, struct aml_vif *target_vif)
 {
     struct net_device *dev = vif->ndev;
-    struct cfg80211_chan_def chdef = vif->aml_hw->chanctx_table[target_vif->ch_index].chan_def;
+    struct cfg80211_chan_def target_chdef = vif->aml_hw->chanctx_table[target_vif->ch_index].chan_def;
+    struct cfg80211_chan_def cur_chdef = vif->aml_hw->chanctx_table[vif->ch_index].chan_def;
 
-    if (chdef.chan == NULL) {
+    if (target_chdef.chan == NULL) {
         AML_INFO("chdef is null");
         return false;
     }
 
-    if (aml_scc_get_init_band() != chdef.chan->band) {
-        AML_INFO("init band conflict with target band [%d %d]\n",aml_scc_get_init_band(),chdef.chan->band);
+    if (aml_scc_get_init_band() != target_chdef.chan->band) {
+        AML_INFO("init band conflict with target band [%d %d]\n",aml_scc_get_init_band(),target_chdef.chan->band);
         return false;
     }
     if (aml_scc_change_beacon_ht_ie(vif->aml_hw->wiphy,dev,target_vif)) {
@@ -293,6 +300,12 @@ bool aml_handle_scc_chan_switch(struct aml_vif *vif,struct aml_vif *target_vif)
         AML_INFO("bcn change ht ie fail \n");
         return false;
     }
+
+    AML_INFO("chan %d,bw:%s --> chan %d,bw:%s ",
+        aml_ieee80211_freq_to_chan(cur_chdef.chan->center_freq, cur_chdef.chan->band),
+        chan_width_trace[cur_chdef.width],
+        aml_ieee80211_freq_to_chan(target_chdef.chan->center_freq, target_chdef.chan->band),
+        chan_width_trace[target_chdef.width]);
 
     return true;
 }
@@ -304,8 +317,6 @@ bool aml_handle_scc_chan_switch(struct aml_vif *vif,struct aml_vif *target_vif)
 void aml_scc_check_chan_conflict(struct aml_hw *aml_hw)
 {
     struct aml_vif *vif;
-
-    AML_DBG(AML_FN_ENTRY_STR);
 
     list_for_each_entry(vif, &aml_hw->vifs, list) {
         switch (AML_VIF_TYPE(vif)) {
@@ -339,7 +350,12 @@ void aml_scc_check_chan_conflict(struct aml_hw *aml_hw)
                             #else
                             cfg80211_ch_switch_notify(vif->ndev, &chdef);
                             #endif
-
+                            if (vif->aml_hw->cur_chanctx == target_vif->ch_index) {
+                                aml_txq_vif_start(vif, AML_TXQ_STOP_CHAN, vif->aml_hw);
+                            }
+                            else {
+                                aml_txq_vif_stop(vif, AML_TXQ_STOP_CHAN, vif->aml_hw);
+                            }
                             AML_SCC_BEACON_SET_STATUS(BEACON_UPDATE_WAIT_PROBE);
                         }
                         AML_INFO("scc_cfm.status:%d", scc_cfm.status);

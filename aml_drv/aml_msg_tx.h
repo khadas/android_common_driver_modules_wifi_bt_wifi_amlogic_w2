@@ -195,6 +195,8 @@ int aml_pcie_ul_malloc_test(struct aml_hw *aml_hw, int start_addr, int len, u32_
 #endif
 int aml_rf_reg_write(struct net_device *dev, int addr, int value);
 int aml_rf_reg_read(struct net_device *dev, int addr);
+int aml_csi_status_sp_read(struct net_device *dev, int csi_mode, int csi_time_interval, struct csi_status_sp_get_ind *ind);
+int aml_csi_status_com_read(struct net_device *dev, struct csi_status_com_get_ind *ind);
 unsigned int aml_efuse_read(struct aml_hw *aml_hw, u32 addr);
 int aml_scan_hang(struct aml_vif *aml_vif, int scan_hang);
 int aml_send_suspend_req(struct aml_hw *aml_hw, u8_l filter, enum wifi_suspend_state state);
@@ -234,6 +236,7 @@ int aml_send_extcapab_req(struct aml_hw *aml_hw);
 int aml_sync_trace_init(struct aml_hw *aml_hw);
 int aml_sync_trace_deinit(struct aml_hw *aml_hw);
 int aml_set_limit_power(struct aml_hw *aml_hw, int limit_power_switch);
-int aml_txq_unexpection(struct aml_hw *aml_hw);
+int aml_txq_unexpection(struct net_device *dev);
+void cfg80211_to_aml_chan(const struct cfg80211_chan_def *chandef, struct mac_chan_op *chan);
 
 #endif /* _AML_MSG_TX_H_ */

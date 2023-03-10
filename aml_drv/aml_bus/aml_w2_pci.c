@@ -11,8 +11,9 @@
 #include <linux/module.h>
 #include <linux/init.h>
 
-#include "aml_v7.h"
+#include "aml_w2_v7.h"
 #include "usb_common.h"
+#include "aml_interface.h"
 
 #define W2p_VENDOR_AMLOGIC_EFUSE 0x1F35
 #define W2p_PRODUCT_AMLOGIC_EFUSE 0x0602
@@ -23,6 +24,8 @@ struct aml_plat_pci *g_aml_plat_pci;
 unsigned char g_pci_driver_insmoded;
 unsigned char g_pci_after_probe;
 unsigned char g_pci_shutdown;
+
+uint32_t aml_pci_read_for_bt(int base, u32 offset);
 
 static const struct pci_device_id aml_pci_ids[] =
 {
@@ -158,7 +161,7 @@ int aml_pci_insmod(void)
     g_pci_driver_insmoded = 1;
     g_pci_shutdown = 0;
 
-    if(err) {
+    if (err) {
         printk("failed to register pci driver: %d \n", err);
     }
 
@@ -175,6 +178,106 @@ void aml_pci_rmmod(void)
     printk("%s(%d) aml common driver rmsmod\n",__func__, __LINE__);
 }
 
+static u8* aml_pci_get_address_for_bt(struct aml_plat_pci *aml_plat, int addr_name,
+                               unsigned int offset)
+{
+#ifndef CONFIG_AML_FPGA_PCIE
+    unsigned int i;
+    unsigned int addr;
+#endif
+    struct aml_v7 *aml_pci = (struct aml_v7 *)aml_plat->priv;
+
+    if (WARN(addr_name >= AML_ADDR_MAX, "Invalid address %d", addr_name))
+        return NULL;
+
+#ifdef CONFIG_AML_FPGA_PCIE
+
+    if (addr_name == AML_ADDR_CPU) //0x00000000-0x0007ffff (ICCM)
+    {
+        printk("%s:%d, address %x\n", __func__, __LINE__, aml_pci->pci_bar4_vaddr + offset);
+        return aml_pci->pci_bar4_vaddr + offset;
+    }
+    else if (addr_name == AML_ADDR_MAC_PHY) //0x00a00000-0x00afffff
+    {
+        printk("%s:%d, address %x\n", __func__, __LINE__, aml_pci->pci_bar3_vaddr + offset);
+        return aml_pci->pci_bar3_vaddr + offset - 0x00a00000;
+    }
+    else if (addr_name == AML_ADDR_AON)// 0x00c00000 - 0x00ffffff (AON & DCCM)
+    {
+        printk("%s:%d, address %x\n", __func__, __LINE__, aml_pci->pci_bar2_vaddr + offset);
+        return aml_pci->pci_bar2_vaddr + offset - 0x00c00000;
+    }
+    else if (addr_name == AML_ADDR_SYSTEM)
+    {
+        if (offset >= IPC_REG_BASE_ADDR)
+        {
+            printk("%s:%d, bar5 %x, address %x\n", __func__, __LINE__, aml_pci->pci_bar5_vaddr, aml_pci->pci_bar5_vaddr + offset - IPC_REG_BASE_ADDR);
+            return aml_pci->pci_bar5_vaddr + offset - IPC_REG_BASE_ADDR;
+        }
+        else
+        {
+            printk("%s:%d, address %x\n", __func__, __LINE__, aml_pci->pci_bar0_vaddr + offset);
+            return aml_pci->pci_bar0_vaddr + offset;
+        }
+    }
+    else
+    {
+        printk("%s:%d, error addr_name\n", __func__,__LINE__);
+        return NULL;
+    }
+
+#else
+
+    if (addr_name == AML_ADDR_SYSTEM)
+    {
+        addr = offset + PCIE_BAR4_TABLE0_EP_BASE_ADDR;
+    }
+    else
+    {
+        addr = offset;
+    }
+
+    for (i = 0; i < PCIE_TABLE_NUM; i++)
+    {
+        if ((addr_name == pcie_ep_addr_range[i].mem_domain) &&
+            (addr >= pcie_ep_addr_range[i].pcie_bar_table_base_addr) &&
+            (addr <= pcie_ep_addr_range[i].pcie_bar_table_high_addr))
+        {
+            if (pcie_ep_addr_range[i].pcie_bar_index == PCIE_BAR2)
+            {
+                return aml_pci->pci_bar2_vaddr + pcie_ep_addr_range[i].pcie_bar_table_offset + (addr - pcie_ep_addr_range[i].pcie_bar_table_base_addr);
+            }
+            else
+            {
+                return aml_pci->pci_bar4_vaddr + pcie_ep_addr_range[i].pcie_bar_table_offset + (addr - pcie_ep_addr_range[i].pcie_bar_table_base_addr);
+            }
+        }
+    }
+
+    printk("%s:%d, addr(0x%x) or addr_name(0x%x) err\n", __func__,__LINE__, offset, addr_name);
+    return NULL;
+
+#endif //CONFIG_AML_FPGA_PCIE
+}
+
+uint32_t aml_pci_read_for_bt(int base, u32 offset)
+{
+    u8 *addr;
+    addr = aml_pci_get_address_for_bt(g_aml_plat_pci, base, offset);
+
+    return readl(addr);
+}
+
+void aml_pci_write_for_bt(u32 val, int base, u32 offset)
+{
+    u8 *addr;
+    addr = aml_pci_get_address_for_bt(g_aml_plat_pci, base, offset);
+
+    writel(val, addr);
+}
+
+EXPORT_SYMBOL(aml_pci_read_for_bt);
+EXPORT_SYMBOL(aml_pci_write_for_bt);
 
 EXPORT_SYMBOL(aml_pci_insmod);
 EXPORT_SYMBOL(aml_pci_rmmod);

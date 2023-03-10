@@ -8,8 +8,8 @@
  ******************************************************************************
  */
 
-#ifndef _AML_PCI_H_
-#define _AML_PCI_H_
+#ifndef _AML_W2_PCI_H_
+#define _AML_W2_PCI_H_
 
 int aml_pci_register_drv(void);
 void aml_pci_unregister_drv(void);

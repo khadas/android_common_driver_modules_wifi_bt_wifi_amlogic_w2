@@ -1,9 +1,9 @@
-#ifndef __WIFI_SDIIO_CFG_ADDR_H__
-#define __WIFI_SDIIO_CFG_ADDR_H__
+#ifndef __WIFI_SDIO_CFG_ADDR_H__
+#define __WIFI_SDIO_CFG_ADDR_H__
 
 //Base ADDR
 // for statistic host module
-#define MOD_VADDR (0xF000)  
+#define MOD_VADDR (0xF000)
 #define HOST_SW_VADDR (MOD_VADDR + 0x0)
 
 // bit2,bit3 keep r/w ptr after amlogic's self-definition reset
@@ -15,9 +15,6 @@
 #define RG_SCFG_FUNC5_BADDR_A (0x8150)
 #define RG_SCFG_FUNC6_BADDR_A (0x8160)
 #define RG_SCFG_FUNC7_BADDR_A (0x8170)
-
-//When setting bit4 to 1, enable auto tx of func4, otherwise disable
-#define RG_SCFG_FUNC1_AUTO_TX  0x8181
 
 /* select reset sdio keep sdio slave in selected state*/
 #define RG_SCFG_SELECT_RST (0x9000)

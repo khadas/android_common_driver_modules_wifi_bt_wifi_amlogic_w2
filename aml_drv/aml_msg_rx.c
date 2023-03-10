@@ -27,6 +27,8 @@
 #include <net/addrconf.h>
 #include "aml_defs.h"
 #include "aml_recy.h"
+#include "aml_interface.h"
+#include "aml_msg_rx.h"
 
 static int aml_freq_to_idx(struct aml_hw *aml_hw, int freq)
 {
@@ -184,6 +186,10 @@ static inline int aml_rx_chan_switch_ind(struct aml_hw *aml_hw,
     } else if (!roc_req) {
         list_for_each_entry(aml_vif, &aml_hw->vifs, list) {
             if (aml_vif->up && aml_vif->ch_index == chan_idx) {
+                if (aml_hw->show_switch_info > 0) {
+                    AML_INFO("txq_start,vif:%d vif_chan:%d chan:%d",aml_vif->vif_index,aml_vif->ch_index,chan_idx);
+                    aml_hw->show_switch_info--;
+                }
                 aml_txq_vif_start(aml_vif, AML_TXQ_STOP_CHAN, aml_hw);
             }
         }
@@ -383,9 +389,10 @@ static inline int aml_rx_remain_on_channel_exp_ind(struct aml_hw *aml_hw,
     }
 
     aml_txq_offchan_deinit(aml_vif);
-
+    spin_lock_bh(&aml_hw->roc_lock);
     kfree(roc);
     aml_hw->roc = NULL;
+    spin_unlock_bh(&aml_hw->roc_lock);
 
 #endif /* CONFIG_AML_SOFTMAC */
     return 0;
@@ -919,6 +926,11 @@ static inline int aml_rx_me_tkip_mic_failure_ind(struct aml_hw *aml_hw,
     struct aml_vif *aml_vif = aml_hw->vif_table[ind->vif_idx];
     struct net_device *dev = aml_vif->ndev;
 
+    if (ind->vif_idx > NX_ITF_MAX) {
+        printk("vif_idx:%d\n", ind->vif_idx);
+        return 0;
+    }
+
     AML_DBG(AML_FN_ENTRY_STR);
 
     cfg80211_michael_mic_failure(dev, (u8 *)&ind->addr, (ind->ga?NL80211_KEYTYPE_GROUP:
@@ -986,16 +998,11 @@ static inline int aml_rx_sm_connect_ind_ex(struct aml_hw *aml_hw,
     sta->stats.no_ss = ind->no_ss;
     sta->stats.format_mod = ind->format_mod;
     sta->stats.short_gi = ind->short_gi;
-    AML_INFO("freq[%d %d %d],bw:%s max_mcs:%d format_mode:%s no_ss:%s short_gi:%d \n",
-        sta->center_freq,
-        sta->center_freq1,
-        sta->center_freq2,
-        bw_width_trace[sta->width],
-        sta->stats.mcs_max,
-        format_mod_trace[sta->stats.format_mod],
-        no_ss_trace[sta->stats.no_ss],
-        sta->stats.short_gi
-        );
+    AML_INFO("freq[%d %d %d], bw:%s max_mcs:%d format_mode:%s no_ss:%s short_gi:%d\n",
+            sta->center_freq, sta->center_freq1, sta->center_freq2,
+            bw_width_trace[sta->width], sta->stats.mcs_max,
+            format_mod_trace[sta->stats.format_mod],
+            no_ss_trace[sta->stats.no_ss], sta->stats.short_gi);
 
     for (i = 0; i < sizeof (legrates_lut) / sizeof(struct aml_legrate); i++) {
         if (ind->r_idx_max == legrates_lut[i].idx) {
@@ -1011,8 +1018,14 @@ static inline int aml_apm_handle_disconnect_sta(struct aml_hw *aml_hw,
                                          struct ipc_e2a_msg *msg)
 {
     struct apm_disconnect_sta_ind *ind = (struct apm_disconnect_sta_ind *)msg->param;
-    struct aml_vif *aml_vif = aml_hw->vif_table[ind->vif_idx];
-    struct net_device *dev = aml_vif->ndev;
+    struct aml_vif *aml_vif;
+    struct net_device *dev;
+
+    if (!aml_hw->vif_table[ind->vif_idx] || !aml_hw->vif_table[ind->vif_idx]->ndev)
+        return -1;
+
+    aml_vif = aml_hw->vif_table[ind->vif_idx];
+    dev = aml_vif->ndev;
 
     AML_INFO("sta ageout --> %02x:%02x:%02x:%02x:%02x:%02x \n",
         ind->sta_mac[0],
@@ -1065,8 +1078,10 @@ static inline int aml_rx_sm_connect_ind(struct aml_hw *aml_hw,
     const u8 *extcap_ie;
     const struct ieee_types_extcap *extcap;
 
-    AML_INFO("vif_idx:%d,status_code:%d, sta_idx:%d, center_freq:%d, center_freq1:%d, roamed:%d\n",
-              ind->vif_idx,ind->status_code, ind->ap_idx, ind->chan.prim20_freq, ind->chan.center1_freq, ind->roamed);
+    AML_INFO("vif_idx:%d, status_code:%d, sta_idx:%d,"
+            "center_freq:%d, center_freq1:%d, roamed:%d",
+            ind->vif_idx, ind->status_code, ind->ap_idx,
+            ind->chan.prim20_freq, ind->chan.center1_freq, ind->roamed);
     aml_vif->sta.scan_hang = 0;
     aml_hw->is_connectting = 0;
     /* Retrieve IE addresses and lengths */
@@ -1185,15 +1200,17 @@ static inline int aml_rx_sm_connect_ind(struct aml_hw *aml_hw,
 
             notify_channel = ieee80211_get_channel(aml_hw->wiphy, ind->chan.prim20_freq);
             if (notify_channel != NULL) {
-                bss = cfg80211_get_bss(aml_hw->wiphy, notify_channel, (const u8 *)ind->bssid.array, (const u8 *)aml_vif->sta.assoc_ssid, aml_vif->sta.assoc_ssid_len,
-                                        IEEE80211_BSS_TYPE_ANY, IEEE80211_PRIVACY_ANY);
+                bss = cfg80211_get_bss(aml_hw->wiphy, notify_channel,
+                        (const u8 *)ind->bssid.array, (const u8 *)aml_vif->sta.assoc_ssid,
+                        aml_vif->sta.assoc_ssid_len, IEEE80211_BSS_TYPE_ANY, IEEE80211_PRIVACY_ANY);
             } else {
-                AML_INFO("channel is null\n");
+                AML_INFO("channel is null");
             }
             if (bss != NULL) {
-                AML_INFO("ssid:%-32.32s, bss_freq:%d\n", ssid_sprintf(aml_vif->sta.assoc_ssid, aml_vif->sta.assoc_ssid_len), bss->channel->center_freq);
-            }else {
-                AML_INFO("can't find bss in kernel\n");
+                AML_INFO("ssid:%s, bss_freq:%d", ssid_sprintf(aml_vif->sta.assoc_ssid, aml_vif->sta.assoc_ssid_len),
+                        bss->channel->center_freq);
+            } else {
+                AML_INFO("can't find bss in kernel");
             }
             cfg80211_connect_bss(dev, (const u8 *)ind->bssid.array, bss, req_ie, ind->assoc_req_ie_len, rsp_ie,
                 #if LINUX_VERSION_CODE <= KERNEL_VERSION(4, 12, 0)
@@ -1226,7 +1243,7 @@ static inline int aml_rx_sm_disconnect_ind(struct aml_hw *aml_hw,
     if (aml_vif == NULL)
         return 0;
 
-    AML_DBG(AML_FN_ENTRY_STR);
+    AML_INFO("vif_idx:%d", aml_vif->vif_index);
 
     dev = aml_vif->ndev;
 
@@ -1254,8 +1271,11 @@ static inline int aml_rx_sm_disconnect_ind(struct aml_hw *aml_hw,
         aml_txq_sta_deinit(aml_hw, aml_vif->sta.ap);
         aml_txq_tdls_vif_deinit(aml_vif);
         aml_dbgfs_unregister_sta(aml_hw, aml_vif->sta.ap);
+        AML_INFO("sta assoc ap info was cleared");
+        spin_lock_bh(&aml_vif->ap_lock);
         aml_vif->sta.ap->valid = false;
         aml_vif->sta.ap = NULL;
+        spin_unlock_bh(&aml_vif->ap_lock);
     }
     aml_vif->generation++;
     aml_external_auth_disable(aml_vif);
@@ -1331,6 +1351,17 @@ static inline int aml_rx_sm_ft_auth_ind(struct aml_hw *aml_hw,
         netdev_warn(aml_vif->ndev, "Allocation failed for FT auth ind\n");
     }
 
+    return 0;
+}
+
+static inline int aml_rx_sm_ft_auth_rsp_timeout_ind(struct aml_hw *aml_hw,
+                                         struct aml_cmd *cmd,
+                                         struct ipc_e2a_msg *msg)
+{
+    struct aml_ft_auth_timeout *ft_auth_timeout = (struct aml_ft_auth_timeout *)msg->param;
+    struct aml_vif *aml_vif = aml_hw->vif_table[ft_auth_timeout->vif_idx];
+    aml_vif->sta.flags &= ~(AML_STA_FT_OVER_AIR | AML_STA_FT_OVER_DS);
+    printk("%s, vif idx %d, flags 0x%08x\n", __func__, ft_auth_timeout->vif_idx, aml_vif->sta.flags);
     return 0;
 }
 
@@ -1896,6 +1927,7 @@ static msg_cb_fct priv_hdlrs[MSG_I(TASK_PRIV)] = {
     [MSG_I(PRIV_SET_SUSPEND_IND)]   = aml_suspend_ind,
     [MSG_I(PRIV_APM_DIS_STA_IND)]   = aml_apm_handle_disconnect_sta,
     [MSG_I(PRIV_SDIO_USB_REORD_INFO_IND)] = aml_sdio_usb_rx_reord_flush_ind,
+    [MSG_I(PRIV_FT_AUTH_RSP_TIMEOUT_IND)] = aml_rx_sm_ft_auth_rsp_timeout_ind,
 };
 
 static msg_cb_fct *msg_hdlrs[] = {

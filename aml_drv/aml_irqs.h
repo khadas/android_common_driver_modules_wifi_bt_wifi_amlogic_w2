@@ -17,6 +17,7 @@ int aml_irq_usb_hdlr(void *data);
 int aml_task(void *data);
 
 irqreturn_t aml_irq_sdio_hdlr(int irq, void *dev_id);
+void aml_irq_sdio_hdlr_for_pt(struct sdio_func *func);
 irqreturn_t aml_irq_pcie_hdlr(int irq, void *dev_id);
 void aml_pcie_task(unsigned long data);
 

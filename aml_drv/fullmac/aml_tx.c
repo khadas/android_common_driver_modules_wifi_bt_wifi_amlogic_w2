@@ -25,6 +25,8 @@
 #include "sdio_common.h"
 #include "wifi_top_addr.h"
 #include "sg_common.h"
+#include "aml_interface.h"
+#include "w2_sdio.h"
 #ifdef CONFIG_AML_POWER_SAVE_MODE
 #include "aml_platform.h"
 #endif
@@ -194,10 +196,14 @@ void aml_ps_bh_traffic_req(struct aml_hw *aml_hw, struct aml_sta *sta,
 {
     int pkt_ready_all;
     struct aml_txq *txq;
+    u8 bcmc_mac[ETH_ALEN] = {0,};
 
-    if (WARN(!sta->ps.active, "sta %pM is not in Power Save mode",
-             sta->mac_addr))
+    if (!sta)
         return;
+    if (!sta->ps.active) {
+        WARN(memcmp(sta->mac_addr, bcmc_mac, ETH_ALEN), "sta %pM is not in Power Save mode", sta->mac_addr);
+        return;
+    }
 
     trace_ps_traffic_req(sta, pkt_req, ps_id);
     aml_spin_lock(&aml_hw->tx_lock);
@@ -1242,7 +1248,7 @@ bool aml_filter_sp_data_frame(struct sk_buff *skb, struct aml_vif *aml_vif, AML_
         offset += sprintf(p + offset, "%d.%d.%d.%d]",
                     target_ip[0], target_ip[1], target_ip[2], target_ip[3]);
         printk("%s\n", p);
-        return true;
+        return false; // Solving the compatibility problem between w2 softap and mtk
     }
 
     //filter dhcp
@@ -1794,8 +1800,9 @@ int aml_tx_cfm_task(void *data)
     u16 dyna_page = 0;
 
     sch_param.sched_priority = 91;
+#ifndef CONFIG_PT_MODE
     sched_setscheduler(current, SCHED_FIFO, &sch_param);
-
+#endif
     while (1) {
         /* wait for work */
         if (down_interruptible(&aml_hw->aml_tx_cfm_sem) != 0) {
@@ -2114,8 +2121,8 @@ void aml_txq_credit_update(struct aml_hw *aml_hw, int sta_idx, u8 tid, s8 update
                 txq->credits = txq->hwq->size - txq->pkt_pushed[user];
             }
         }
-        AML_INFO("sta_idx=%d, tid=%d, update=%d, pkt pushed: %d, credits=%d, old_credits=%d",
-                sta_idx, tid, update, txq->pkt_pushed[user], txq->credits, credits);
+        AML_INFO("sta_idx=%d vif_idx=%d tid=%d update=%d pkt pushed=%d credits=%d old_credits=%d",
+                sta_idx, sta->vif_idx, tid, update, txq->pkt_pushed[user], txq->credits, credits);
         trace_credit_update(txq, update);
 
         if (txq->credits <= 0)

@@ -69,11 +69,15 @@ w2-y := aml_msg_tx.o        \
 obj-m += w2_comm.o
 w2_comm-objs := \
         ../aml_bus/aml_interface.o \
-        usb_common.o    \
-        sdio_common.o   \
-        aml_pci.o       \
-        aml_static_buf.o\
-        aml_v7.o
+        ../aml_bus/usb_common.o    \
+        ../aml_bus/sdio_common.o   \
+        ../aml_bus/aml_w2_pci.o    \
+        ../aml_bus/aml_w2_v7.o     \
+        ../aml_bus/w1_sdio.o       \
+        ../aml_bus/w1_usb.o        \
+        ../aml_bus/w2_sdio.o       \
+        ../aml_bus/aml_static_buf.o \
+        ../aml_bus/w2_usb.o
 
 w2-$(CONFIG_AML_RADAR)       += aml_radar.o
 w2-$(CONFIG_DEBUG_FS)         += aml_debugfs.o
@@ -89,6 +93,7 @@ src :=$(CUR_DIR)/fullmac
 endif
 ccflags-y += -I$(src)
 ccflags-y += -I$(src)/..
+ccflags-y += -I$(src)/../aml_bus
 ccflags-y += -I$(src)/../../common
 ccflags-$(CONFIG_AML_RADAR) += -DCONFIG_AML_RADAR
 ccflags-$(CONFIG_AML_MON_DATA) += -DCONFIG_AML_MON_DATA

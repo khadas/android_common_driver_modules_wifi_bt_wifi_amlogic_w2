@@ -6,11 +6,13 @@
 
 #define RG_INTF_WT_CLK (WIFI_INTF + 0x7c)
 #define RG_INTF_MACCORE_CLK (WIFI_INTF + 0x80)
+/*coverity[bad_macro_redef]*/
 #define RG_INTF_MPIF_CLK (WIFI_INTF + 0x84)
 #define RG_INTF_LDPCRX_CLK (WIFI_INTF + 0x88)
 #define RG_INTF_VTB_CLK (WIFI_INTF + 0x8c)
 
 #define RG_INTF_CTRL_CLK (WIFI_INTF + 0xb0)
+/*coverity[bad_macro_redef]*/
 #define RG_INTF_CPU_CLK (WIFI_INTF + 0x090)
 #define RG_INTF_APB_CLK (WIFI_INTF + 0x094)
 #define RG_INTF_MAC_CLK (WIFI_INTF + 0x098)

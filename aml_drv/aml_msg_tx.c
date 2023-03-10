@@ -257,8 +257,7 @@ static inline s8_l chan_to_fw_pwr(int power)
     return power > 127 ? 127 : (s8_l)power;
 }
 
-static void cfg80211_to_aml_chan(const struct cfg80211_chan_def *chandef,
-                                  struct mac_chan_op *chan)
+void cfg80211_to_aml_chan(const struct cfg80211_chan_def *chandef, struct mac_chan_op *chan)
 {
     chan->band = chandef->chan->band;
     chan->type = bw2chnl[chandef->width];
@@ -2164,7 +2163,7 @@ int aml_send_sm_disconnect_req(struct aml_hw *aml_hw,
 {
     struct sm_disconnect_req *req;
 
-    AML_DBG(AML_FN_ENTRY_STR);
+    AML_INFO("vif:%d",aml_vif->vif_index);
 
     /* Build the SM_DISCONNECT_REQ message */
     req = aml_msg_zalloc(SM_DISCONNECT_REQ, TASK_SM, DRV_TASK_ID,
@@ -2236,6 +2235,7 @@ int aml_send_apm_start_req(struct aml_hw *aml_hw, struct aml_vif *vif,
     const u8 *var_pos;
     int len, i, error;
     unsigned int addr;
+    enum nl80211_band band;
 
     AML_DBG(AML_FN_ENTRY_STR);
 
@@ -2248,15 +2248,17 @@ int aml_send_apm_start_req(struct aml_hw *aml_hw, struct aml_vif *vif,
     // Build the beacon
     bcn->dtim = (u8)settings->dtim_period;
 #ifdef CONFIG_AML_RECOVERY
-    if (aml_recy->flags & AML_RECY_BCN_INFO_SAVED) {
-        size_t bcn_len = aml_recy->ap_info.bcn_len;
-        bcn_buf = kmalloc(bcn_len, GFP_KERNEL);
+    if (aml_recy_flags_chk(AML_RECY_BCN_INFO_SAVED)
+            && aml_recy_flags_chk(AML_RECY_STATE_ONGOING)) {
+        bcn->len = aml_recy->ap_info.bcn_len;
+        bcn_buf = kmalloc(bcn->len, GFP_KERNEL);
         if (!bcn_buf) {
             aml_msg_free(aml_hw, req);
             /* coverity[leaked_storage] - req have already freed */
             return -ENOMEM;
         }
-        memcpy(bcn_buf, aml_recy->ap_info.bcn, bcn_len);
+        memcpy(bcn_buf, aml_recy->ap_info.bcn, bcn->len);
+        band = aml_recy->ap_info.band;
     } else
 #endif
     {
@@ -2269,10 +2271,11 @@ int aml_send_apm_start_req(struct aml_hw *aml_hw, struct aml_vif *vif,
 #ifdef CONFIG_AML_RECOVERY
         aml_recy_save_bcn_info(bcn_buf, bcn->len);
 #endif
+        band = settings->chandef.chan->band;
     }
 #ifdef SCC_STA_SOFTAP
     aml_scc_save_bcn_buf(bcn_buf, bcn->len);
-    aml_scc_save_init_band(settings->chandef.chan->band);
+    aml_scc_save_init_band(band);
 #endif
     // Retrieve the basic rate set from the beacon buffer
     len = bcn->len - var_offset;
@@ -2323,7 +2326,15 @@ int aml_send_apm_start_req(struct aml_hw *aml_hw, struct aml_vif *vif,
     req->bcn_len = bcn->len;
     req->tim_oft = bcn->head_len;
     req->tim_len = bcn->tim_len;
-    cfg80211_to_aml_chan(&settings->chandef, &req->chan);
+#ifdef CONFIG_AML_RECOVERY
+    if (aml_recy_flags_chk(AML_RECY_AP_INFO_SAVED)
+            && aml_recy_flags_chk(AML_RECY_STATE_ONGOING)) {
+        memcpy(&req->chan, &aml_recy->ap_info.chan, sizeof(struct mac_chan_op));
+    } else
+#endif
+    {
+        cfg80211_to_aml_chan(&settings->chandef, &req->chan);
+    }
     req->bcn_int = settings->beacon_interval;
     if (settings->crypto.control_port)
         flags |= CONTROL_PORT_HOST;
@@ -3245,6 +3256,39 @@ int aml_rf_reg_read(struct net_device *dev, int addr)
     return ind.rf_data;
 }
 
+int aml_csi_status_com_read(struct net_device *dev, struct csi_status_com_get_ind *ind)
+{
+    void *void_param;
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
+
+    void_param = aml_priv_msg_zalloc(MM_SUB_CSI_STATUS_COM_GET, 0);
+    if (!void_param)
+        return -ENOMEM;
+
+    aml_priv_send_msg(aml_hw, void_param, 1, PRIV_CSI_STATUS_COM_CFM, ind);
+
+    return 0;
+}
+
+int aml_csi_status_sp_read(struct net_device *dev, int csi_mode, int csi_time_interval, struct csi_status_sp_get_ind *ind)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
+    struct csi_status_sp_get_req *csi_get_param;
+
+    csi_get_param = aml_priv_msg_zalloc(MM_SUB_CSI_STATUS_SP_GET, sizeof(struct csi_status_sp_get_req));
+    if (!csi_get_param)
+        return -ENOMEM;
+
+    csi_get_param->csi_mode = csi_mode;
+    csi_get_param->csi_time_interval = csi_time_interval;
+    printk("csi mode:0x%x csi_time_interval:%d \n", csi_mode, csi_time_interval);
+    aml_priv_send_msg(aml_hw, csi_get_param, 1, PRIV_CSI_STATUS_SP_CFM, ind);
+
+    return 0;
+}
+
 unsigned int aml_efuse_read(struct aml_hw *aml_hw, u32 addr)
 {
     struct get_efuse_req *req = NULL;
@@ -4010,10 +4054,12 @@ int aml_sync_trace_deinit(struct aml_hw *aml_hw)
     return 0;
 }
 
-int aml_txq_unexpection(struct aml_hw *aml_hw)
+int aml_txq_unexpection(struct net_device *dev)
 {
     static u32 token = 0;
     struct show_tx_msg_req_t *show_tx_msg_req;
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
 
     if (token == 0) {
         get_random_bytes(&token, 2);
@@ -4024,6 +4070,7 @@ int aml_txq_unexpection(struct aml_hw *aml_hw)
     }
     AML_INFO("token[%d]", token);
     show_tx_msg_req->token = token++;
+    aml_hw->show_switch_info = 50;
     return aml_priv_send_msg(aml_hw, show_tx_msg_req, 0, 0, NULL);
 }
 

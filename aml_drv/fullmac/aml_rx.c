@@ -296,6 +296,7 @@ static int aml_rx_data_skb(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
                 if (count > 0)
                     aml_hw->stats->amsdus_rx[count - 1]++;
             } else {
+                aml_filter_sp_data_frame(skb,aml_vif, SP_STATUS_RX);
                 skb_put(skb, le32_to_cpu(rxhdr->hwvect.len));
                 aml_hw->stats->amsdus_rx[0]++;
                 __skb_queue_head(&list, skb);
@@ -438,6 +439,10 @@ static void aml_rx_mgmt(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
 {
     struct ieee80211_mgmt *mgmt = (struct ieee80211_mgmt *)skb->data;
     struct rx_vector_1 *rxvect = &hw_rxhdr->hwvect.rx_vect1;
+
+    if (aml_bus_type != PCIE_MODE) {
+        aml_scan_rx(aml_hw, hw_rxhdr, skb);
+    }
 
     if (ieee80211_is_beacon(mgmt->frame_control)) {
         if ((AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_MESH_POINT) &&
@@ -1365,16 +1370,17 @@ void aml_scan_rx(struct aml_hw *aml_hw, struct hw_rxhdr *hw_rxhdr, struct sk_buf
             scan_res->scanu_res_ind.rx_leg_inf.leg_length = hw_rxhdr->hwvect.rx_vect1.leg_length;
             scan_res->scanu_res_ind.rx_leg_inf.leg_rate   = hw_rxhdr->hwvect.rx_vect1.leg_rate;
 
+            /*scanres payload process end*/
+            if (aml_hw->scanres_payload_buf_offset + le32_to_cpu(hw_rxhdr->hwvect.len) > SCAN_RESULTS_MAX_CNT*500) {
+                aml_hw->scanres_payload_buf_offset = 0;
+                AML_INFO("scanres_payload_buf overflow, flush");
+            }
             /*scanres payload process start*/
             memcpy(aml_hw->scanres_payload_buf + aml_hw->scanres_payload_buf_offset,
                 skb->data, le32_to_cpu(hw_rxhdr->hwvect.len));
             scan_res->scanu_res_ind.payload = (u32_l *)(aml_hw->scanres_payload_buf + aml_hw->scanres_payload_buf_offset);
-            if (aml_hw->scanres_payload_buf_offset + le32_to_cpu(hw_rxhdr->hwvect.len) > SCAN_RESULTS_MAX_CNT*500)
-                aml_hw->scanres_payload_buf_offset = 0;
-            else
-                aml_hw->scanres_payload_buf_offset += le32_to_cpu(hw_rxhdr->hwvect.len);
-            /*scanres payload process end*/
 
+            aml_hw->scanres_payload_buf_offset += le32_to_cpu(hw_rxhdr->hwvect.len);
         }
     }
 
@@ -1693,8 +1699,6 @@ check_len_update:
 
         if (hw_rxhdr->flags_is_80211_mpdu) {
             aml_rx_mgmt_any(aml_hw, skb, hw_rxhdr);
-            aml_scan_rx(aml_hw,hw_rxhdr, skb);
-
         } else {
             aml_vif = aml_rx_get_vif(aml_hw, hw_rxhdr->flags_vif_idx);
 
@@ -1815,13 +1819,17 @@ s8 aml_sdio_rxdataind(void *pthis, void *arg)
 {
     struct aml_hw *aml_hw = pthis;
     u8 result = -1;
+    u8 recalc_flag = 0;
+    u8 *rxdesc_addr = NULL;
     uint32_t remain_len = 0;
     uint32_t need_len = 0;
     uint32_t trans_len = 0;
     uint32_t fw_buf_pos = aml_hw->fw_buf_pos & ~AML_WRAP;
     uint32_t fw_new_pos = aml_hw->fw_new_pos & ~AML_WRAP;
     uint32_t print_cnt = 0;
-    uint32_t print_cnt1 = 0;
+    static uint32_t print_cnt1 = 0;
+    uint32_t rxdesc = 0, new_rxdesc = 0;
+    uint32_t offset = 0, all_offset = 0;
 
     REG_SW_SET_PROFILING(aml_hw, SW_PROF_AMLDATAIND);
     if (aml_bus_type == SDIO_MODE)
@@ -1833,13 +1841,18 @@ s8 aml_sdio_rxdataind(void *pthis, void *arg)
     if ((!need_len) && (aml_hw->fw_buf_pos != aml_hw->fw_new_pos))
         need_len = aml_hw->rx_buf_len;
 
+    if ((need_len > LEN_128K) && (fw_buf_pos < RXBUF_END_ADDR_LARGE - LEN_128K)) {
+        need_len = LEN_128K;
+        recalc_flag = 1;
+    }
+
     trans_len = need_len + SDIO_BLKSIZE;
     if ((trans_len > remain_len) && (remain_len != aml_hw->rx_buf_len)) {
         if (trans_len < aml_hw->rx_buf_len / 2) {
             print_cnt1++;
             if (print_cnt1 > 50) {
-                printk("%s: trans: %x, remain: %x, rx_buf_len: %x, need_len: %x, fw_pre_pos: %x, fw_new_pos:%x,  h_buf_s: %x, h_buf_e: %x\n",
-                    __func__, trans_len, remain_len, aml_hw->rx_buf_len, need_len, fw_buf_pos, fw_new_pos,
+                AML_PRINT(AML_DBG_MODULES_RX,": trans: %x, remain: %x, rx_buf_len: %x, need_len: %x, fw_pre_pos: %x, fw_new_pos:%x,  h_buf_s: %x, h_buf_e: %x\n",
+                    trans_len, remain_len, aml_hw->rx_buf_len, need_len, fw_buf_pos, fw_new_pos,
                     aml_hw->host_buf_start, aml_hw->host_buf_end);
                 print_cnt1 = 0;
             }
@@ -1852,8 +1865,8 @@ s8 aml_sdio_rxdataind(void *pthis, void *arg)
             remain_len = CIRCLE_Subtract2(aml_hw->host_buf_start, aml_hw->host_buf_end, aml_hw->rx_buf_len);
             print_cnt++;
             if (print_cnt > 20) {
-                printk("%s: trans: %x, remain: %x, rx_buf_len: %x, need_len: %x, fw_pre_pos: %x, fw_new_pos:%x,  h_buf_s: %x, h_buf_e: %x\n",
-                    __func__, trans_len, remain_len, aml_hw->rx_buf_len, need_len, fw_buf_pos, fw_new_pos,
+                AML_PRINT(AML_DBG_MODULES_RX,": trans: %x, remain: %x, rx_buf_len: %x, need_len: %x, fw_pre_pos: %x, fw_new_pos:%x,  h_buf_s: %x, h_buf_e: %x\n",
+                    trans_len, remain_len, aml_hw->rx_buf_len, need_len, fw_buf_pos, fw_new_pos,
                     aml_hw->host_buf_start, aml_hw->host_buf_end);
                 print_cnt = 0;
                 up(&aml_hw->aml_rx_task_sem);
@@ -1861,69 +1874,104 @@ s8 aml_sdio_rxdataind(void *pthis, void *arg)
             udelay(10);
         }
     }
-
-    if (aml_hw->fw_buf_pos != aml_hw->fw_new_pos) {
+    print_cnt1 = 0;
+    if (recalc_flag) {
         if (aml_bus_type == SDIO_MODE) {
-            if (fw_buf_pos <= fw_new_pos) {
-                if (need_len == aml_hw->rx_buf_len) {//all buf, host_buf_end is not sure
-                    aml_hw->plat->hif_sdio_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf,
-                        (unsigned char *)(unsigned long)RXBUF_START_ADDR, aml_hw->rx_buf_end - RXBUF_START_ADDR + 1, 0);
-                    aml_hw->read_all_buf = 1;
-
-                } else {
-                    aml_hw->plat->hif_sdio_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf_end,
-                        (unsigned char *)(unsigned long)fw_buf_pos, need_len, 0);
-                    spin_lock(&aml_hw->buf_end_lock);
-                    aml_hw->host_buf_end += need_len;
-                    spin_unlock(&aml_hw->buf_end_lock);
-                }
-
-             } else {
-                if (aml_hw->rx_buf_len - fw_buf_pos >= RX_DESC_SIZE)
-                    aml_hw->plat->hif_sdio_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf_end,
-                        (unsigned char *)(unsigned long)fw_buf_pos, aml_hw->rx_buf_end - fw_buf_pos + 1, 0);
-
-                if (fw_new_pos - RXBUF_START_ADDR)
-                    aml_hw->plat->hif_sdio_ops->hi_rx_buffer_read(aml_hw->host_buf,
-                        (unsigned char *)(unsigned long)RXBUF_START_ADDR, fw_new_pos - RXBUF_START_ADDR, 0);
-
-                spin_lock(&aml_hw->buf_end_lock);
-                aml_hw->host_buf_end = aml_hw->host_buf + (fw_new_pos - RXBUF_START_ADDR);
-                spin_unlock(&aml_hw->buf_end_lock);
-            }
-        } else if (aml_bus_type == USB_MODE) {
-            if (fw_buf_pos <= fw_new_pos) {
-                if (need_len == aml_hw->rx_buf_len) {//all buf, host_buf_end is not sure
-                    aml_hw->plat->hif_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf,
-                        (unsigned char *)(unsigned long)RXBUF_START_ADDR, aml_hw->rx_buf_end - RXBUF_START_ADDR + 1, USB_EP4);
-                    aml_hw->read_all_buf = 1;
-                } else {
-                    aml_hw->plat->hif_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf_end,
-                        (unsigned char *)(unsigned long)fw_buf_pos, need_len, USB_EP4);
-
-                    spin_lock(&aml_hw->buf_end_lock);
-                    aml_hw->host_buf_end += need_len;
-                    spin_unlock(&aml_hw->buf_end_lock);
-                }
-
-            } else {
-                if (aml_hw->rx_buf_len - fw_buf_pos >= RX_DESC_SIZE)
-                    aml_hw->plat->hif_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf_end,
-                        (unsigned char *)(unsigned long)fw_buf_pos, aml_hw->rx_buf_end - fw_buf_pos + 1, USB_EP4);
-
-                if (fw_new_pos - RXBUF_START_ADDR)
-                    aml_hw->plat->hif_ops->hi_rx_buffer_read(aml_hw->host_buf,
-                        (unsigned char *)(unsigned long)RXBUF_START_ADDR, fw_new_pos - RXBUF_START_ADDR, USB_EP4);
-
-               spin_lock(&aml_hw->buf_end_lock);
-               aml_hw->host_buf_end = aml_hw->host_buf + (fw_new_pos - RXBUF_START_ADDR);
-               spin_unlock(&aml_hw->buf_end_lock);
-            }
+            aml_hw->plat->hif_sdio_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf_end,
+                (unsigned char *)(unsigned long)fw_buf_pos, need_len, 0);
+        } else {
+            aml_hw->plat->hif_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf_end,
+                (unsigned char *)(unsigned long)fw_buf_pos, need_len, 0);
         }
 
-        aml_trigger_rst_rxd(aml_hw, aml_hw->fw_new_pos);
-        aml_hw->fw_buf_pos = aml_hw->fw_new_pos;
+        rxdesc = fw_buf_pos;
+        rxdesc_addr = aml_hw->host_buf_end;
+
+        while (1) {
+            new_rxdesc = *(uint32_t *)(rxdesc_addr + NEXT_PKT_OFFSET);
+            offset = new_rxdesc - rxdesc;
+            all_offset += offset;
+
+            if (all_offset > LEN_128K) {
+                all_offset -= offset;
+                break;
+            }
+
+            rxdesc = new_rxdesc;
+            rxdesc_addr += offset;
+        }
+
+        spin_lock(&aml_hw->buf_end_lock);
+        aml_hw->host_buf_end = aml_hw->host_buf_end + all_offset;
+        spin_unlock(&aml_hw->buf_end_lock);
+
+        aml_hw->fw_buf_pos = (aml_hw->fw_buf_pos & AML_WRAP) + rxdesc;
+        aml_trigger_rst_rxd(aml_hw, aml_hw->fw_buf_pos);
         up(&aml_hw->aml_rx_task_sem);
+    } else {
+        if (aml_hw->fw_buf_pos != aml_hw->fw_new_pos) {
+            if (aml_bus_type == SDIO_MODE) {
+                if (fw_buf_pos <= fw_new_pos) {
+                    if (need_len == aml_hw->rx_buf_len) {//all buf, host_buf_end is not sure
+                        aml_hw->plat->hif_sdio_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf,
+                            (unsigned char *)(unsigned long)RXBUF_START_ADDR, aml_hw->rx_buf_end - RXBUF_START_ADDR + 1, 0);
+                        aml_hw->read_all_buf = 1;
+
+                    } else {
+                        aml_hw->plat->hif_sdio_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf_end,
+                            (unsigned char *)(unsigned long)fw_buf_pos, need_len, 0);
+                        spin_lock(&aml_hw->buf_end_lock);
+                        aml_hw->host_buf_end += need_len;
+                        spin_unlock(&aml_hw->buf_end_lock);
+                    }
+
+                 } else {
+                    if (aml_hw->rx_buf_len - fw_buf_pos >= RX_DESC_SIZE)
+                        aml_hw->plat->hif_sdio_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf_end,
+                            (unsigned char *)(unsigned long)fw_buf_pos, aml_hw->rx_buf_end - fw_buf_pos + 1, 0);
+
+                    if (fw_new_pos - RXBUF_START_ADDR)
+                        aml_hw->plat->hif_sdio_ops->hi_rx_buffer_read(aml_hw->host_buf,
+                            (unsigned char *)(unsigned long)RXBUF_START_ADDR, fw_new_pos - RXBUF_START_ADDR, 0);
+
+                    spin_lock(&aml_hw->buf_end_lock);
+                    aml_hw->host_buf_end = aml_hw->host_buf + (fw_new_pos - RXBUF_START_ADDR);
+                    spin_unlock(&aml_hw->buf_end_lock);
+                }
+            } else if (aml_bus_type == USB_MODE) {
+                if (fw_buf_pos <= fw_new_pos) {
+                    if (need_len == aml_hw->rx_buf_len) {//all buf, host_buf_end is not sure
+                        aml_hw->plat->hif_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf,
+                            (unsigned char *)(unsigned long)RXBUF_START_ADDR, aml_hw->rx_buf_end - RXBUF_START_ADDR + 1, USB_EP4);
+                        aml_hw->read_all_buf = 1;
+                    } else {
+                        aml_hw->plat->hif_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf_end,
+                            (unsigned char *)(unsigned long)fw_buf_pos, need_len, USB_EP4);
+
+                        spin_lock(&aml_hw->buf_end_lock);
+                        aml_hw->host_buf_end += need_len;
+                        spin_unlock(&aml_hw->buf_end_lock);
+                    }
+
+                } else {
+                    if (aml_hw->rx_buf_len - fw_buf_pos >= RX_DESC_SIZE)
+                        aml_hw->plat->hif_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf_end,
+                            (unsigned char *)(unsigned long)fw_buf_pos, aml_hw->rx_buf_end - fw_buf_pos + 1, USB_EP4);
+
+                    if (fw_new_pos - RXBUF_START_ADDR)
+                        aml_hw->plat->hif_ops->hi_rx_buffer_read(aml_hw->host_buf,
+                            (unsigned char *)(unsigned long)RXBUF_START_ADDR, fw_new_pos - RXBUF_START_ADDR, USB_EP4);
+
+                   spin_lock(&aml_hw->buf_end_lock);
+                   aml_hw->host_buf_end = aml_hw->host_buf + (fw_new_pos - RXBUF_START_ADDR);
+                   spin_unlock(&aml_hw->buf_end_lock);
+                }
+            }
+
+            aml_trigger_rst_rxd(aml_hw, aml_hw->fw_new_pos);
+            aml_hw->fw_buf_pos = aml_hw->fw_new_pos;
+            up(&aml_hw->aml_rx_task_sem);
+        }
     }
 
     REG_SW_CLEAR_PROFILING(aml_hw, SW_PROF_AMLDATAIND);
@@ -1949,8 +1997,9 @@ int aml_rx_task(void *data)
     static int count = 0;
 
     sch_param.sched_priority = 91;
+#ifndef CONFIG_PT_MODE
     sched_setscheduler(current,SCHED_FIFO,&sch_param);
-
+#endif
     while (1) {
         /* wait for work */
         if (down_interruptible(&aml_hw->aml_rx_task_sem) != 0) {
@@ -2081,12 +2130,18 @@ u8 aml_pci_rxdataind(void *pthis, void *arg)
 
     REG_SW_SET_PROFILING(aml_hw, SW_PROF_AMLDATAIND);
 
+#ifdef CONFIG_AML_RECOVERY
+    if (aml_recy_flags_chk(AML_RECY_FW_ONGOING)) {
+        /* recovery fw is ongoing, do nothing for rx data */
+        return -1;
+    }
+#endif
+
     aml_ipc_buf_e2a_sync(aml_hw, ipc_desc, sizeof(struct rxdesc_tag));
 
     rxdesc = ipc_desc->addr;
     status = rxdesc->status;
 #ifdef DEBUG_CODE
-
     if (aml_bus_type == PCIE_MODE) {
         record_proc_rx_buf(status, ipc_desc->dma_addr, rxdesc->host_id, aml_hw);
     }

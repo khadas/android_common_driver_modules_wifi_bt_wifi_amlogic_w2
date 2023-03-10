@@ -24,5 +24,7 @@ int aml_cancel_scan(struct aml_hw *aml_hw, struct aml_vif *vif);
 void aml_tx_rx_buf_init(struct aml_hw *aml_hw);
 int aml_cfg80211_start_ap(struct wiphy *wiphy,
         struct net_device *dev, struct cfg80211_ap_settings *settings);
+int aml_cfg80211_del_station(struct wiphy *wiphy,
+        struct net_device *dev, struct station_del_parameters *params);
 
 #endif /* _AML_MAIN_H_ */

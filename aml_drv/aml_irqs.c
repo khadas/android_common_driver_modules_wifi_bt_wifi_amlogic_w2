@@ -34,6 +34,12 @@ irqreturn_t aml_irq_sdio_hdlr(int irq, void *dev_id)
     return IRQ_HANDLED;
 }
 
+void aml_irq_sdio_hdlr_for_pt(struct sdio_func *func)
+{
+    struct aml_hw *aml_hw = dev_get_drvdata(&func->dev);
+    up(&aml_hw->aml_task_sem);
+}
+
 int aml_task(void *data)
 {
     struct aml_hw *aml_hw = (struct aml_hw *)data;
@@ -42,7 +48,9 @@ int aml_task(void *data)
     struct sched_param sch_param;
 
     sch_param.sched_priority = 93;
+#ifndef CONFIG_PT_MODE
     sched_setscheduler(current,SCHED_FIFO,&sch_param);
+#endif
     while (1) {
         /* wait for work */
         if (down_interruptible(&aml_hw->aml_task_sem) != 0) {
@@ -61,8 +69,9 @@ int aml_task(void *data)
         spin_unlock_bh(&aml_hw->tx_lock);
 
         if (aml_bus_type == SDIO_MODE) {
+#ifndef CONFIG_PT_MODE
              enable_irq(aml_hw->irq);
-
+#endif
         } else if (aml_bus_type == USB_MODE) {
             ret = usb_submit_urb(aml_hw->g_urb, GFP_ATOMIC);
             if (ret < 0) {

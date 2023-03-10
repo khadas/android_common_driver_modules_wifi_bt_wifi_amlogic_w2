@@ -8,17 +8,7 @@
  ******************************************************************************
  */
 
-#include "aml_v7.h"
-
-struct aml_v7
-{
-    u8 *pci_bar0_vaddr;
-    u8 *pci_bar1_vaddr;
-    u8 *pci_bar2_vaddr;
-    u8 *pci_bar3_vaddr;
-    u8 *pci_bar4_vaddr;
-    u8 *pci_bar5_vaddr;
-};
+#include "aml_w2_v7.h"
 
 u8* ipc_basic_address = 0;
 

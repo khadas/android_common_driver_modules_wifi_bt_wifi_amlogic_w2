@@ -2,10 +2,23 @@
 #include <linux/mmc/sdio_func.h>
 #include "fi_sdio.h"
 
+#define __INLINE static __attribute__((__always_inline__)) inline
+
+#define __ALIGN4 __aligned(4)
+
+#ifndef ASSERT_ERR
+#define ASSERT_ERR(condition)                                                           \
+    do {                                                                                \
+        if (unlikely(!(condition))) {                                                   \
+            printk(KERN_ERR "%s:%d:ASSERT_ERR(" #condition ")\n", __FILE__,  __LINE__); \
+        }                                                                               \
+    } while(0)
+#endif
 #define HIF_READ        0x00000001
 #define HIF_WRITE       0x00000002
 #define HIF_SYNCHRONOUS  0x00000010
 #define HIF_ASYNCHRONOUS 0x00000020
+
 
 /* max page num while process a sdio write operation*/
 #define SG_PAGE_MAX 80

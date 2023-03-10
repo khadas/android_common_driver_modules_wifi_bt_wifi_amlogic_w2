@@ -22,6 +22,7 @@
 #include "share_mem_map.h"
 #include "ipc_shared.h"
 #include "aml_msg_rx.h"
+#include "aml_recy.h"
 
 /*
  * TYPES DEFINITION
@@ -66,6 +67,13 @@ void ipc_host_rxdesc_handler(struct ipc_host_env_tag *env)
 {
     // For profiling
     REG_SW_SET_PROFILING(env->pthis, SW_PROF_IRQ_E2A_RXDESC);
+
+#ifdef CONFIG_AML_RECOVERY
+    if (aml_recy_flags_chk(AML_RECY_FW_ONGOING)) {
+        /* recovery fw is ongoing, do nothing */
+        return;
+    }
+#endif
 
     // LMAC has triggered an IT saying that a reception has occurred.
     // Then we first need to check the validity of the current hostbuf, and the validity

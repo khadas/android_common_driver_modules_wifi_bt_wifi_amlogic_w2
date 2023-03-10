@@ -15,6 +15,8 @@
 #ifdef SDIO_SPEED_DEBUG
 #include "sg_common.h"
 #endif
+#include "sdio_common.h"
+
 
 #define RC_AUTO_RATE_INDEX -1
 #define MAX_CHAR_SIZE 40
@@ -469,6 +471,62 @@ int aml_get_rf_reg(struct net_device *dev, char *str_addr, union iwreq_data *wrq
     wrqu->data.length++;
 
 //    printk("Get reg addr: 0x%08x value: 0x%08x\n", addr, reg_val);
+    return 0;
+}
+
+int aml_get_csi_status_com(struct net_device *dev)
+{
+    unsigned int ret = 0;
+    struct csi_status_com_get_ind ind;
+
+    memset(&ind, 0, sizeof(struct csi_status_com_get_ind));
+    ret = aml_csi_status_com_read(dev, &ind);
+
+    if (ret == 0)
+    {
+        printk("time_stamp: %llu \n", ind.time_stamp);
+        printk("mac_ra:     %02X%02X-%02X%02X-%02X%02X \n", ind.mac_ra[0], ind.mac_ra[1], ind.mac_ra[2], ind.mac_ra[3], ind.mac_ra[4], ind.mac_ra[5]);
+        printk("mac_ta:     %02X%02X-%02X%02X-%02X%02X \n", ind.mac_ta[0], ind.mac_ta[1], ind.mac_ta[2], ind.mac_ta[3], ind.mac_ta[4], ind.mac_ta[5]);
+        printk("freq_band:  %u \n", ind.frequency_band);
+        printk("bw:         %u \n", ind.bw);
+        printk("rssi:       %d \n", ind.rssi[0]);
+        printk("snr:        %u \n", ind.snr[0]);
+        printk("noise:      %u %u %u %u\n", ind.noise[0], ind.noise[1], ind.noise[2], ind.noise[3]);
+        printk("phase_incr: %d \n", ind.phase_incr[0]);
+        printk("pro_mode:   0x%x \n", ind.protocol_mode);
+        printk("frame_type: 0x%x \n", ind.frame_type);
+        printk("chain_num:  %u \n", ind.chain_num);
+        printk("csi_len:    %u \n", ind.csi_len);
+        printk("chan_index: %u \n", ind.primary_channel_index);
+        printk("phyerr:     %u \n", ind.phyerr);
+        printk("rate:       %u \n", ind.rate);
+        printk("reserved:   %u %u \n", ind.reserved[0], ind.reserved[1]);
+        printk("agc_code:   %u \n", ind.agc_code);
+        printk("channel:    %u \n", ind.channel);
+        printk("packet_idx: %u \n", ind.packet_idx);
+    }
+
+    return 0;
+}
+
+int aml_get_csi_status_sp(struct net_device *dev, int csi_mode, int csi_time_interval)
+{
+    int i;
+    unsigned int ret = 0;
+    struct csi_status_sp_get_ind ind;
+
+    memset(&ind, 0, sizeof(struct csi_status_sp_get_ind));
+    ret = aml_csi_status_sp_read(dev, csi_mode, csi_time_interval, &ind);
+
+    if (ret == 0)
+    {
+        for (i = 0; i <= 255; i = i + 4)
+        {
+            printk("Num: 0x%02x:0x%08x--0x%02x:0x%08x--0x%02x:0x%08x--0x%02x:0x%08x \n", \
+                    i, ind.csi[i], i + 1, ind.csi[i + 1], i + 2, ind.csi[i + 2], i + 3, ind.csi[i + 3]);
+        }
+    }
+
     return 0;
 }
 
@@ -2623,22 +2681,31 @@ int aml_recy_ctrl(struct net_device *dev, int recy_id)
 #endif
 
     switch (recy_id) {
-        case 0:
-            AML_INFO("do firmware soft reset");
-            aml_fw_reset(aml_vif);
-            break;
 #ifdef CONFIG_AML_RECOVERY
-        case 1:
-            AML_INFO("do cmd queue crashed recovery");
-            aml_recy_doit(aml_hw);
+        case 0:
+            AML_INFO("disable recovery detection");
+            aml_recy_disable();
             break;
-        case 4:
-            AML_INFO("trigger cmd crash, for test only");
+        case 1:
+            AML_INFO("enable recovery detection");
+            aml_recy_enable();
+            break;
+        case 2:
+            AML_INFO("do simulate cmd queue crashed");
             spin_lock_bh(&cmd_mgr->lock);
             cmd_mgr->state = AML_CMD_MGR_STATE_CRASHED;
             spin_unlock_bh(&cmd_mgr->lock);
             break;
+        case 3:
+            AML_INFO("do recovery straightforward");
+            aml_recy_doit(aml_hw);
+            break;
 #endif
+        case 4:
+            AML_INFO("do firmware soft reset");
+            aml_fw_reset(aml_vif);
+            break;
+
         default:
             AML_INFO("unknow recovery operation");
             break;
@@ -3402,6 +3469,9 @@ static int aml_iwpriv_send_para2(struct net_device *dev,
         case AML_IWP_SET_TX_PATH:
             aml_set_tx_path(dev, set1, set2);
             break;
+        case AML_IWP_GET_CSI_STATUS_SP:
+            aml_get_csi_status_sp(dev, set1, set2);
+            break;
         default:
             break;
     }
@@ -3503,6 +3573,7 @@ static int aml_iwpriv_get(struct net_device *dev,
             break;
         case AML_IWP_GET_TXQ:
             aml_get_txq(dev);
+            aml_txq_unexpection(dev);
             break;
         case AML_IWP_GET_TX_LFT:
             aml_get_tx_lft(dev);
@@ -3553,6 +3624,9 @@ static int aml_iwpriv_get(struct net_device *dev,
             break;
         case AML_IWP_GET_BUF_STATE:
             aml_get_buf_state(dev);
+            break;
+        case AML_IWP_GET_CSI_STATUS_COM:
+            aml_get_csi_status_com(dev);
             break;
         default:
             printk("%s %d param err\n", __func__, __LINE__);
@@ -3917,6 +3991,12 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_IWP_GET_WIFI_MAC_FROM_EFUSE,
         IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "get_wifi_mac"},
+    {
+        AML_IWP_GET_CSI_STATUS_COM,
+        0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_csi_com"},
+    {
+        AML_IWP_GET_CSI_STATUS_SP,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 2, 0, "get_csi_sp"},
 
 };
 #endif

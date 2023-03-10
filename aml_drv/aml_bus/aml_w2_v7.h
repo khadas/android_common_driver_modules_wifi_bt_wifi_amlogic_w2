@@ -8,8 +8,8 @@
  ******************************************************************************
  */
 
-#ifndef _AML_V7_H_
-#define _AML_V7_H_
+#ifndef _AML_w2_V7_H_
+#define _AML_w2_V7_H_
 
 #include <linux/pci.h>
 
@@ -153,6 +153,15 @@ enum aml_platform_addr {
     AML_ADDR_MAX,
 };
 
+struct aml_v7
+{
+    u8 *pci_bar0_vaddr;
+    u8 *pci_bar1_vaddr;
+    u8 *pci_bar2_vaddr;
+    u8 *pci_bar3_vaddr;
+    u8 *pci_bar4_vaddr;
+    u8 *pci_bar5_vaddr;
+};
 
 struct pcie_mem_map_struct
 {

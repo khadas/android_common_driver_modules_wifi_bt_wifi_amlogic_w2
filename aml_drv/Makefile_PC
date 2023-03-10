@@ -26,10 +26,14 @@ CONFIG_AML_P2P_DEBUGFS ?= y
 # Need open it when use FPGA pcie version
 CONFIG_AML_FPGA_PCIE ?= n
 
+# PT MODE
+CONFIG_PT_MODE ?= y
+
 #
 # } // WAITING FOR KCONFIG
 #
 
+subdir-ccflags-$(CONFIG_PT_MODE) += -DCONFIG_PT_MODE
 subdir-ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_AML_DEBUGFS
 subdir-ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_AML_UM_HELPER_DFLT=\"$(CONFIG_AML_UM_HELPER_DFLT)\"
 subdir-ccflags-$(CONFIG_AML_P2P_DEBUGFS) += -DCONFIG_AML_P2P_DEBUGFS

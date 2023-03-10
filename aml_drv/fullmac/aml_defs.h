@@ -70,7 +70,7 @@
 
 // WIFI_CALI_VERSION must be consistent with the version field in "/vendor/firmware/"
 // After updating the parameters, it must be modified at the same time.
-#define WIFI_CALI_VERSION   (3)
+#define WIFI_CALI_VERSION   (5)
 #define WIFI_CALI_FILENAME  "aml_wifi_rf.txt"
 
 #define STRUCT_BUFF_LEN   252
@@ -258,6 +258,7 @@ enum aml_sta_flags {
  * @tdls_status: Status of the TDLS link
  * @tdls_chsw_prohibited: Whether TDLS Channel Switch is prohibited or not
  * @generation: Generation ID. Increased each time a sta is added/removed
+ * @ap_lock: Add lock protect for AP info(vif->sta.ap, only valid STA/P2P Client)
  *
  * STA / P2P_CLIENT interfaces
  * @flags: see aml_sta_flags
@@ -304,6 +305,7 @@ struct aml_vif {
     int generation;
     u32 filter;
     u8 is_disconnect;
+    spinlock_t ap_lock;
     union
     {
         struct
@@ -732,9 +734,10 @@ struct aml_hw {
     u8 cur_chanctx;
     struct aml_survey_info survey[SCAN_CHANNEL_MAX];
     struct aml_roc *roc;
+    spinlock_t roc_lock;
     struct cfg80211_scan_request *scan_request;
     struct aml_radar radar;
-
+    int show_switch_info;
     // TX path
     spinlock_t tx_lock;
 #ifdef CONFIG_AML_PREALLOC_BUF_STATIC

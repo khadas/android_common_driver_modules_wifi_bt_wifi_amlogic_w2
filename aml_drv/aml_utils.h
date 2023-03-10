@@ -12,6 +12,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/dmapool.h>
 #include <linux/skbuff.h>
+#include "fi_w2_sdio.h"
 
 #include "lmac_msg.h"
 #include "wifi_debug.h"
@@ -130,8 +131,8 @@ static const u32 aml_tx_pattern = 0xCAFEFADE;
 
 #define TX_AC_BUF_SIZE 0x4dc8 //19912
 
-#define TRACE_TOTAL_SIZE    0x8000
-#define TRACE_MAX_SIZE      0x4000
+#define TRACE_TOTAL_SIZE    0x6400
+#define TRACE_MAX_SIZE      0x2400
 #define CIRCLE_Subtract(a,b,l)  \
     (((a) >= (b)) ? ((a) - (b)):((l)+(a)-(b)))
 

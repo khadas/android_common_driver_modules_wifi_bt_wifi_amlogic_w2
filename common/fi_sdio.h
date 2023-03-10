@@ -15,9 +15,9 @@
 #ifndef _FI_SDIO_H
 #define _FI_SDIO_H
 
-#define PRODUCT_AMLOGIC  0x8888
+#define PRODUCT_AMLOGIC 0x8888
 #define VENDOR_AMLOGIC  0x8888
-#define  HOST_VERSION  1234
+#define HOST_VERSION   1234
 
  /* memory mapping for wifi space */
 #define MAC_ICCM_AHB_BASE    0x00000000
@@ -25,18 +25,19 @@
 #define MAC_REG_BASE         0x00a00000
 #define MAC_DCCM_AHB_BASE    0x00d00000
 
+
 /*
-* BT device baseAddr seen from wifi system side 
-* is different from BT device actual baseAddr at BT sytem side.
-* For example, actual ICCM baseAddr at BT system may be 0x00900000, 
-* but ICCM baseAddr seen from wifi sytem side may be 0x00300000
+* BT device baseAddr seen from wifi system side
+* is different from BT device actual baseAddr at BT system side.
+* For example, actual ICCM baseAddr at BT system may be 0x00900000,
+* but ICCM baseAddr seen from wifi system side may be 0x00300000
 */
-#define WF2BT_APB_BASE      (0x00200000)  //BT APB baseAddr seen from wifi system side 
-#define WF2BT_ICCM_RAM      (0x00300000)  //BT DCCM RAM baseAddr seen from wifi system side 
-#define WF2BT_DCCM_RAM      (0x00400000)  //BT DCCM RAM baseAddr seen from wifi system side 
+#define WF2BT_APB_BASE      (0x00200000)  //BT APB baseAddr seen from wifi system side
+#define WF2BT_ICCM_RAM      (0x00300000)  //BT DCCM RAM baseAddr seen from wifi system side
+#define WF2BT_DCCM_RAM      (0x00400000)  //BT DCCM RAM baseAddr seen from wifi system side
 #define WF2BT_MAC_ARC       (WF2BT_APB_BASE + 0x0c)
 #define RW_OPERTION_SIZE    (4)
-    
+
 //base address
 #define   PRODUCT_AMLOGIC_ADDR  (MAC_SRAM_BASE+0x000000)
 #define   VENDOR_AMLOGIC_ADDR  (MAC_SRAM_BASE+0x000004)
@@ -61,44 +62,17 @@
 #define   CMD_UP_FIFO_FDT_ADDR  (CMD_UP_FIFO_CTRL_ADDR+12)
 #define   CMD_UP_FIFO_BASE_ADDR  (MAC_SRAM_BASE+0x0000d0)
 
- /* txcfm start address in sram  */
-#define   SRAM_TXCFM_START_ADDR  (0xa17000)
 
- /* flag start base address for store some flag info in sram */
-#define   SRAM_FLAG_MEM_BASE (0xa17fc0)
 
- /* rxdesc index address */
-#define   APP2EMB_RXDESC_IDX (SRAM_FLAG_MEM_BASE) // len = 4 bytes
 /*wifi operate mode */
 #define MODE_IBSS 0
 #define MODE_STA 1
 #define MODE_AP 2
 #define MODE_WDS 3
 
-#ifdef HOST //host
-#ifdef HOST_USB//usb
-#define PAGE_LEN  2048
-#else //sdio
+#ifdef HOST
 #define PAGE_LEN  512
 #endif
-#endif
-
-#define howmanypage(x,y) (((x - 12) + ((y - 12) -1) )/ (y - 12))
-
-#define SDIO_PAGE_MAX    60
-
-#define SDIO_FRAME_TAIL_LEN    12
-#define SDIO_PAGE_LEN    1024
-#define USB_PAGE_LEN    1880
-
-#define SDIO_DATA_OFFSET   112 //12 + 28 + 72
-#define SDIO_TXHEADER_LEN   104 //4 + 28 + 72
-#define SDIO_TXDESC_OFFSET  40  //12 + 28
-#define SECOND_PAGE_DATA_OFFSET 12
-#define TXHEADER_RESERVE_LEN 240
-#define TXDESC_OFFSET        32 // 4 + 28
-#define USB_TXDESC_OFFSET    272 // 4 + 28 + 240
-#define USB_DATA_OFFSET (USB_TXDESC_OFFSET+72) //payload
 
 #define WIFI_MAX_VID  2
 #define WIFI_MAX_TID  8
@@ -112,12 +86,7 @@
 #define WIFI_MAX_RXFRAME  255 //127
 #define PHY_VMAC_ID  (0x20)
 #define TX_ADDRESSTABLE_NUM  256
-#define TX_PAGE_NUM_SMALL 128
-#define TX_PAGE_NUM_LARGE 255
-#define DYNA_PAGE_NUM  127
-#define USB_TX_PAGE_NUM 136   //250 * 1024 / 1880
 
-#define USB_TX_ADDRESSTABLE_NUM  TX_PAGE_NUM_SMALL/2
 #ifdef DHCP_OFFLOAD
 #define RX_TMP_MAX_LEN  512
 #else
@@ -166,7 +135,7 @@
 #define FW_RX_PTR_MASK  0xffff0000
 #define FW_RX_PTR_OFFSET  16
 
-/*Rate Defintion*/
+/*Rate Definition*/
 #define WIFI_11N_MASK  0x80
 #define WIFI_11AC_MASK  0xc0
 #define WIFI_RATE_MASK  0xf0
@@ -275,8 +244,8 @@ enum
         QUEUE_AC_FIAC = 9
 };
 
-//friwmare version
-#define FW_UNUSED_IRQ_VERSION  0x0000
+//firmware version
+#define FW_UNUSED_IRQ_VERSION   0x0000
 
 /* Ack policy */
 /*Explicit BA*/
@@ -384,7 +353,7 @@ enum
 /* pri = cent - 30M */
 #define  SW_COFF_L30M   4
 
-// define rf sample rate 
+// define rf sample rate
 #define RF_SMP_160 (0x2)
 
 
@@ -425,13 +394,13 @@ typedef struct hw_tx_vector_bits
         unsigned int tv_reserved0:1,
                      tv_fw_duration_valid:1,
                      tv_rty_flag:1,
-                     /*ip/tcp/udp checksum hw cacluate enable, hw will check if ip/tcp/udp */
+                     /*ip/tcp/udp checksum hw calculate enable, hw will check if ip/tcp/udp */
                      tv_txcsum_enbale:1,
                      /*the final encrypted function is decided by tv_encrypted_disable and "encrypt type" */
                      tv_encrypted_disable:1,
                      /*not use, must be 0 */
                      tv_htc_modify:1,
-                     /*defualt 0, only beacon use 1 */
+                     /*default 0, only beacon use 1 */
                      tv_sq_valid:1,
                      /*now 1, always use tv_FrameControl of txvector */
                      tv_fc_valid:1,
@@ -546,7 +515,7 @@ typedef struct hw_tx_vector_bits
            [20]: fec_coding:
            Indicates which FEC encoding is used.
            Enumerated type:
-           BCC_CODING indicates binary convolutional code.
+           BCC_CODING indicates binary code.
            LDPC_CODING indicates low-density parity check code.
 
            [21:22]: num_exten_ss
@@ -560,6 +529,15 @@ typedef struct hw_tx_vector_bits
 
            [28:29]: CH_BANDWIDTH_IN_NON_HT:
            Indicates the channel width of the transmitted PPDU when non ht
+
+           [30:31]: expansion_mat_type:
+           Enumerated type:
+           COMPRESSED_SV indicates that EXPANSION_MAT is a set of
+           compressed beamforming feedback matrices.
+           NON_COMPRESSED_SV indicates that EXPANSION_MAT is a set of
+           noncompressed beamforming feedback matrices.
+           CSI_MATRICES indicates that EXPANSION_MAT is a set of channel
+           state matrices.
          */
         unsigned int tv_usr_postion: 2,
                      tv_group_id:6,
@@ -727,6 +705,7 @@ enum fw_event_type
   CHANNEL_SWITCH_EVENT,
   DPD_CALIBRATION_EVENT,
   TX_ERROR_EVENT,
+  FWLOG_PRINT_EVENT,
 };
 
 struct fw_event_basic_info
@@ -817,10 +796,13 @@ typedef struct Fw_TxPriv
 /*use in HW_TxVector option address, for key */
 typedef struct HW_TxOption
 {
-        unsigned char Reserve[3];
-        unsigned char KeyIdex;
-        //tkip/ccmp use 8B, wpi use 16B
-        unsigned char PN[16];
+    unsigned char is_bc;
+    unsigned char key_type;
+    unsigned char pkt_position;
+    unsigned char KeyIdex;
+    //tkip/ccmp use 8B, wpi use 16B
+    unsigned char PN[16];
+
 } HW_TxOption;
 
 #define HI_TXDESC_DATAOFFSET  ((size_t) &(((struct hi_tx_desc *)0)->txdata))
@@ -839,7 +821,6 @@ typedef struct hi_tx_desc
 //8 -32 -20-44-152
 #define FW_TXDESC_DATAOFFSET  ((size_t) &(((struct TxDescPage *)0)->txdata))
 #define FW_FIRST_PAGE_DATA_LEN  (PAGE_LEN-FW_TXDESC_DATAOFFSET)
-#define FW_TXDESC_X_LEN  ((size_t) sizeof(struct hw_tx_vector_bits)) + sizeof(struct txdesc_host)
 
 typedef struct TxDescPage
 {
@@ -946,7 +927,7 @@ typedef struct _FIFO_SHARE_CTRL
         unsigned int    FDH;
         /* 4 Byte fifo descripter tail */
         unsigned int    FDT;
-        /* 4 Byte fifo ctrl  bease address */
+        /* 4 Byte fifo ctrl base address */
         unsigned int    FCB;
         /* 4 Byte fifo per descripter len */
         unsigned int    FDL;
@@ -964,7 +945,7 @@ typedef struct _FIFO_SHARE_CTRL_PACKET
         unsigned int    FDH2;
         /* 4 Byte fifo descripter tail */
         unsigned int    FDT;
-        /* 4 Byte fifo ctrl  bease address */
+        /* 4 Byte fifo ctrl base address */
         unsigned int    FCB;
         /* 4 Byte fifo per descripter len */
         unsigned int    FDL;
@@ -980,7 +961,8 @@ typedef struct HW_CONFIG
         unsigned int beaconframeaddress;
         unsigned int rxframeaddress;
         unsigned int txcompleteaddress;
-        unsigned short bcn_page_num;
+        unsigned char bcn_page_num;
+        unsigned char ep1_cmd_len;
         unsigned short page_len;
         unsigned int fweventaddress;
 } HW_CONFIG;
@@ -1080,6 +1062,5 @@ typedef struct RekeyDataCmd
 #define WOW_FILTER_OPTION_4WAYHS BIT(4)
 #define WOW_FILTER_OPTION_DISCONNECT BIT(5)
 #define WOW_FILTER_OPTION_GTK_ERROR BIT(6)
-
 #endif// _FI_AHB_H
 

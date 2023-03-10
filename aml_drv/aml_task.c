@@ -18,6 +18,7 @@
 
 #ifdef CONFIG_AML_USE_TASK
 
+#if 0
 #define AML_TASK_FUNC(data, name, func) do { \
     struct aml_hw *aml_hw = (struct aml_hw *)data; \
     struct sched_param param = {0};   \
@@ -30,6 +31,19 @@
     } \
     complete_and_exit(&aml_hw->name->task_cmpl, 0); \
 } while (0);
+#else
+/* use set_user_nice() priority(100) to alleviate preempt cpu loading */
+#define AML_TASK_FUNC(data, name, func) do { \
+    struct aml_hw *aml_hw = (struct aml_hw *)data; \
+    set_user_nice(current, -20); \
+    while (!aml_hw->name->task_quit) { \
+        if (down_interruptible(&aml_hw->name->task_sem) != 0) break; \
+        if (aml_hw->name->task_quit) break; \
+        func(aml_hw); \
+    } \
+    complete_and_exit(&aml_hw->name->task_cmpl, 0); \
+} while (0);
+#endif
 
 #define AML_TASK_INIT(aml_hw, name)  do { \
     aml_hw->name = kmalloc(sizeof(struct aml_task), GFP_KERNEL); \
@@ -57,7 +71,9 @@ int aml_task_irqhdlr(void *data)
     u32 status;
 
     param.sched_priority = AML_TASK_PRI;
+#ifndef CONFIG_PT_MODE
     sched_setscheduler(current, SCHED_FIFO, &param);
+#endif
     while (!aml_hw->irqhdlr->task_quit) {
         if (down_interruptible(&aml_hw->irqhdlr->task_sem) != 0) {
             enable_irq(aml_platform_get_irq(aml_hw->plat));

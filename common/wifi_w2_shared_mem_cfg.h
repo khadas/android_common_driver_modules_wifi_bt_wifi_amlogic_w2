@@ -1,5 +1,5 @@
-#ifndef __WIFI_SHARED_MEM_CFG_H__
-#define __WIFI_SHARED_MEM_CFG_H__
+#ifndef __WIFI_W2_SHARED_MEM_CFG_H__
+#define __WIFI_W2_SHARED_MEM_CFG_H__
 
 #ifdef CONFIG_AML_LA
 #define LA
@@ -50,7 +50,8 @@ LA ON: rx buffer large size 0x30000, small size: 0x20000
 #define TXBUF_START_ADDR                 (0x60038000)
 #define RXBUF_END_ADDR_SMALL             (0x60038000)
 #define RXBUF_END_ADDR_LARGE             (0x60057C00)
-#define TRACE_START_ADDR                 (0x60078000) /* trace size: 0x8000 */
+#define TXLBUF_TAG_SDIO_4                (0x60078000) /* size 0x1c00*/
+#define TRACE_START_ADDR                 (0x60079c00) /* trace size: 0x6400 */
 #define TRACE_END_ADDR                   (0x60080000)
 #endif
 

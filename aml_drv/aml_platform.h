@@ -15,6 +15,9 @@
 #include <linux/netdevice.h>
 #include "usb_common.h"
 #include "sdio_common.h"
+#include "aml_interface.h"
+#include "w2_sdio.h"
+#include "w2_usb.h"
 
 #ifdef CONFIG_AML_POWER_SAVE_MODE
 #include "chip_intf_reg.h"
@@ -143,12 +146,6 @@ struct pcie_mem_map_struct
     unsigned int pcie_bar_table_offset;
 };
 #endif
-
-enum interface_type {
-    SDIO_MODE,
-    USB_MODE,
-    PCIE_MODE
-};
 
 /**
  * Type of memory to access (cf aml_plat.get_address)

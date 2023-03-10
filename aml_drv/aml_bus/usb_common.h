@@ -9,9 +9,10 @@
 #include <linux/slab.h>
 #include <linux/kernel.h>
 #include <linux/firmware.h>
+#include "fi_w2_sdio.h"
+#include "sdio_common.h"
 
 #define OS_LOCK spinlock_t
-
 
 #define PRINT(...)      do {printk("aml_usb_common->");printk( __VA_ARGS__ );}while(0)
 #ifndef ASSERT
@@ -45,13 +46,6 @@ extern struct mutex auc_usb_mutex;
 #define FREE(a, name) kfree(a)
 
 
-#define W2_PRODUCT  0x4c55
-#define W2_VENDOR  0x414D
-
-#define W2u_VENDOR_AMLOGIC_EFUSE 0x1B8E
-#define W2u_PRODUCT_A_AMLOGIC_EFUSE 0x0601
-#define W2u_PRODUCT_B_AMLOGIC_EFUSE 0x0641
-
 /*Macro for Write/Read reg via endpoin 0*/
 //#define REG_CTRL_EP0
 
@@ -68,8 +62,6 @@ extern struct mutex auc_usb_mutex;
 #define USB_MAX_TRANS_SIZE (64 * 1024)
 #define USB_CTRL_IN_REQTYPE (USB_DIR_IN | USB_TYPE_VENDOR | (USB_RECIP_ENDPOINT & 0x1f))
 #define USB_CTRL_OUT_REQTYPE (USB_DIR_OUT | USB_TYPE_VENDOR | (USB_RECIP_ENDPOINT & 0x1f))
-
-#define BT_INTR_TRANS_FLAG 0xc6a780c2
 
 enum wifi_cmd {
     CMD_DOWNLOAD_WIFI = 0xC1,
@@ -123,33 +115,6 @@ struct aml_hwif_usb {
     struct amlw_hif_scatter_req *scat_req;
 };
 
-/*auc--amlogic usb common*/
-struct auc_hif_ops {
-    int (*hi_send_cmd)(unsigned int addr, unsigned int len);
-    void (*hi_write_word)(unsigned int addr,unsigned int data, unsigned int ep);
-    unsigned int (*hi_read_word)(unsigned int addr, unsigned int ep);
-    void (*hi_write_sram)(unsigned char* buf, unsigned char* addr, unsigned int len, unsigned int ep);
-    void (*hi_read_sram)(unsigned char* buf, unsigned char* addr, unsigned int len, unsigned int ep);
-
-    void (*hi_rx_buffer_read)(unsigned char* buf, unsigned char* addr, unsigned int len, unsigned int ep);
-
-    /*bt use*/
-    void (*hi_write_word_for_bt)(unsigned int addr,unsigned int data, unsigned int ep);
-    unsigned int (*hi_read_word_for_bt)(unsigned int addr, unsigned int ep);
-    void (*hi_write_sram_for_bt)(unsigned char* buf, unsigned char* addr, unsigned int len, unsigned int ep);
-    void (*hi_read_sram_for_bt)(unsigned char* buf, unsigned char* addr, unsigned int len, unsigned int ep);
-
-    int (*hi_enable_scat)(void);
-    void (*hi_cleanup_scat)(void);
-    struct amlw_hif_scatter_req * (*hi_get_scatreq)(void);
-    int (*hi_scat_rw)(struct scatterlist *sg_list, unsigned int sg_num, unsigned int blkcnt,
-        unsigned char func_num, unsigned int addr, unsigned char write);
-
-    int (*hi_send_frame)(struct amlw_hif_scatter_req *scat_req);
-    void (*hi_rcv_frame)(unsigned char* buf, unsigned char* addr, unsigned long len);
-};
-
 int aml_usb_insmod(void);
-int wifi_fw_download(char *firmware_filename);
-int start_wifi(void);
+
 #endif

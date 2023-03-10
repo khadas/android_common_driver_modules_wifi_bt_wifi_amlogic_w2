@@ -1,58 +1,43 @@
+#include "w2_sdio.h"
 #include <linux/mutex.h>
-#include "../common/chip_ana_reg.h"
-#include "../common/chip_pmu_reg.h"
-#include "../common/chip_intf_reg.h"
-#include "../common/wifi_intf_addr.h"
-#include "../common/wifi_top_addr.h"
-#include "../common/wifi_sdio_cfg_addr.h"
-#include "share_mem_map.h"
-#include "aml_defs.h"
+#include "chip_ana_reg.h"
+#include "chip_pmu_reg.h"
+#include "chip_intf_reg.h"
+#include "wifi_intf_addr.h"
+#include "wifi_top_addr.h"
+#include "wifi_sdio_cfg_addr.h"
 #include "sdio_common.h"
 #include "sg_common.h"
+#include "w1_sdio.h"
+#include "aml_interface.h"
+#include "wifi_w2_shared_mem_cfg.h"
 #include "aml_static_buf.h"
 
 uint8_t *g_mmc_misc;
-struct aml_hwif_sdio g_hwif_sdio;
 struct aml_hwif_sdio g_hwif_rx_sdio;
 struct aml_hif_sdio_ops g_hif_sdio_ops;
 
-unsigned char g_sdio_wifi_bt_alive;
-unsigned char g_sdio_driver_insmoded;
-unsigned char g_sdio_after_porbe;
-unsigned char g_wifi_in_insmod;
-unsigned char *g_func_kmalloc_buf = NULL;
-
+extern unsigned char g_wifi_in_insmod;
+extern unsigned char *g_func_kmalloc_buf;
 static unsigned int tx_buffer_base_addr;
 static unsigned int rx_buffer_base_addr;
+extern unsigned int chip_id;
+extern unsigned char g_sdio_after_porbe;
+
+extern unsigned char wifi_in_insmod;
+extern unsigned char wifi_in_rmmod;
+//extern unsigned char  wifi_sdio_access;
+extern unsigned char  chip_en_access;
+//extern unsigned char  wifi_sdio_timeout;
+extern unsigned char wifi_sdio_shutdown;
 
 static DEFINE_MUTEX(wifi_bt_sdio_mutex);
 static DEFINE_MUTEX(wifi_ipc_mutex);
 
-#define AML_BT_WIFI_MUTEX_ON() do {\
-    mutex_lock(&wifi_bt_sdio_mutex);\
-} while (0)
+extern unsigned char (*host_wake_req)(void);
+extern int (*host_suspend_req)(struct device *device);
+extern int (*host_resume_req)(struct device *device);
 
-#define AML_BT_WIFI_MUTEX_OFF() do {\
-    mutex_unlock(&wifi_bt_sdio_mutex);\
-} while (0)
-
-#define AML_WIFI_IPC_MUTEX_ON() do {\
-    mutex_lock(&wifi_ipc_mutex);\
-} while (0)
-
-#define AML_WIFI_IPC_MUTEX_OFF() do {\
-    mutex_unlock(&wifi_ipc_mutex);\
-} while (0)
-
-unsigned char (*host_wake_req)(void);
-int (*host_suspend_req)(struct device *device);
-int (*host_resume_req)(struct device *device);
-
-struct sdio_func *aml_priv_to_func(int func_n)
-{
-    ASSERT(func_n >= 0 &&  func_n < SDIO_FUNCNUM_MAX);
-    return g_hwif_sdio.sdio_func_if[func_n];
-}
 
 static int _aml_sdio_request_byte(unsigned char func_num,
     unsigned char write, unsigned int reg_addr, unsigned char *byte)
@@ -135,55 +120,7 @@ unsigned char aml_sdio_self_define_domain_read8(int addr)
     return sramdata;
 }
 
-//cmd53
-static int _aml_sdio_request_buffer(unsigned char func_num,
-    unsigned int fix_incr, unsigned char write, unsigned int addr, void *buf, unsigned int nbytes)
-{
-    int err_ret = 0;
-    int align_nbytes = nbytes;
-    struct sdio_func * func = aml_priv_to_func(func_num);
-    bool fifo = (fix_incr == SDIO_OPMODE_FIXED);
-
-    if (!func) {
-        printk("func is NULL!\n");
-        return -1;
-    }
-
-    ASSERT(fix_incr == SDIO_OPMODE_FIXED|| fix_incr == SDIO_OPMODE_INCREMENT);
-    ASSERT(func->num == func_num);
-
-    /* Claim host controller */
-    sdio_claim_host(func);
-
-    if (write && !fifo)
-    {
-        /* write, increment */
-        align_nbytes = sdio_align_size(func, nbytes);
-        err_ret = sdio_memcpy_toio(func, addr, buf, align_nbytes);
-    }
-    else if (write)
-    {
-        /* write, fifo */
-        err_ret = sdio_writesb(func, addr, buf, align_nbytes);
-    }
-    else if (fifo)
-    {
-        /* read */
-        err_ret = sdio_readsb(func, buf, addr, align_nbytes);
-    }
-    else
-    {
-        /* read */
-        align_nbytes = sdio_align_size(func, nbytes);
-        err_ret = sdio_memcpy_fromio(func, buf, addr, align_nbytes);
-    }
-
-    /* Release host controller */
-    sdio_release_host(func);
-
-    return (err_ret == 0) ? SDIOH_API_RC_SUCCESS : SDIOH_API_RC_FAIL;
-}
-
+extern int _aml_sdio_request_buffer(unsigned char func_num, unsigned int fix_incr, unsigned char write, unsigned int addr, void * buf, unsigned int nbytes);
 //cmd53
 int aml_sdio_bottom_write(unsigned char func_num, unsigned int addr, void *buf, size_t len, int incr_addr)
 {
@@ -522,57 +459,6 @@ void aml_sdio_write_word(unsigned int addr, unsigned int data)
         || ((addr & 0x00f00000) == 0x00400000)) {
         aml_bt_hi_write_word(addr, data);
     }
-}
-
-int aml_sdio_suspend(unsigned int suspend_enable)
-{
-    mmc_pm_flag_t flags;
-    struct sdio_func *func = NULL;
-    int ret = 0, i;
-
-    if (suspend_enable == 0)
-    {
-        /* when enable == 0 that's resume operation
-        and we do nothing for resume now. */
-        return ret;
-    }
-
-    /* just clear sdio clock value for emmc init when resume */
-    //amlwifi_set_sdio_host_clk(0);
-
-    AML_BT_WIFI_MUTEX_ON();
-    /* we shall suspend all card for sdio. */
-    for (i = SDIO_FUNC1; i <= FUNCNUM_SDIO_LAST; i++)
-    {
-        func = aml_priv_to_func(i);
-        if (func == NULL)
-            continue;
-        flags = sdio_get_host_pm_caps(func);
-
-        if ((flags & MMC_PM_KEEP_POWER) != 0)
-            ret = sdio_set_host_pm_flags(func, MMC_PM_KEEP_POWER);
-
-        if (ret != 0) {
-            AML_BT_WIFI_MUTEX_OFF();
-            return -1;
-        }
-
-        /*
-         * if we don't use sdio irq, we can't get functions' capability with
-         * MMC_PM_WAKE_SDIO_IRQ, so we don't need set irq for wake up
-         * sdio for upcoming suspend.
-         */
-        if ((flags & MMC_PM_WAKE_SDIO_IRQ) != 0)
-            ret = sdio_set_host_pm_flags(func, MMC_PM_WAKE_SDIO_IRQ);
-
-        if (ret != 0) {
-            AML_BT_WIFI_MUTEX_OFF();
-            return -1;
-        }
-    }
-
-    AML_BT_WIFI_MUTEX_OFF();
-    return ret;
 }
 
 void aml_sdio_scat_complete (struct amlw_hif_scatter_req * scat_req)
@@ -948,10 +834,11 @@ void aml_sdio_cleanup_scatter(struct aml_hwif_sdio *hif_sdio)
     return;
 }
 
-void aml_sdio_init_ops(void)
+extern int aml_sdio_suspend(unsigned int suspend_enable);
+
+void aml_sdio_init_w2_ops(void)
 {
     struct aml_hif_sdio_ops* ops = &g_hif_sdio_ops;
-
     //func1 operation func, read/write self define domain reg, no need to set base addr
     ops->hi_self_define_domain_write8 = aml_sdio_self_define_domain_write8;
     ops->hi_self_define_domain_read8 = aml_sdio_self_define_domain_read8;
@@ -1005,7 +892,7 @@ void aml_sdio_init_ops(void)
 
 void aml_sdio_init_base_addr(void)
 {
-    g_func_kmalloc_buf = (unsigned char *)aml_mem_prealloc(AML_PREALLOC_SDIO, LEN_128K);
+    g_func_kmalloc_buf = (unsigned char *)aml_mem_prealloc(AML_PREALLOC_SDIO, LEN_256K);
     if (!g_func_kmalloc_buf) {
          printk(">>>sdio kmalloc failed!");
     }
@@ -1025,186 +912,16 @@ void aml_sdio_init_base_addr(void)
     aml_sdio_self_define_domain_write32(RG_SCFG_FUNC6_BADDR_A, rx_buffer_base_addr);
 }
 
-int aml_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id)
-{
-    int ret = 0;
-    static struct sdio_func sdio_func_0;
-
-    sdio_claim_host(func);
-    ret = sdio_enable_func(func);
-    if (ret)
-        goto sdio_enable_error;
-
-    if (func->num == 4)
-        sdio_set_block_size(func, 512);
-    else
-        sdio_set_block_size(func, 512);
-
-    printk("%s(%d): func->num %d sdio block size=%d, \n", __func__, __LINE__,
-        func->num,  func->cur_blksize);
-
-    if (func->num == 1)
-    {
-        sdio_func_0.num = 0;
-        sdio_func_0.card = func->card;
-        g_hwif_sdio.sdio_func_if[0] = &sdio_func_0;
-    }
-    g_hwif_sdio.sdio_func_if[func->num] = func;
-    printk("%s(%d): func->num %d sdio_func=%p, \n", __func__, __LINE__,
-        func->num,  func);
-
-    sdio_release_host(func);
-    sdio_set_drvdata(func, (void *)(&g_hwif_sdio));
-    if (func->num != FUNCNUM_SDIO_LAST)
-    {
-        printk("%s(%d):func_num=%d, last func num=%d\n", __func__, __LINE__,
-            func->num, FUNCNUM_SDIO_LAST);
-        return 0;
-    }
-
-    aml_sdio_init_ops();
-    aml_sdio_init_base_addr();
-    g_hif_sdio_ops.hi_enable_scat(&g_hwif_sdio);
-    g_hif_sdio_ops.hi_enable_scat(&g_hwif_rx_sdio);
-
-    return ret;
-
-sdio_enable_error:
-    printk("sdio_enable_error:  line %d\n",__LINE__);
-    sdio_release_host(func);
-
-    return ret;
-}
-
-static void  aml_sdio_remove(struct sdio_func *func)
-{
-    if (func== NULL)
-    {
-        return ;
-    }
-
-    printk("\n==========================================\n");
-    printk("aml_sdio_remove++ func->num =%d \n",func->num);
-    printk("==========================================\n");
-
-    sdio_claim_host(func);
-    sdio_disable_func(func);
-    sdio_release_host(func);
-
-    host_wake_req = NULL;
-    host_suspend_req = NULL;
-    host_resume_req = NULL;
-}
-
-static int aml_sdio_pm_suspend(struct device *device)
-{
-    if (host_suspend_req != NULL)
-        return host_suspend_req(device);
-    else
-        return aml_sdio_suspend(1);
-}
-
-static int aml_sdio_pm_resume(struct device *device)
-{
-    if (host_resume_req != NULL)
-        return host_resume_req(device);
-    else
-        return 0;
-}
-
-static SIMPLE_DEV_PM_OPS(aml_sdio_pm_ops, aml_sdio_pm_suspend,
-                     aml_sdio_pm_resume);
 
 
-static const struct sdio_device_id aml_sdio[] =
-{
-    {SDIO_DEVICE(W2_VENDOR_AMLOGIC,W2_PRODUCT_AMLOGIC) },
-    {SDIO_DEVICE(W2_VENDOR_AMLOGIC_EFUSE,W2_PRODUCT_AMLOGIC_EFUSE)},
-    {SDIO_DEVICE(W2s_VENDOR_AMLOGIC_EFUSE,W2s_A_PRODUCT_AMLOGIC_EFUSE)},
-    {SDIO_DEVICE(W2s_VENDOR_AMLOGIC_EFUSE,W2s_B_PRODUCT_AMLOGIC_EFUSE)},
-    {}
-};
-
-static struct sdio_driver aml_sdio_driver =
-{
-    .name = "aml_sdio",
-    .id_table = aml_sdio,
-    .probe = aml_sdio_probe,
-    .remove = aml_sdio_remove,
-    .drv.pm = &aml_sdio_pm_ops,
-};
-
-int  aml_sdio_init(void)
-{
-    int err = 0;
-
-    //amlwifi_set_sdio_host_clk(200000000);//200MHZ
-
-    err = sdio_register_driver(&aml_sdio_driver);
-    g_sdio_driver_insmoded = 1;
-    g_wifi_in_insmod = 0;
-    printk("*****************aml sdio common driver is insmoded********************\n");
-    if (err)
-        printk("failed to register sdio driver: %d \n", err);
-
-    return err;
-}
-EXPORT_SYMBOL(aml_sdio_init);
-
-void  aml_sdio_exit(void)
-{
-    printk("aml_sdio_exit++ \n");
-    sdio_unregister_driver(&aml_sdio_driver);
-    g_sdio_driver_insmoded = 0;
-    g_sdio_after_porbe = 0;
-    if (g_func_kmalloc_buf) {
-        //FREE(g_func_kmalloc_buf, "func_sdio_read");
-        g_func_kmalloc_buf = NULL;
-    }
-    printk("*****************aml sdio common driver is rmmoded********************\n");
-}
-//EXPORT_SYMBOL(aml_sdio_exit);
-
-EXPORT_SYMBOL(g_sdio_driver_insmoded);
-EXPORT_SYMBOL(g_wifi_in_insmod);
-EXPORT_SYMBOL(g_sdio_after_porbe);
-EXPORT_SYMBOL(host_wake_req);
-EXPORT_SYMBOL(host_suspend_req);
-EXPORT_SYMBOL(host_resume_req);
 /*set_wifi_bt_sdio_driver_bit() is used to determine whether to unregister sdio power driver.
   *Only when g_sdio_wifi_bt_alive is 0, then call aml_sdio_exit().
 */
-void set_wifi_bt_sdio_driver_bit(bool is_register, int shift)
-{
-    AML_BT_WIFI_MUTEX_ON();
-    if (is_register) {
-        g_sdio_wifi_bt_alive |= (1 << shift);
-        printk("Insmod %s sdio driver!\n", (shift ? "WiFi":"BT"));
-    } else {
-        printk("Rmmod %s sdio driver!\n", (shift ? "WiFi":"BT"));
-        g_sdio_wifi_bt_alive &= ~(1 << shift);
-        if (!g_sdio_wifi_bt_alive) {
-            aml_sdio_exit();
-        }
-    }
-    AML_BT_WIFI_MUTEX_OFF();
-}
-EXPORT_SYMBOL(set_wifi_bt_sdio_driver_bit);
-EXPORT_SYMBOL(g_hwif_sdio);
+
+
 EXPORT_SYMBOL(g_hwif_rx_sdio);
 EXPORT_SYMBOL(g_hif_sdio_ops);
 
-int aml_sdio_insmod(void)
-{
-    aml_sdio_init();
-    printk("%s(%d) start...\n",__func__, __LINE__);
-    return 0;
-}
-
-void aml_sdio_rmmod(void)
-{
-    aml_sdio_exit();
-}
 
 void aml_sdio_calibration(void)
 {
@@ -1281,7 +998,7 @@ unsigned char aml_download_wifi_fw_img(char *firmware_filename)
     unsigned int to_sdio = ~(0);
     RG_PMU_A22_FIELD_T pmu_a22;
     RG_DPLL_A5_FIELD_T rg_dpll_a5;
-    struct sdio_func *func = aml_priv_to_func(SDIO_FUNC0);
+    struct sdio_func *func = aml_priv_to_func(SDIO_FUNC7);
 
     printk("%s: %d\n", __func__, __LINE__);
     err =request_firmware(&fw, firmware_filename, &func->dev);
@@ -1439,8 +1156,6 @@ unsigned char aml_download_wifi_fw_img(char *firmware_filename)
     return true;
 }
 
-EXPORT_SYMBOL(aml_sdio_insmod);
-EXPORT_SYMBOL(aml_sdio_rmmod);
 EXPORT_SYMBOL(aml_sdio_calibration);
 EXPORT_SYMBOL(aml_download_wifi_fw_img);
-EXPORT_SYMBOL(aml_priv_to_func);
+

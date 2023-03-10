@@ -14,7 +14,7 @@
 #include <linux/sched.h>
 #include <linux/fs.h>
 #include <linux/delay.h>
-#include <wifi_shared_mem_cfg.h>
+#include "wifi_w2_shared_mem_cfg.h"
 #include <aml_defs.h>
 #include "share_mem_map.h"
 
@@ -1022,7 +1022,9 @@ loff_t aml_get_file_size(const char *filename)
 {
     struct file *fp = NULL;
     struct kstat st;
+#ifndef CONFIG_PT_MODE
     int ret = 0;
+#endif
 
     fp = FILE_OPEN(filename, O_CREAT | O_RDONLY, 0644);
     if (IS_ERR(fp)) {
@@ -1033,12 +1035,14 @@ loff_t aml_get_file_size(const char *filename)
         goto err;
     }
 
+#ifndef CONFIG_PT_MODE
     ret = FILE_STAT(filename, &st);
     if (ret < 0) {
         FILE_CLOSE(fp, NULL);
         printk("%s: file stat error, err = %d\n", __func__, ret);
         goto err;
     }
+#endif
 
     if ((long long)st.size < 0) {
         FILE_CLOSE(fp, NULL);

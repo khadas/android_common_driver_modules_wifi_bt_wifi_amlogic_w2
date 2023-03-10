@@ -15,7 +15,7 @@
 #include "hal_desc.h"
 #include "ipc_shared.h"
 #include "wifi_debug.h"
-#include "wifi_shared_mem_cfg.h"
+#include "wifi_w2_shared_mem_cfg.h"
 
 #define FW_BUFFER_STATUS   (BIT(20) | BIT(21))
 #define FW_BUFFER_NARROW   BIT(20)
@@ -218,4 +218,5 @@ void aml_rx_defer_skb(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
 void aml_rxdata_init(void);
 void aml_rxdata_deinit(void);
 void aml_scan_clear_scan_res(struct aml_hw *aml_hw);
+void aml_scan_rx(struct aml_hw *aml_hw, struct hw_rxhdr *hw_rxhdr, struct sk_buff *skb);
 #endif /* _AML_RX_H_ */

@@ -91,6 +91,11 @@ const int nx_tid_prio[NX_NB_TXQ_PER_STA] = {8, 7, 6, 5, 4, 3, 0, 2, 1};
 
 static inline int aml_txq_sta_idx(struct aml_sta *sta, u8 tid)
 {
+    if (!sta) {
+        AML_INFO("sta is null, return 0 in case of race condition");
+        return 0;
+    }
+
     if (is_multicast_sta(sta->sta_idx))
         return NX_FIRST_VIF_TXQ_IDX + sta->vif_idx;
     else
@@ -102,18 +107,21 @@ static inline int aml_txq_vif_idx(struct aml_vif *vif, u8 type)
     return NX_FIRST_VIF_TXQ_IDX + master_vif_idx(vif) + (type * NX_VIRT_DEV_MAX);
 }
 
-struct aml_txq *aml_txq_sta_get(struct aml_sta *sta, u8 tid,
-                                  struct aml_hw * aml_hw)
+struct aml_txq *aml_txq_sta_get(struct aml_sta *sta, u8 tid, struct aml_hw *aml_hw)
 {
     if (tid >= NX_NB_TXQ_PER_STA)
         tid = 0;
 
 #ifdef CONFIG_AML_PREALLOC_BUF_STATIC
-    if (!aml_hw->txq) {
-        AML_INFO("aml txq address null, tid=%d sta_idx=%d txq_sta_idx=%d",
-                tid, sta->sta_idx, aml_txq_sta_idx(sta, tid));
+    if (!sta) {
+        AML_INFO("aml sta is null, return null in case of race condition");
+        return NULL;
     }
-    return aml_hw->txq ? (aml_hw->txq + aml_txq_sta_idx(sta, tid)) : NULL;
+    if (!aml_hw->txq) {
+        AML_INFO("aml txq is null");
+        return NULL;
+    }
+    return aml_hw->txq + aml_txq_sta_idx(sta, tid);
 #else
     return &aml_hw->txq[aml_txq_sta_idx(sta, tid)];
 #endif
@@ -311,7 +319,8 @@ static void aml_txq_deinit(struct aml_hw *aml_hw, struct aml_txq *txq)
         return;
 
     spin_lock_bh(&aml_hw->tx_lock);
-    AML_INFO("txq deinit, txq idx=%d", txq->idx);
+    AML_INFO("txq deinit, txq idx=%d, vif_idx=%d",
+            txq->idx, txq->sta == NULL ? 0xff : txq->sta->vif_idx);
     aml_txq_del_from_hw_list(txq);
     txq->idx = TXQ_INACTIVE;
     aml_txq_flush(aml_hw, txq);
@@ -466,6 +475,7 @@ void aml_txq_unk_vif_init(struct aml_vif *aml_vif)
 
     txq = aml_txq_vif_get(aml_vif, NX_UNK_TXQ_TYPE);
     idx = aml_txq_vif_idx(aml_vif, NX_UNK_TXQ_TYPE);
+    aml_txq_deinit(aml_hw,txq);
     aml_txq_init(txq, idx, 0, &aml_hw->hwq[AML_HWQ_VO], TID_MGT, NULL, aml_vif->ndev);
 }
 
@@ -648,7 +658,7 @@ void aml_show_tx_msg(struct aml_hw *aml_hw,struct aml_wq *aml_wq)
     struct aml_vif *vif = (struct aml_vif *)aml_wq->data;
     AML_INFO("vif:%d",vif->vif_index);
     aml_get_txq(vif->ndev);
-    aml_txq_unexpection(vif->aml_hw);
+    aml_txq_unexpection(vif->ndev);
 }
 static bool aml_txq_drop_ap_vif_old_traffic(struct aml_vif *vif)
 {
@@ -717,11 +727,13 @@ static bool aml_txq_drop_sta_vif_old_traffic(struct aml_vif *vif)
     }
 
     if (vif->sta.ap) {
+        spin_lock_bh(&vif->ap_lock);
         foreach_sta_txq_safe(vif->sta.ap, txq, tid, vif->aml_hw) {
             pkt_queued |= aml_txq_drop_old_traffic(txq, vif->aml_hw,
                                                     AML_TXQ_MAX_QUEUE_JIFFIES,
                                                     &pkt_dropped);
         }
+        spin_unlock_bh(&vif->ap_lock);
     }
 
     if (pkt_dropped) {
@@ -752,10 +764,10 @@ static bool aml_txq_drop_sta_vif_old_traffic(struct aml_vif *vif)
 static void aml_txq_cleanup_timer_cb(struct timer_list *t)
 {
     struct aml_hw *aml_hw = from_timer(aml_hw, t, txq_cleanup);
-    struct aml_vif *vif;
+    struct aml_vif *vif, *vif_tmp;
     bool pkt_queue = false;
 
-    list_for_each_entry(vif, &aml_hw->vifs, list) {
+    list_for_each_entry_safe(vif, vif_tmp, &aml_hw->vifs, list) {
         switch (AML_VIF_TYPE(vif)) {
             case NL80211_IFTYPE_AP:
             case NL80211_IFTYPE_P2P_GO:
@@ -822,65 +834,12 @@ void aml_txq_prepare(struct aml_hw *aml_hw)
  * Add the TX queue if not already present in the HW queue list.
  * To be called with tx_lock hold
  */
-#define TXQ_LIST_DEBUG
-#ifdef TXQ_LIST_DEBUG
-#define TXQ_DEBUG_BUF_LEN 15
-struct txq_save_t {
-    u16 txq_idx;
-    u8 txq_tid;
-    u8 sta_idx;
-    u8 vif_idx;
-    u8 pl;
-};
-struct txq_save_t txq_save[TXQ_DEBUG_BUF_LEN] = {0,};
-u8 txq_save_idx = 0;
-
-void txq_save_fn(struct aml_txq *txq,u8 pl)
-{
-    txq_save[txq_save_idx].txq_idx = txq->idx;
-    txq_save[txq_save_idx].txq_tid = txq->tid;
-    if (txq->sta != NULL) {
-        txq_save[txq_save_idx].sta_idx = txq->sta->sta_idx;
-        txq_save[txq_save_idx].vif_idx = txq->sta->vif_idx;
-    }
-    else {
-        txq_save[txq_save_idx].sta_idx = 0x55;
-        txq_save[txq_save_idx].vif_idx = 0x55;
-    }
-    txq_save[txq_save_idx].pl = pl;
-    txq_save_idx ++;
-    if (txq_save_idx == TXQ_DEBUG_BUF_LEN) {
-        txq_save_idx = 0;
-    }
-}
-#endif
 void aml_txq_add_to_hw_list(struct aml_txq *txq)
 {
     aml_spin_lock(&txq->txq_lock);
     if (!(txq->status & AML_TXQ_IN_HWQ_LIST)) {
         trace_txq_add_to_hw(txq);
         txq->status |= AML_TXQ_IN_HWQ_LIST;
-#ifdef TXQ_LIST_DEBUG
-        txq_save_fn(txq, 0);
-        {
-            struct list_head *new = &txq->sched_list;
-            struct list_head *head = &txq->hwq->list;
-            u8 i = 0;
-            if (new == head->prev) {
-                AML_INFO("txq_idx:%d,txq_tid:%d,sta_idx:%d,vif_idx:%d,cur_save_idx:%d",
-                    txq->idx,
-                    txq->tid,
-                    (txq->sta == NULL) ? 0X55 : txq->sta->sta_idx,
-                    (txq->sta == NULL) ? 0X55 : txq->sta->vif_idx,
-                    txq_save_idx);
-                for (i = 0; i < TXQ_DEBUG_BUF_LEN; i++) {
-                    AML_INFO("[%d]txq_idx:%d,txq_tid:%d,sta_idx:%d,vif_idx:%d",
-                        i, txq_save[i].txq_idx, txq_save[i].txq_tid, txq_save[i].sta_idx, txq_save[i].vif_idx);
-                    msleep(5);
-                }
-            }
-        }
-#endif
         list_add_tail(&txq->sched_list, &txq->hwq->list);
         txq->hwq->need_processing = true;
     }
@@ -901,9 +860,6 @@ void aml_txq_del_from_hw_list(struct aml_txq *txq)
     if (txq->status & AML_TXQ_IN_HWQ_LIST) {
         trace_txq_del_from_hw(txq);
         txq->status &= ~AML_TXQ_IN_HWQ_LIST;
-#ifdef TXQ_LIST_DEBUG
-        txq_save_fn(txq, 1);
-#endif
         list_del(&txq->sched_list);
     }
     aml_spin_unlock(&txq->txq_lock);
@@ -1911,20 +1867,22 @@ void aml_hwq_init(struct aml_hw *aml_hw)
     }
 }
 
-int aml_txq_is_empty(struct aml_hw *aml_hw, struct aml_sta * aml_sta)
+int aml_txq_is_empty(struct aml_vif *aml_vif, struct aml_sta *aml_sta)
 {
     struct aml_txq *txq;
     int tid;
     int i;
 
-    foreach_sta_txq_safe(aml_sta, txq, tid, aml_hw) {
+    spin_lock_bh(&aml_vif->ap_lock);
+    foreach_sta_txq_safe(aml_sta, txq, tid, aml_vif->aml_hw) {
         for (i = 0; i < CONFIG_USER_MAX ; i++) {
             if (txq->pkt_pushed[i]) {
+                spin_unlock_bh(&aml_vif->ap_lock);
                 return 0;
             }
         }
-
     }
+    spin_unlock_bh(&aml_vif->ap_lock);
 
     return 1;
 }

@@ -13,6 +13,10 @@
 #ifndef _AML_MSG_RX_H_
 #define _AML_MSG_RX_H_
 
+struct aml_ft_auth_timeout {
+    uint8_t vif_idx;
+};
+
 void aml_rx_handle_msg(struct aml_hw *aml_hw, struct ipc_e2a_msg *msg);
 void aml_rx_sdio_ind_msg_handle(struct aml_hw *aml_hw, struct ipc_e2a_msg *msg);
 
