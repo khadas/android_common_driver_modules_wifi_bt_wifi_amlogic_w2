@@ -658,7 +658,7 @@ static int aml_check_fw_hw_feature(struct aml_hw *aml_hw,
     return res;
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) || (defined CONFIG_KERNEL_AX_PATCH)
 static void aml_set_ppe_threshold(struct aml_hw *aml_hw,
                                    struct ieee80211_sta_he_cap *he_cap)
 {
@@ -899,7 +899,7 @@ void aml_set_ht_capa(struct aml_hw *aml_hw, struct wiphy *wiphy)
 
 void aml_set_he_capa(struct aml_hw *aml_hw, struct wiphy *wiphy)
 {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) || (defined CONFIG_KERNEL_AX_PATCH)
     struct ieee80211_supported_band *band_5GHz = wiphy->bands[NL80211_BAND_5GHZ];
     struct ieee80211_supported_band *band_2GHz = wiphy->bands[NL80211_BAND_2GHZ];
     int i;

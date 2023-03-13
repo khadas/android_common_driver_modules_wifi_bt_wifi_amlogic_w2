@@ -990,7 +990,7 @@ int aml_send_sta_add(struct aml_hw *aml_hw, struct ieee80211_sta *sta,
                 (1 << (IEEE80211_HT_MAX_AMPDU_FACTOR + vht_exp)) - 1;
         }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)  || (defined CONFIG_KERNEL_AX_PATCH)
         if (sta->he_cap.has_he) {
             int he_exp_ext = (sta->he_cap.he_cap_elem.mac_cap_info[3] &
                               IEEE80211_HE_MAC_CAP3_MAX_AMPDU_LEN_EXP_MASK) >> 3;
@@ -1638,7 +1638,7 @@ int aml_send_me_config_req(struct aml_hw *aml_hw)
     struct wiphy *wiphy = aml_hw->wiphy;
     struct ieee80211_sta_ht_cap *ht_cap = &wiphy->bands[NL80211_BAND_5GHZ]->ht_cap;
     struct ieee80211_sta_vht_cap *vht_cap = &wiphy->bands[NL80211_BAND_5GHZ]->vht_cap;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) || (defined CONFIG_KERNEL_AX_PATCH)
     struct ieee80211_sta_he_cap const *he_cap;
 #endif
     uint8_t *ht_mcs = (uint8_t *)&ht_cap->mcs;
@@ -1671,7 +1671,7 @@ int aml_send_me_config_req(struct aml_hw *aml_hw)
     req->vht_cap.tx_highest = cpu_to_le16(vht_cap->vht_mcs.tx_highest);
     req->vht_cap.tx_mcs_map = cpu_to_le16(vht_cap->vht_mcs.tx_mcs_map);
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) || (defined CONFIG_KERNEL_AX_PATCH)
     if (wiphy->bands[NL80211_BAND_5GHZ]->iftype_data != NULL) {
         he_cap = &wiphy->bands[NL80211_BAND_5GHZ]->iftype_data->he_cap;
 
@@ -1798,10 +1798,15 @@ int aml_send_me_sta_add(struct aml_hw *aml_hw, struct station_parameters *params
     struct me_sta_add_req *req;
     u8 *ht_mcs = (u8 *)&(P_LINK_STA_PARAMS(params, ht_capa->mcs));
     int i;
-
-    AML_INFO("sta params has ht=%d, vht=%d he=%d capabilities",
-            P_LINK_STA_PARAMS(params, ht_capa) ? 1 : 0, P_LINK_STA_PARAMS(params, vht_capa) ? 1 : 0,
-            P_LINK_STA_PARAMS(params, he_capa) ? 1 : 0);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,19,0) || (defined CONFIG_KERNEL_AX_PATCH)
+    printk("sta params has ht=%d, vht=%d he=%d capabilities",
+            P_LINK_STA_PARAMS(params, ht_capa) ? 1 : 0, P_LINK_STA_PARAMS(params, vht_capa) ? 1 : 0
+            ,P_LINK_STA_PARAMS(params, he_capa) ? 1 : 0);
+#else
+    printk("sta params has ht=%d, vht=%d he capabilities",
+            P_LINK_STA_PARAMS(params, ht_capa) ? 1 : 0, P_LINK_STA_PARAMS(params, vht_capa) ? 1 : 0
+            );
+#endif
 
     /* Build the MM_STA_ADD_REQ message */
     req = aml_msg_zalloc(ME_STA_ADD_REQ, TASK_ME, DRV_TASK_ID,
@@ -1845,7 +1850,7 @@ int aml_send_me_sta_add(struct aml_hw *aml_hw, struct station_parameters *params
         req->vht_cap.tx_mcs_map = cpu_to_le16(vht_capa->supp_mcs.tx_mcs_map);
     }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) || (defined CONFIG_KERNEL_AX_PATCH)
     if (P_LINK_STA_PARAMS(params, he_capa)) {
         const struct ieee80211_he_cap_elem *he_capa = P_LINK_STA_PARAMS(params, he_capa);
         struct ieee80211_he_mcs_nss_supp *mcs_nss_supp =
@@ -3727,7 +3732,7 @@ int aml_set_ldpc_tx(struct aml_hw *aml_hw, struct aml_vif *aml_vif)
     struct wiphy *wiphy = aml_hw->wiphy;
     struct ieee80211_sta_ht_cap *ht_cap = &wiphy->bands[NL80211_BAND_5GHZ]->ht_cap;
     struct ieee80211_sta_vht_cap *vht_cap = &wiphy->bands[NL80211_BAND_5GHZ]->vht_cap;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) || (defined CONFIG_KERNEL_AX_PATCH)
     struct ieee80211_sta_he_cap const *he_cap;
 #endif
     uint8_t *ht_mcs = (uint8_t *)&ht_cap->mcs;
@@ -3759,7 +3764,7 @@ int aml_set_ldpc_tx(struct aml_hw *aml_hw, struct aml_vif *aml_vif)
     req->vht_cap.tx_highest = cpu_to_le16(vht_cap->vht_mcs.tx_highest);
     req->vht_cap.tx_mcs_map = cpu_to_le16(vht_cap->vht_mcs.tx_mcs_map);
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) || (defined CONFIG_KERNEL_AX_PATCH)
     if (wiphy->bands[NL80211_BAND_5GHZ]->iftype_data != NULL) {
         he_cap = &wiphy->bands[NL80211_BAND_5GHZ]->iftype_data->he_cap;
 

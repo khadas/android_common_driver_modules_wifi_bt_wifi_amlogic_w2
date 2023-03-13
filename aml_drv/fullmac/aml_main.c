@@ -98,7 +98,7 @@
     }                                                           \
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)  || (defined CONFIG_KERNEL_AX_PATCH)
 #define AML_HE_CAPABILITIES                                    \
 {                                                               \
     .has_he = false,                                            \
@@ -284,7 +284,7 @@ static struct ieee80211_channel aml_5ghz_channels[] = {
     CHAN(5970),
 };
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)  || (defined CONFIG_KERNEL_AX_PATCH)
 static struct ieee80211_sband_iftype_data aml_he_capa[] = {
     {
         .types_mask = BIT(NL80211_IFTYPE_STATION),
@@ -303,7 +303,7 @@ static struct ieee80211_supported_band aml_band_2GHz = {
     .bitrates   = aml_ratetable,
     .n_bitrates = ARRAY_SIZE(aml_ratetable),
     .ht_cap     = AML_HT_CAPABILITIES,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0) || (defined CONFIG_KERNEL_AX_PATCH)
     .iftype_data = aml_he_capa,
     .n_iftype_data = ARRAY_SIZE(aml_he_capa),
 #endif
@@ -316,7 +316,7 @@ static struct ieee80211_supported_band aml_band_5GHz = {
     .n_bitrates = ARRAY_SIZE(aml_ratetable) - 4,
     .ht_cap     = AML_HT_CAPABILITIES,
     .vht_cap    = AML_VHT_CAPABILITIES,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0) || (defined CONFIG_KERNEL_AX_PATCH)
     .iftype_data = aml_he_capa,
     .n_iftype_data = ARRAY_SIZE(aml_he_capa),
 #endif
@@ -2001,9 +2001,11 @@ static int aml_cfg80211_add_station(struct wiphy *wiphy, struct net_device *dev,
             sta->vif_idx = aml_vif->vif_index;
             sta->vlan_idx = sta->vif_idx;
             sta->qos = (params->sta_flags_set & BIT(NL80211_STA_FLAG_WME)) != 0;
-            sta->ht = P_LINK_STA_PARAMS(params, ht_capa) ? 1 : 0;
-            sta->vht = P_LINK_STA_PARAMS(params, vht_capa) ? 1 : 0;
-            sta->he = P_LINK_STA_PARAMS(params, he_capa) ? 1 : 0;
+            sta->ht = P_LINK_STA_PARAMS(params,ht_capa) ? 1 : 0;
+            sta->vht = P_LINK_STA_PARAMS(params,vht_capa) ? 1 : 0;
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,20,0) || (defined CONFIG_KERNEL_AX_PATCH)
+            sta->he = P_LINK_STA_PARAMS(params,he_capa) ? 1 : 0;
+#endif
             sta->acm = 0;
             sta->listen_interval = params->listen_interval;
 
@@ -2189,7 +2191,9 @@ static int aml_cfg80211_change_station(struct wiphy *wiphy, struct net_device *d
                     sta->qos = (params->sta_flags_set & BIT(NL80211_STA_FLAG_WME)) != 0;
                     sta->ht = P_LINK_STA_PARAMS(params, ht_capa) ? 1 : 0;
                     sta->vht = P_LINK_STA_PARAMS(params, vht_capa) ? 1 : 0;
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,20,0) || (defined CONFIG_KERNEL_AX_PATCH)
                     sta->he = P_LINK_STA_PARAMS(params, he_capa) ? 1 : 0;
+#endif
                     sta->acm = 0;
                     for (tid = 0; tid < NX_NB_TXQ_PER_STA; tid++) {
                         int uapsd_bit = aml_hwq2uapsd[aml_tid2hwq[tid]];
@@ -3692,7 +3696,9 @@ static int aml_fill_station_info(struct aml_sta *sta, struct aml_vif *vif,
             sinfo->rxrate.bw = RATE_INFO_BW_160;
             break;
         default:
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,19,0) || (defined CONFIG_KERNEL_AX_PATCH)
             sinfo->rxrate.bw = RATE_INFO_BW_HE_RU;
+#endif
             break;
     }
     switch (rx_vect1->format_mod) {
@@ -3715,7 +3721,7 @@ static int aml_fill_station_info(struct aml_sta *sta, struct aml_vif *vif,
             sinfo->rxrate.mcs = rx_vect1->vht.mcs;
             sinfo->rxrate.nss = rx_vect1->vht.nss + 1;
             break;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) || (defined CONFIG_KERNEL_AX_PATCH)
         case FORMATMOD_HE_MU:
             sinfo->rxrate.he_ru_alloc = rx_vect1->he.ru_size;
         case FORMATMOD_HE_SU:
@@ -3757,7 +3763,9 @@ static int aml_fill_station_info(struct aml_sta *sta, struct aml_vif *vif,
             sinfo->txrate.bw = RATE_INFO_BW_160;
             break;
         default:
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,19,0) || (defined CONFIG_KERNEL_AX_PATCH)
             sinfo->txrate.bw = RATE_INFO_BW_HE_RU;
+#endif
             break;
     }
      switch (stats->format_mod) {
@@ -3780,7 +3788,7 @@ static int aml_fill_station_info(struct aml_sta *sta, struct aml_vif *vif,
             sinfo->txrate.mcs = stats->mcs_max;
             sinfo->txrate.nss = stats->no_ss + 1;
             break;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) || (defined CONFIG_KERNEL_AX_PATCH)
         case FORMATMOD_HE_MU:
         case FORMATMOD_HE_SU:
         case FORMATMOD_HE_ER:

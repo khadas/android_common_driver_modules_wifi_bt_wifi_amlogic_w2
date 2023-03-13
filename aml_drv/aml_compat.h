@@ -296,13 +296,14 @@ enum ieee80211_radiotap_he_mu_bits {
 	IEEE80211_RADIOTAP_HE_MU_FLAGS2_PUNC_FROM_SIG_A_BW_KNOWN= 0x0400,
 	IEEE80211_RADIOTAP_HE_MU_FLAGS2_CH2_CTR_26T_RU		= 0x0800,
 };
-
+#ifndef CONFIG_KERNEL_AX_PATCH
 enum {
     IEEE80211_HE_MCS_SUPPORT_0_7    = 0,
     IEEE80211_HE_MCS_SUPPORT_0_9    = 1,
     IEEE80211_HE_MCS_SUPPORT_0_11   = 2,
     IEEE80211_HE_MCS_NOT_SUPPORTED  = 3,
 };
+#endif
 #endif // 4.19
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
@@ -400,10 +401,10 @@ struct cfg80211_roam_info {
 #define RX_ENC_HT_GF(s) { s->encoding = RX_ENC_HT;      \
         s->enc_flags |= RX_ENC_FLAG_HT_GF; }
 #define RX_ENC_VHT(s) s->encoding = RX_ENC_VHT
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 19, 0)
-#define RX_ENC_HE(s) s->encoding = RX_ENC_VHT
-#else
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) || (defined CONFIG_KERNEL_AX_PATCH)
 #define RX_ENC_HE(s) s->encoding = RX_ENC_HE
+#else
+#define RX_ENC_HE(s) s->encoding = RX_ENC_VHT
 #endif
 #define RX_ENC_FLAG_SHORT_GI(s) s->enc_flags |= RX_ENC_FLAG_SHORT_GI
 #define RX_ENC_FLAG_SHORT_PRE(s) s->enc_flags |= RX_ENC_FLAG_SHORTPRE
