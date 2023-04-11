@@ -1743,6 +1743,8 @@ void aml_hwq_process(struct aml_hw *aml_hw, struct aml_hwq *hwq)
         while ((skb = __skb_dequeue(&sk_list_push)) != NULL) {
             txhdr = (struct aml_txhdr *)skb->data;
             aml_tx_push(aml_hw, txhdr, 0);
+            if (aml_bus_type == PCIE_MODE)
+                aml_check_tcpack_skb(aml_hw, skb, skb->len);
         }
 
         if (txq_empty) {

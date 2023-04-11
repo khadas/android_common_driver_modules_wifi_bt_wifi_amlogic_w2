@@ -1180,7 +1180,7 @@ int wifi_dccm_download(unsigned char* addr, unsigned int len, unsigned int start
     memset(buf_iccm_rd, 0, ICCM_BUFFER_RD_LEN);
 #endif
 
-    PRINT("dccm_download, addr 0x%p, len %d \n", addr, len);
+    PRINT("dccm_downed, addr 0x%p, len %d \n", addr, len);
     auc_build_cbw(g_cmd_buf, AML_XFER_TO_DEVICE, len, CMD_DOWNLOAD_WIFI, base_addr, 0, len);
     USB_BEGIN_LOCK();
     /* cmd stage */

@@ -78,7 +78,11 @@ extern struct sdio_buffer_control sdio_buffer_ctrl;
 #define BUFFER_RX_NEED_ENLARGE BIT(3)
 #define BUFFER_RX_ENLARGED BIT(4)
 #define BUFFER_RX_REDUCED BIT(5)
+#define BUFFER_RX_HOST_NOTIFY BIT(6)
+#define BUFFER_RX_NO_UPDATE_HW_RD BIT(7)
 
 #define CHAN_SWITCH_IND_MSG_ADDR (0xa17fc0)
 #define SDIO_IRQ_E2A_CHAN_SWITCH_IND_MSG           CO_BIT(15)
+
+#define UNWRAP_SIZE (56)
 #endif

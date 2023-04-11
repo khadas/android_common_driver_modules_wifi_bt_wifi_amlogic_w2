@@ -2162,6 +2162,7 @@ int aml_send_sm_disconnect_req(struct aml_hw *aml_hw,
                                 u16 reason)
 {
     struct sm_disconnect_req *req;
+    int ret;
 
     AML_INFO("vif:%d",aml_vif->vif_index);
 
@@ -2174,13 +2175,16 @@ int aml_send_sm_disconnect_req(struct aml_hw *aml_hw,
     /* Set parameters for the SM_DISCONNECT_REQ message */
     req->reason_code = reason;
     req->vif_idx = aml_vif->vif_index;
-#ifdef CONFIG_AML_RECOVERY
-    aml_recy_flags_clr(AML_RECY_ASSOC_INFO_SAVED|AML_RECY_EXTAUTH_REQUIRED);
-#endif
 
     /* Send the SM_DISCONNECT_REQ message to LMAC FW */
     /* coverity[leaked_storage] - req will be freed later */
-    return aml_send_msg(aml_hw, req, 1, SM_DISCONNECT_CFM, NULL);
+    ret = aml_send_msg(aml_hw, req, 1, SM_DISCONNECT_CFM, NULL);
+#ifdef CONFIG_AML_RECOVERY
+    if (!ret) {
+        aml_recy_flags_clr(AML_RECY_ASSOC_INFO_SAVED);
+    }
+#endif
+    return ret;
 }
 
 int aml_send_sm_external_auth_required_rsp(struct aml_hw *aml_hw,

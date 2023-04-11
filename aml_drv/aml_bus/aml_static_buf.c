@@ -83,42 +83,48 @@ int aml_init_wlan_mem(void)
 {
     wlan_static_aml_buf_type_txq = kmalloc(AML_PREALLOC_BUF_TYPE_TXQ_SIZE, GFP_KERNEL);
     if (!wlan_static_aml_buf_type_txq)
-        goto err_mem_alloc;
+        goto err_mem_alloc0;
 
     wlan_static_aml_buf_type_dump = kmalloc(AML_PREALLOC_BUF_TYPE_DUMP_SIZE, GFP_KERNEL);
     if (!wlan_static_aml_buf_type_dump)
-        goto err_mem_alloc;
+        goto err_mem_alloc1;
 
     wlan_static_download_fw = kmalloc(FW_VERBOSE_RING_SIZE, GFP_KERNEL);
     if (!wlan_static_download_fw)
-        goto err_mem_alloc;
+        goto err_mem_alloc2;
 
     wlan_static_hw_rx_buf = kmalloc(WLAN_AML_HW_RX_SIZE, GFP_KERNEL);
     if (!wlan_static_hw_rx_buf)
-        goto err_mem_alloc;
+        goto err_mem_alloc3;
 
     wlan_static_sdio_buf = kmalloc(WLAN_AML_SDIO_SIZE, GFP_KERNEL);
     if (!wlan_static_sdio_buf)
-        goto err_mem_alloc;
+        goto err_mem_alloc4;
 
     wlan_static_amsdu_buf = kmalloc(WLAN_AML_AMSDU_SIZE, GFP_KERNEL);
     if (!wlan_static_amsdu_buf)
-            goto err_mem_alloc;
+        goto err_mem_alloc5;
+
     pr_info("%s ok\n", __func__);
     return 0;
 
-err_mem_alloc:
-    kfree(wlan_static_amsdu_buf);
+err_mem_alloc5:
     kfree(wlan_static_sdio_buf);
+err_mem_alloc4:
     kfree(wlan_static_hw_rx_buf);
+err_mem_alloc3:
     kfree(wlan_static_download_fw);
+err_mem_alloc2:
     kfree(wlan_static_aml_buf_type_dump);
+err_mem_alloc1:
     kfree(wlan_static_aml_buf_type_txq);
+err_mem_alloc0:
     return -ENOMEM;
 }
 
 void aml_deinit_wlan_mem(void)
 {
+    printk("%s\n", __func__);
     kfree(wlan_static_amsdu_buf);
     kfree(wlan_static_sdio_buf);
     kfree(wlan_static_hw_rx_buf);

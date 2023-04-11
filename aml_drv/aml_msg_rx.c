@@ -29,6 +29,7 @@
 #include "aml_recy.h"
 #include "aml_interface.h"
 #include "aml_msg_rx.h"
+#include "aml_scc.h"
 
 static int aml_freq_to_idx(struct aml_hw *aml_hw, int freq)
 {
@@ -1013,6 +1014,43 @@ static inline int aml_rx_sm_connect_ind_ex(struct aml_hw *aml_hw,
     return 0;
 }
 
+void aml_del_sta(struct aml_vif *aml_vif, const u8 *mac_addr, u32 freq)
+{
+    struct net_device *dev = aml_vif->ndev;
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
+
+    AML_INFO("flags:%d", aml_hw->wiphy->flags & WIPHY_FLAG_HAVE_AP_SME);
+    if (aml_hw->wiphy->flags & WIPHY_FLAG_HAVE_AP_SME) {
+        cfg80211_del_sta(dev, mac_addr, GFP_ATOMIC);
+    }
+    else {
+        #define DEAUTH_FRAME_LEN 26
+        #define DEAUTH_TYPE 0XC0
+        #define DEAUTH_REASON 0X3
+        struct sk_buff *skb;
+        u8 *pos;
+        skb = alloc_skb(DEAUTH_FRAME_LEN, GFP_ATOMIC);
+        pos = (void *)skb_put(skb, DEAUTH_FRAME_LEN);
+
+        *pos = DEAUTH_TYPE;
+        pos += 2;
+        memset(pos, 0, 2);//dur
+        pos += 2;
+        memcpy(pos, dev->dev_addr, MAC_ADDR_LEN);
+        pos += MAC_ADDR_LEN;
+        memcpy(pos, mac_addr, MAC_ADDR_LEN);
+        pos += MAC_ADDR_LEN;
+        memcpy(pos, dev->dev_addr, MAC_ADDR_LEN);
+        pos += MAC_ADDR_LEN;
+        memset(pos, 0, 2);//seq
+        pos += 2;
+        *pos = DEAUTH_REASON;
+
+        cfg80211_rx_mgmt(&aml_vif->wdev, freq, 0, skb->data, skb->len, 0);
+        kfree_skb(skb);
+    }
+}
+
 static inline int aml_apm_handle_disconnect_sta(struct aml_hw *aml_hw,
                                          struct aml_cmd *cmd,
                                          struct ipc_e2a_msg *msg)
@@ -1027,43 +1065,9 @@ static inline int aml_apm_handle_disconnect_sta(struct aml_hw *aml_hw,
     aml_vif = aml_hw->vif_table[ind->vif_idx];
     dev = aml_vif->ndev;
 
-    AML_INFO("sta ageout --> %02x:%02x:%02x:%02x:%02x:%02x \n",
-        ind->sta_mac[0],
-        ind->sta_mac[1],
-        ind->sta_mac[2],
-        ind->sta_mac[3],
-        ind->sta_mac[4],
-        ind->sta_mac[5]);
+    AML_INFO("sta ageout --> %pM \n", ind->sta_mac);
 
-    if (aml_hw->wiphy->flags & WIPHY_FLAG_HAVE_AP_SME) {
-        cfg80211_del_sta(dev, ind->sta_mac, GFP_ATOMIC);
-    }
-    else {
-        #define DEAUTH_FRAME_LEN 26
-        #define DEAUTH_TYPE 0XC0
-        #define DEAUTH_REASON 0X3
-        struct sk_buff *skb;
-        u8 *pos;
-        skb = alloc_skb(DEAUTH_FRAME_LEN, GFP_ATOMIC);
-        pos = (void *)skb_put(skb, DEAUTH_FRAME_LEN);
-
-        *pos = DEAUTH_TYPE;
-        pos += 2;
-        memset(pos,0,2);//dur
-        pos += 2;
-        memcpy(pos,dev->dev_addr,MAC_ADDR_LEN);
-        pos += MAC_ADDR_LEN;
-        memcpy(pos,ind->sta_mac,MAC_ADDR_LEN);
-        pos += MAC_ADDR_LEN;
-        memcpy(pos,dev->dev_addr,MAC_ADDR_LEN);
-        pos += MAC_ADDR_LEN;
-        memset(pos,0,2);//seq
-        pos += 2;
-        *pos = DEAUTH_REASON;
-
-        cfg80211_rx_mgmt(&aml_vif->wdev, ind->pri_freq, 0, skb->data, skb->len, 0);
-        kfree_skb(skb);
-    }
+    aml_del_sta(aml_vif, ind->sta_mac, ind->pri_freq);
     return 0;
 }
 
@@ -1177,6 +1181,12 @@ static inline int aml_rx_sm_connect_ind(struct aml_hw *aml_hw,
             aml_chanctx_link(aml_mon_vif, ind->ch_idx, NULL);
         }
 #endif
+
+#ifdef CONFIG_AML_RECOVERY
+        /*recovery conenct has no inetaddr_event,so check scc here */
+        aml_recy_check_scc();
+#endif
+
     } else {
         aml_external_auth_disable(aml_vif);
     }
@@ -1193,39 +1203,52 @@ static inline int aml_rx_sm_connect_ind(struct aml_hw *aml_hw,
         info.resp_ie = rsp_ie;
         info.resp_ie_len = ind->assoc_rsp_ie_len;
         cfg80211_roamed(dev, &info, GFP_ATOMIC);
-    } else {
-    #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
-            struct cfg80211_bss *bss = NULL;
-            struct ieee80211_channel *notify_channel = NULL;
-
-            notify_channel = ieee80211_get_channel(aml_hw->wiphy, ind->chan.prim20_freq);
-            if (notify_channel != NULL) {
-                bss = cfg80211_get_bss(aml_hw->wiphy, notify_channel,
-                        (const u8 *)ind->bssid.array, (const u8 *)aml_vif->sta.assoc_ssid,
-                        aml_vif->sta.assoc_ssid_len, IEEE80211_BSS_TYPE_ANY, IEEE80211_PRIVACY_ANY);
-            } else {
-                AML_INFO("channel is null");
-            }
-            if (bss != NULL) {
-                AML_INFO("ssid:%s, bss_freq:%d", ssid_sprintf(aml_vif->sta.assoc_ssid, aml_vif->sta.assoc_ssid_len),
-                        bss->channel->center_freq);
-            } else {
-                AML_INFO("can't find bss in kernel");
-            }
-            cfg80211_connect_bss(dev, (const u8 *)ind->bssid.array, bss, req_ie, ind->assoc_req_ie_len, rsp_ie,
-                #if LINUX_VERSION_CODE <= KERNEL_VERSION(4, 12, 0)
-                                ind->assoc_rsp_ie_len, ind->status_code, GFP_ATOMIC);
-                #else
-                                ind->assoc_rsp_ie_len, ind->status_code, GFP_ATOMIC,NL80211_TIMEOUT_UNSPECIFIED);
-                #endif
-    #else
-            cfg80211_connect_result(dev, (const u8 *)ind->bssid.array, req_ie,
-                                    ind->assoc_req_ie_len, rsp_ie,
-                                    ind->assoc_rsp_ie_len, ind->status_code,
-                                    GFP_ATOMIC);
-    #endif
     }
+    else {
+#ifdef CONFIG_AML_RECOVERY
+            if (ind->status_code == 0) {
+                aml_recy->reconnect_rest = 0;
+            }
+            /*recovery connect fail,try again */
+            if (ind->status_code != 0 && aml_recy->reconnect_rest != 0 && (aml_recy_connect_retry() == true)) {
+                aml_recy->reconnect_rest--;
+                AML_INFO("recy retry connect,rest cnt:%d", aml_recy->reconnect_rest);
+            }
+            else
+#endif
+            {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0))
+                struct cfg80211_bss *bss = NULL;
+                struct ieee80211_channel *notify_channel = NULL;
+                notify_channel = ieee80211_get_channel(aml_hw->wiphy, ind->chan.prim20_freq);
+                if (notify_channel != NULL) {
+                    bss = cfg80211_get_bss(aml_hw->wiphy, notify_channel,
+                            (const u8 *)ind->bssid.array, (const u8 *)aml_vif->sta.assoc_ssid,
+                            aml_vif->sta.assoc_ssid_len, IEEE80211_BSS_TYPE_ANY, IEEE80211_PRIVACY_ANY);
+                } else {
+                    AML_INFO("channel is null");
+                }
+                if (bss != NULL) {
+                    AML_INFO("ssid:%s, bss_freq:%d", ssid_sprintf(aml_vif->sta.assoc_ssid, aml_vif->sta.assoc_ssid_len),
+                            bss->channel->center_freq);
+                } else {
+                    AML_INFO("can't find bss in kernel");
+                }
+                cfg80211_connect_bss(dev, (const u8 *)ind->bssid.array, bss, req_ie, ind->assoc_req_ie_len, rsp_ie,
+                    #if LINUX_VERSION_CODE <= KERNEL_VERSION(4, 12, 0)
+                                    ind->assoc_rsp_ie_len, ind->status_code, GFP_ATOMIC);
+                    #else
+                                    ind->assoc_rsp_ie_len, ind->status_code, GFP_ATOMIC,NL80211_TIMEOUT_UNSPECIFIED);
+                    #endif
+#else
+                cfg80211_connect_result(dev, (const u8 *)ind->bssid.array, req_ie,
+                                        ind->assoc_req_ie_len, rsp_ie,
+                                        ind->assoc_rsp_ie_len, ind->status_code,
+                                        GFP_ATOMIC);
 
+#endif
+            }
+    }
     netif_tx_start_all_queues(dev);
     netif_carrier_on(dev);
 
@@ -1282,7 +1305,7 @@ static inline int aml_rx_sm_disconnect_ind(struct aml_hw *aml_hw,
     aml_chanctx_unlink(aml_vif);
     aml_vif->sta.scan_hang = 0;
 #ifdef CONFIG_AML_RECOVERY
-    aml_recy_flags_clr(AML_RECY_ASSOC_INFO_SAVED|AML_RECY_EXTAUTH_REQUIRED);
+    aml_recy_flags_clr(AML_RECY_ASSOC_INFO_SAVED);
 #endif
 
     return 0;
@@ -1320,7 +1343,9 @@ static inline int aml_rx_sm_external_auth_required_ind(struct aml_hw *aml_hw,
 
     aml_external_auth_enable(aml_vif);
 #ifdef CONFIG_AML_RECOVERY
-    aml_recy_flags_set(AML_RECY_EXTAUTH_REQUIRED);
+    if (aml_vif->sta.ap) {
+        aml_vif->sta.ap = NULL;
+    }
 #endif
 
 #else

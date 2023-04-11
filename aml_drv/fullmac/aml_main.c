@@ -45,6 +45,7 @@
 #include "aml_wq.h"
 #include "aml_recy.h"
 #include "aml_cmds.h"
+#include "aml_msg_rx.h"
 
 
 #define RW_DRV_DESCRIPTION  "Amlogic 11nac driver for Linux cfg80211"
@@ -485,7 +486,6 @@ static const int aml_hwq2uapsd[NL80211_NUM_ACS] = {
 
 bool b_usb_suspend = 0;
 extern void aml_print_version(void);
-extern chip_id_type aml_get_chip_type(void);
 
 /*********************************************************************
  * helper
@@ -1534,6 +1534,12 @@ int aml_cfg80211_change_iface(struct wiphy *wiphy,
         vif->sta.tdls_sta = NULL;
         vif->sta.ft_assoc_ies = NULL;
         vif->sta.ft_assoc_ies_len = 0;
+#ifdef CONFIG_AML_RECOVERY
+        if (AML_VIF_TYPE(vif) == NL80211_IFTYPE_P2P_GO) {
+            AML_INFO("GO --> DEVICE");
+            aml_recy_flags_clr(AML_RECY_GO_ONGOING);
+        }
+#endif
         break;
     case NL80211_IFTYPE_MESH_POINT:
         INIT_LIST_HEAD(&vif->ap.mpath_list);
@@ -1920,6 +1926,11 @@ static int aml_cfg80211_disconnect(struct wiphy *wiphy, struct net_device *dev,
             printk("cancel scan fail:error = %d\n",error);
         }
     }
+
+    if (!aml_vif->sta.ap) {
+        AML_INFO("error,sta.ap is null");
+    }
+
     rtn = aml_send_sm_disconnect_req(aml_hw, aml_vif, reason_code);
     aml_vif->sta.scan_hang = 0;
     AML_INFO("vif_idx:%d \n", aml_vif->vif_index);
@@ -2106,7 +2117,7 @@ int aml_cfg80211_del_station(struct wiphy *wiphy,
             error = aml_send_me_sta_del(aml_hw, cur->sta_idx, false);
             if ((error != 0) && (error != -EPIPE))
                 return error;
-            cfg80211_del_sta(dev, cur->mac_addr, GFP_ATOMIC);
+            aml_del_sta(aml_vif, cur->mac_addr, cur->center_freq);
 #ifdef CONFIG_AML_BFMER
             // Disable Beamformer if supported
             aml_bfmer_report_del(aml_hw, cur);
@@ -2412,6 +2423,13 @@ static int aml_cfg80211_change_beacon(struct wiphy *wiphy, struct net_device *de
     u8* htop_ie;
 
     AML_DBG(AML_FN_ENTRY_STR);
+
+#ifdef CONFIG_AML_RECOVERY
+    if (aml_recy_flags_chk(AML_RECY_GO_ONGOING)) {
+        AML_INFO("status error");
+        return -ENOMEM;
+    }
+#endif
 
     // Build the beacon
     bcn_buf = aml_build_bcn(bcn, info);
@@ -5277,7 +5295,7 @@ static int aml_inetaddr_event(struct notifier_block *this,unsigned long event, v
                 int ret;
                 uint8_t* ip_addr = (uint8_t*)&ifa->ifa_address;
                 ret = aml_send_notify_ip(aml_vif, IPV4_VER,ip_addr);
-                printk("notify ip addr,ret:%d,ip:%d.%d.%d.%d\n",ret,ip_addr[0],ip_addr[1],ip_addr[2],ip_addr[3]);
+                printk("notify ip addr, vif:%d, ret:%d, ip:%d.%d.%d.%d\n", aml_vif->vif_index, ret, ip_addr[0], ip_addr[1], ip_addr[2], ip_addr[3]);
 #ifdef SCC_STA_SOFTAP
                 aml_scc_check_chan_conflict(aml_vif->aml_hw);
 #endif
@@ -5718,12 +5736,6 @@ static int __init aml_mod_init(void)
 {
     AML_DBG(AML_FN_ENTRY_STR);
 
-    if (aml_get_chip_type() != WIFI_CHIP_W2) {
-        printk("%s: chip type error, current chip type: %s, dont insmod this ko !!!\n ",
-            __func__,
-            (aml_get_chip_type() == WIFI_CHIP_W2) ? "W2" : (aml_get_chip_type() == WIFI_CHIP_W1) ? "W1" : "UNKNOWN");
-        return 0;
-    }
     aml_print_version();
     printk("aml_bus_type = %d.\n", aml_bus_type);
 

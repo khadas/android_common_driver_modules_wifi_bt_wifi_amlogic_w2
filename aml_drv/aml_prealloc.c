@@ -19,10 +19,12 @@
 #include <linux/version.h>
 
 #ifdef CONFIG_AML_PREALLOC_BUF_STATIC
+#ifndef CONFIG_LINUXPC_VERSION
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
 #include <linux/wlan_plat.h>
 #else
 #include <linux/amlogic/wlan_plat.h>
+#endif
 #endif
 #endif
 

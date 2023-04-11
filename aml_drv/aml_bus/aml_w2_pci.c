@@ -14,6 +14,9 @@
 #include "aml_w2_v7.h"
 #include "usb_common.h"
 #include "aml_interface.h"
+#ifdef CONFIG_AML_POWER_SAVE_MODE
+#include "chip_intf_reg.h"
+#endif
 
 #define W2p_VENDOR_AMLOGIC_EFUSE 0x1F35
 #define W2p_PRODUCT_AMLOGIC_EFUSE 0x0602
@@ -112,6 +115,9 @@ static int aml_pci_suspend(struct pci_dev *pdev, pm_message_t state)
 static int aml_pci_resume(struct pci_dev *pdev)
 {
     int err;
+#ifdef CONFIG_AML_POWER_SAVE_MODE
+    unsigned int wake_flag;
+#endif
     printk("%s\n", __func__);
     pci_restore_state(pdev);
 
@@ -127,6 +133,20 @@ static int aml_pci_resume(struct pci_dev *pdev)
         ERROR_DEBUG_OUT("pci_set_power_state error %d \n", err);
         goto out;
     }
+#ifdef CONFIG_AML_POWER_SAVE_MODE
+    wake_flag = aml_pci_read_for_bt(AML_ADDR_AON, RG_AON_A55);
+    printk("%s %d wake_flag = 0x%x\n", __func__, __LINE__, wake_flag);
+    while (!((wake_flag != 0xffffffff) && (wake_flag & BIT(0))))
+    {
+        err = pci_set_power_state(pdev, PCI_D0);
+        if (err) {
+            ERROR_DEBUG_OUT("pci_set_power_state error %d \n", err);
+            goto out;
+        }
+        wake_flag = aml_pci_read_for_bt(AML_ADDR_AON, RG_AON_A55);
+        udelay(10);
+    }
+#endif
     printk("%s ok exit\n", __func__);
 out:
     return err;

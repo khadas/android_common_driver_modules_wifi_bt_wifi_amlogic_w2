@@ -230,43 +230,58 @@ static int aml_rx_data_skb(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
 
     if (aml_bus_type == PCIE_MODE) {
         if (amsdu) {
-            int count = 0;
-            u32 hostid;
-
-            if (!rxhdr->amsdu_len[0] || (rxhdr->amsdu_len[0] > skb_tailroom(skb))) {
-                forward = false;
-            } else {
-                skb_put(skb, rxhdr->amsdu_len[0]);
-            }
-            __skb_queue_tail(&list, skb);
-
-            while ((count < ARRAY_SIZE(rxhdr->amsdu_hostids)) &&
-                (hostid = rxhdr->amsdu_hostids[count++])) {
-                struct aml_ipc_buf *ipc_buf = aml_ipc_rxbuf_from_hostid(aml_hw, hostid);
-
-                if (!ipc_buf) {
-                    wiphy_err(aml_hw->wiphy, "Invalid hostid 0x%x for A-MSDU subframe\n",
-                              hostid);
-                    continue;
-                }
-                rx_skb = ipc_buf->addr;
-                // Index for amsdu_len is different (+1) than the one for amsdu_hostids
-                if (!rxhdr->amsdu_len[count] || (rxhdr->amsdu_len[count] > skb_tailroom(rx_skb))) {
+            u32 mpdu_len = le32_to_cpu(rxhdr->hwvect.len);
+            if (mpdu_len > NORMAL_AMSDU_MAX_LEN) {
+                int count = 0;
+                u32 hostid;
+                if (!rxhdr->amsdu_len[0] || (rxhdr->amsdu_len[0] > skb_tailroom(skb))) {
                     forward = false;
                 } else {
-                    skb_put(rx_skb, rxhdr->amsdu_len[count]);
+                    skb_put(skb, rxhdr->amsdu_len[0]);
                 }
-                rx_skb->priority = skb->priority;
-                rx_skb->dev = skb->dev;
-                __skb_queue_tail(&list, rx_skb);
-                aml_ipc_buf_e2a_release(aml_hw, ipc_buf);
-                res++;
-            }
+                __skb_queue_tail(&list, skb);
 
-            aml_hw->stats->amsdus_rx[count - 1]++;
-            if (!forward) {
-                wiphy_err(aml_hw->wiphy, "A-MSDU truncated, skip it\n");
-                goto resend_n_forward;
+                while ((count < ARRAY_SIZE(rxhdr->amsdu_hostids)) &&
+                    (hostid = rxhdr->amsdu_hostids[count++])) {
+                    struct aml_ipc_buf *ipc_buf = aml_ipc_rxbuf_from_hostid(aml_hw, hostid);
+
+                    if (!ipc_buf) {
+                        wiphy_err(aml_hw->wiphy, "Invalid hostid 0x%x for A-MSDU subframe\n",
+                                  hostid);
+                        continue;
+                    }
+                    rx_skb = ipc_buf->addr;
+                    // Index for amsdu_len is different (+1) than the one for amsdu_hostids
+                    if (!rxhdr->amsdu_len[count] || (rxhdr->amsdu_len[count] > skb_tailroom(rx_skb))) {
+                        forward = false;
+                    } else {
+                        skb_put(rx_skb, rxhdr->amsdu_len[count]);
+                    }
+                    rx_skb->priority = skb->priority;
+                    rx_skb->dev = skb->dev;
+                    __skb_queue_tail(&list, rx_skb);
+                    aml_ipc_buf_e2a_release(aml_hw, ipc_buf);
+                    res++;
+                }
+
+                aml_hw->stats->amsdus_rx[count - 1]++;
+                if (!forward) {
+                    wiphy_err(aml_hw->wiphy, "A-MSDU truncated, skip it\n");
+                    goto resend_n_forward;
+                }
+            } else {
+                int count;
+
+                skb_put(skb, le32_to_cpu(rxhdr->hwvect.len));
+
+                ieee80211_amsdu_to_8023s(skb, &list, aml_vif->ndev->dev_addr,
+                                 AML_VIF_TYPE(aml_vif), 0, NULL, NULL);
+
+                count = skb_queue_len(&list);
+                if (count > ARRAY_SIZE(aml_hw->stats->amsdus_rx))
+                    count = ARRAY_SIZE(aml_hw->stats->amsdus_rx);
+                if (count > 0)
+                    aml_hw->stats->amsdus_rx[count - 1]++;
             }
         } else {
             u32 frm_len = le32_to_cpu(rxhdr->hwvect.len);
@@ -1492,6 +1507,13 @@ s8 rx_skb_handle(struct rx_desc_head *desc_stat, struct aml_hw *aml_hw, struct r
         }
         skb_reserve(skb, sizeof(struct hw_rxhdr));
 
+        if (aml_hw->host_buf_start + RX_DESC_SIZE > host_buf_end_addr) {
+            hw_rxhdr = (struct hw_rxhdr *)(aml_hw->host_buf + RX_HEADER_OFFSET);
+
+        } else {
+            hw_rxhdr = (struct hw_rxhdr *)(aml_hw->host_buf_start + RX_HEADER_OFFSET);
+        }
+
         //printk("buf_start:%08x, eth_hdr_offset:%08x, desc_stat->frame_len:%08x, size:%08x\n",
         //    aml_hw->host_buf_start, eth_hdr_offset, desc_stat->frame_len, host_buf_end_addr - aml_hw->host_buf_start);
 
@@ -1508,16 +1530,21 @@ s8 rx_skb_handle(struct rx_desc_head *desc_stat, struct aml_hw *aml_hw, struct r
         if (aml_hw->host_buf_start + RX_PAYLOAD_OFFSET + eth_hdr_offset + desc_stat->frame_len > host_buf_end_addr) {//loop
             if (aml_hw->host_buf_start + RX_DESC_SIZE < host_buf_end_addr) {
                 if (aml_hw->host_buf_start + RX_PAYLOAD_OFFSET < host_buf_end_addr) {
-                    if (aml_hw->host_buf_start + RX_PAYLOAD_OFFSET + eth_hdr_offset < host_buf_end_addr) {//5
-                        upload_len = host_buf_end_addr - aml_hw->host_buf_start - RX_PAYLOAD_OFFSET - eth_hdr_offset;
-                        memcpy((unsigned char *)skb->data, aml_hw->host_buf_start + RX_PAYLOAD_OFFSET + eth_hdr_offset, upload_len);
-                        memcpy((unsigned char *)skb->data + upload_len, aml_hw->host_buf + RX_PD_LEN, desc_stat->frame_len - upload_len);
-
-                    } else {//4
-                        upload_len = host_buf_end_addr - aml_hw->host_buf_start - RX_PAYLOAD_OFFSET;
-                        memcpy((unsigned char *)skb->data, aml_hw->host_buf + RX_PD_LEN + eth_hdr_offset - upload_len, desc_stat->frame_len);
+                    if (hw_rxhdr->flags_is_80211_mpdu) {
+                        if (aml_hw->host_buf_start + RX_PAYLOAD_OFFSET + desc_stat->frame_len <= host_buf_end_addr) {
+                            memcpy((unsigned char *)skb->data, aml_hw->host_buf_start + RX_PAYLOAD_OFFSET + eth_hdr_offset, desc_stat->frame_len);
+                        } else {
+                            memcpy((unsigned char *)skb->data, aml_hw->host_buf + eth_hdr_offset, desc_stat->frame_len);
+                        }
+                    } else {
+                        if (aml_hw->host_buf_start + RX_PAYLOAD_OFFSET + UNWRAP_SIZE < host_buf_end_addr) {//5
+                            upload_len = host_buf_end_addr - aml_hw->host_buf_start - RX_PAYLOAD_OFFSET - eth_hdr_offset;
+                            memcpy((unsigned char *)skb->data, aml_hw->host_buf_start + RX_PAYLOAD_OFFSET + eth_hdr_offset, upload_len);
+                            memcpy((unsigned char *)skb->data + upload_len, aml_hw->host_buf + RX_PD_LEN, desc_stat->frame_len - upload_len);
+                        } else {//4
+                            memcpy((unsigned char *)skb->data, aml_hw->host_buf + eth_hdr_offset, desc_stat->frame_len);
+                        }
                     }
-
                 } else {//2,3
                     memcpy((unsigned char *)skb->data, aml_hw->host_buf + RX_PD_LEN + eth_hdr_offset, desc_stat->frame_len);
                 }
@@ -1528,13 +1555,6 @@ s8 rx_skb_handle(struct rx_desc_head *desc_stat, struct aml_hw *aml_hw, struct r
 
         } else {//  not loop
             memcpy((unsigned char *)skb->data, aml_hw->host_buf_start + RX_PAYLOAD_OFFSET + eth_hdr_offset, desc_stat->frame_len);
-        }
-
-        if (aml_hw->host_buf_start + RX_DESC_SIZE > host_buf_end_addr) {
-            hw_rxhdr = (struct hw_rxhdr *)(aml_hw->host_buf + RX_HEADER_OFFSET);
-
-        } else {
-            hw_rxhdr = (struct hw_rxhdr *)(aml_hw->host_buf_start + RX_HEADER_OFFSET);
         }
     }
 
@@ -1767,6 +1787,20 @@ void aml_trigger_rst_rxd(struct aml_hw *aml_hw, uint32_t addr_rst)
 {
     uint32_t cmd_buf[2] = {0};
     static uint32_t last_addr = 0;
+
+    if ((aml_hw->rx_buf_state & BUFFER_STATUS) && (aml_hw->rx_buf_state & BUFFER_NARROW)) {
+        /* Host had read away all the data before rx_host_switch_addr, so it can update hw_rd */
+        addr_rst |= BIT(27);
+        printk("%s,%d: last_addr = %x, addr_rst = %x", __func__, __LINE__, last_addr, addr_rst);
+    }
+
+    if (aml_hw->rx_buf_state & BUFFER_NOTIFY) {
+        /* Host rx reduce had finshed, notify the firmware */
+        addr_rst |= BIT(28);
+        printk("%s,%d: BUFFER_NOTIFY last_addr = %x, addr_rst = %x", __func__, __LINE__, last_addr, addr_rst);
+        aml_hw->rx_buf_state &= ~BUFFER_NOTIFY;
+    }
+
     cmd_buf[0] = 1;
     cmd_buf[1] = addr_rst;
 
@@ -1784,20 +1818,51 @@ void aml_sdio_dynamic_buffer_check(struct aml_hw *aml_hw)
 {
     if (aml_hw->rx_buf_state & BUFFER_STATUS) {
         if (aml_hw->rx_buf_state & BUFFER_NARROW) {
-            if ((aml_hw->rx_buf_state & BUFFER_UPDATE_FLAG) == 0) {
-                aml_hw->rx_buf_state |= BUFFER_UPDATE_FLAG;
-                return;
+            printk("%s,%d: rx_host_switch_addr = %x, host_buf_start = %x, host_buf_end = %x, host_buf_samll=%x, rx_buf_state= %x\n", __func__, __LINE__,
+               aml_hw->rx_host_switch_addr, aml_hw->host_buf_start, aml_hw->host_buf_end, aml_hw->host_buf + LEN_128K, aml_hw->rx_buf_state);
+
+            /*
+             There are two scenarios for host rx reduce:
+             1.host_buf_end > rx_host_switch_addr,host_buf_end requires wrap and must be greater than or equal to rx_host_switch_addr.
+             2.host_buf_end <= rx_host_switch_addr,host_buf_end does not require wrap,only greater than or equal to rx_host_switch_addr.
+            */
+            if (((aml_hw->rx_buf_state & BUFFER_END_NEED_WRAP) && (aml_hw->rx_buf_state & BUFFER_END_WRAP) && (aml_hw->host_buf_end >= aml_hw->rx_host_switch_addr))
+                || ((aml_hw->rx_buf_state & BUFFER_END_NO_NEED_WRAP) && (aml_hw->host_buf_end >= aml_hw->rx_host_switch_addr))) {
+                /* host_buf_start equals host_buf_end, indicating that the data processing is complete */
+                while (aml_hw->host_buf_start != aml_hw->host_buf_end) {
+                    udelay(2);
+                }
+
+                aml_hw->rx_buf_end = RXBUF_END_ADDR_SMALL;
+                aml_hw->rx_buf_len = RX_BUFFER_LEN_SMALL;
+                aml_hw->rx_buf_state &= ~(BUFFER_STATUS);
+                aml_hw->rx_buf_state |= BUFFER_NOTIFY;
+
+                if (aml_hw->rx_buf_state & BUFFER_END_NEED_WRAP) {
+                    aml_hw->rx_buf_state &= ~(BUFFER_END_NEED_WRAP);
+                    aml_hw->rx_buf_state &= ~(BUFFER_END_WRAP);
+                }
+                if (aml_hw->rx_buf_state & BUFFER_END_NO_NEED_WRAP) {
+                    aml_hw->rx_buf_state &= ~(BUFFER_END_NO_NEED_WRAP);
+                }
+
+                printk("%s,%d: rx buffer reduce:%x, host_buf_end = %x, host_buf_start = %x\n",
+                    __func__, __LINE__, aml_hw->rx_buf_state, aml_hw->host_buf_end, aml_hw->host_buf_start);
+
+                /*
+                  After rx_buf_len is updated, an rxdesc cannot be saved from host_buf_start to rx_buf_end.
+                  host_buf_start and host_buf_end need to be updated to the initial position of host_buf.
+                */
+                if ((aml_hw->host_buf + aml_hw->rx_buf_len - aml_hw->host_buf_start) < RX_DESC_SIZE) {
+                    spin_lock(&aml_hw->buf_start_lock);
+                    aml_hw->host_buf_start = aml_hw->host_buf;
+                    spin_unlock(&aml_hw->buf_start_lock);
+
+                    spin_lock(&aml_hw->buf_end_lock);
+                    aml_hw->host_buf_end = aml_hw->host_buf;
+                    spin_unlock(&aml_hw->buf_end_lock);
+                }
             }
-
-            while (aml_hw->host_buf_start != aml_hw->host_buf_end) {
-                udelay(10);
-            }
-
-            aml_hw->rx_buf_end = RXBUF_END_ADDR_SMALL;
-            aml_hw->rx_buf_len = RX_BUFFER_LEN_SMALL;
-            aml_hw->rx_buf_state &= ~(BUFFER_STATUS | BUFFER_UPDATE_FLAG);
-            printk("%s rx buffer reduce:%x\n", __func__, aml_hw->rx_buf_state);
-
         } else {
             if ((aml_hw->rx_buf_state & BUFFER_UPDATE_FLAG) == 0 ) {
                 aml_hw->rx_buf_state |= BUFFER_UPDATE_FLAG;
@@ -1869,7 +1934,7 @@ s8 aml_sdio_rxdataind(void *pthis, void *arg)
                     trans_len, remain_len, aml_hw->rx_buf_len, need_len, fw_buf_pos, fw_new_pos,
                     aml_hw->host_buf_start, aml_hw->host_buf_end);
                 print_cnt = 0;
-                up(&aml_hw->aml_rx_task_sem);
+                up(&aml_hw->aml_rx_sem);
             }
             udelay(10);
         }
@@ -1907,7 +1972,7 @@ s8 aml_sdio_rxdataind(void *pthis, void *arg)
 
         aml_hw->fw_buf_pos = (aml_hw->fw_buf_pos & AML_WRAP) + rxdesc;
         aml_trigger_rst_rxd(aml_hw, aml_hw->fw_buf_pos);
-        up(&aml_hw->aml_rx_task_sem);
+        up(&aml_hw->aml_rx_sem);
     } else {
         if (aml_hw->fw_buf_pos != aml_hw->fw_new_pos) {
             if (aml_bus_type == SDIO_MODE) {
@@ -1915,7 +1980,7 @@ s8 aml_sdio_rxdataind(void *pthis, void *arg)
                     if (need_len == aml_hw->rx_buf_len) {//all buf, host_buf_end is not sure
                         aml_hw->plat->hif_sdio_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf,
                             (unsigned char *)(unsigned long)RXBUF_START_ADDR, aml_hw->rx_buf_end - RXBUF_START_ADDR + 1, 0);
-                        aml_hw->read_all_buf = 1;
+                        aml_hw->rx_buf_state |= BUFFER_WRAP;
 
                     } else {
                         aml_hw->plat->hif_sdio_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf_end,
@@ -1936,6 +2001,10 @@ s8 aml_sdio_rxdataind(void *pthis, void *arg)
 
                     spin_lock(&aml_hw->buf_end_lock);
                     aml_hw->host_buf_end = aml_hw->host_buf + (fw_new_pos - RXBUF_START_ADDR);
+                    if (aml_hw->rx_buf_state & BUFFER_END_NEED_WRAP) {
+                        aml_hw->rx_buf_state |= BUFFER_END_WRAP;
+                        printk("%s:%d BUFFER_END_WRAP!\n", __func__, __LINE__);
+                    }
                     spin_unlock(&aml_hw->buf_end_lock);
                 }
             } else if (aml_bus_type == USB_MODE) {
@@ -1943,7 +2012,7 @@ s8 aml_sdio_rxdataind(void *pthis, void *arg)
                     if (need_len == aml_hw->rx_buf_len) {//all buf, host_buf_end is not sure
                         aml_hw->plat->hif_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf,
                             (unsigned char *)(unsigned long)RXBUF_START_ADDR, aml_hw->rx_buf_end - RXBUF_START_ADDR + 1, USB_EP4);
-                        aml_hw->read_all_buf = 1;
+                        aml_hw->rx_buf_state |= BUFFER_WRAP;
                     } else {
                         aml_hw->plat->hif_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf_end,
                             (unsigned char *)(unsigned long)fw_buf_pos, need_len, USB_EP4);
@@ -1970,7 +2039,7 @@ s8 aml_sdio_rxdataind(void *pthis, void *arg)
 
             aml_trigger_rst_rxd(aml_hw, aml_hw->fw_new_pos);
             aml_hw->fw_buf_pos = aml_hw->fw_new_pos;
-            up(&aml_hw->aml_rx_task_sem);
+            up(&aml_hw->aml_rx_sem);
         }
     }
 
@@ -1992,7 +2061,7 @@ int aml_rx_task(void *data)
     int i = 0;
     struct rxdata *rxdata = NULL;
     struct rxdata *rxdata_tmp = NULL;
-    uint32_t has_data = aml_hw->read_all_buf ? 1 : 0;
+    uint32_t has_data = (aml_hw->rx_buf_state & BUFFER_WRAP);
     struct sched_param sch_param;
     static int count = 0;
 
@@ -2000,18 +2069,21 @@ int aml_rx_task(void *data)
 #ifndef CONFIG_PT_MODE
     sched_setscheduler(current,SCHED_FIFO,&sch_param);
 #endif
-    while (1) {
+    while (!aml_hw->aml_rx_task_quit) {
         /* wait for work */
-        if (down_interruptible(&aml_hw->aml_rx_task_sem) != 0) {
+        if (down_interruptible(&aml_hw->aml_rx_sem) != 0) {
             /* interrupted, exit */
-            printk("%s:%d wait aml_rx_task_sem fail!\n", __func__, __LINE__);
+            printk("%s:%d wait aml_rx_sem fail!\n", __func__, __LINE__);
+            break;
+        }
+        if (aml_hw->aml_rx_task_quit) {
             break;
         }
 
-        has_data = aml_hw->read_all_buf ? 1 : 0;
-        aml_hw->read_all_buf = 0;
+        has_data = (aml_hw->rx_buf_state & BUFFER_WRAP);
+        aml_hw->rx_buf_state &= ~BUFFER_WRAP;
 
-        while ((aml_hw->host_buf_start != aml_hw->host_buf_end) || has_data) {
+        while ((!aml_hw->aml_rx_task_quit) && ((aml_hw->host_buf_start != aml_hw->host_buf_end) || has_data)) {
             next_fw_pkt = (uint32_t *)(aml_hw->host_buf_start + NEXT_PKT_OFFSET);
             if (*next_fw_pkt > aml_hw->rx_buf_end || *next_fw_pkt < RXBUF_START_ADDR) {
                 printk("=======error:invalid address %08x, start:%08x, end:%08x, fw_pre_pos: %x, fw_new_pos: %x, last_fw_pos: %x\n",
@@ -2068,13 +2140,21 @@ int aml_rx_task(void *data)
             }
 
             if (*next_fw_pkt > aml_hw->last_fw_pos) {
+                spin_lock(&aml_hw->buf_start_lock);
                 aml_hw->host_buf_start += (*next_fw_pkt - aml_hw->last_fw_pos);
+                spin_unlock(&aml_hw->buf_start_lock);
             } else {
+                spin_lock(&aml_hw->buf_start_lock);
                 aml_hw->host_buf_start = aml_hw->host_buf + (*next_fw_pkt - RXBUF_START_ADDR);
+                spin_unlock(&aml_hw->buf_start_lock);
 
                 spin_lock(&aml_hw->buf_end_lock);
                 if (aml_hw->host_buf + aml_hw->rx_buf_len - aml_hw->host_buf_end < RX_DESC_SIZE) {
                     aml_hw->host_buf_end = aml_hw->host_buf;
+                    if (aml_hw->rx_buf_state & BUFFER_END_NEED_WRAP) {
+                        aml_hw->rx_buf_state |= BUFFER_END_WRAP;
+                        printk("%s:%d BUFFER_END_WRAP!\n", __func__, __LINE__);
+                    }
                 }
                 spin_unlock(&aml_hw->buf_end_lock);
             }
@@ -2083,6 +2163,7 @@ int aml_rx_task(void *data)
             aml_hw->last_fw_pos = *next_fw_pkt;
         }
     }
+    complete_and_exit(&aml_hw->aml_rx_completion, 0);
 
     return 0;
 }

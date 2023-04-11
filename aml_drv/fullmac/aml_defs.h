@@ -35,6 +35,7 @@
 #include "fi_cmd.h"
 #include "aml_compat.h"
 #include "aml_task.h"
+#include "aml_tcp_ack.h"
 
 #define WPI_HDR_LEN    18
 #define WPI_PN_LEN     16
@@ -758,14 +759,15 @@ struct aml_hw {
     uint32_t rx_buf_state;
     uint32_t rx_buf_end;
     uint32_t rx_buf_len;
-    uint32_t read_all_buf;
     uint32_t fw_new_pos;
     uint32_t fw_buf_pos;
     uint32_t last_fw_pos;
     uint8_t *host_buf;
     uint8_t *host_buf_start;
     uint8_t *host_buf_end;
+    uint8_t *rx_host_switch_addr;
     spinlock_t buf_end_lock;
+    spinlock_t buf_start_lock;
 
 #ifdef CONFIG_AML_PREALLOC_BUF_SKB
     spinlock_t prealloc_rxbuf_lock;
@@ -849,17 +851,31 @@ struct aml_hw {
     spinlock_t tx_desc_lock;
     spinlock_t rx_lock;
 
-    struct task_struct *aml_task;
-    struct task_struct *aml_rx_task;
-    struct task_struct *aml_tx_task;
-    struct task_struct *aml_msg_task;
-    struct task_struct *aml_tx_cfm_task;
+    struct task_struct *aml_irq_task;
+    struct semaphore aml_irq_sem;
+    struct completion aml_irq_completion;
+    int aml_irq_task_quit;
 
-    struct semaphore aml_tx_cfm_sem;
+    struct task_struct *aml_rx_task;
+    struct semaphore aml_rx_sem;
+    struct completion aml_rx_completion;
+    int aml_rx_task_quit;
+
+    struct task_struct *aml_tx_task;
+    struct semaphore aml_tx_sem;
+    struct completion aml_tx_completion;
+    int aml_tx_task_quit;
+
+    struct task_struct *aml_msg_task;
     struct semaphore aml_msg_sem;
-    struct semaphore aml_task_sem;
-    struct semaphore aml_rx_task_sem;
-    struct semaphore aml_tx_task_sem;
+    struct completion aml_msg_completion;
+    int aml_msg_task_quit;
+
+    struct task_struct *aml_txcfm_task;
+    struct semaphore aml_txcfm_sem;
+    struct completion aml_txcfm_completion;
+    int aml_txcfm_task_quit;
+
 
     struct urb *g_urb;
     struct usb_ctrlrequest *g_cr;
@@ -876,7 +892,10 @@ struct aml_hw {
     struct hrtimer hr_lock_timer;
     ktime_t lock_kt;
     int g_hr_lock_timer_valid;
+    int tsq;
     u8 g_tx_to;
+    /*management tcp session*/
+    struct aml_tcp_sess_mgr ack_mgr;
 };
 
 u8 *aml_build_bcn(struct aml_bcn *bcn, struct cfg80211_beacon_data *new);

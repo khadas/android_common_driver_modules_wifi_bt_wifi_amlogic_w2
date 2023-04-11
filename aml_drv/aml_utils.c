@@ -152,7 +152,7 @@ int aml_ipc_buf_alloc(struct aml_hw *aml_hw, struct aml_ipc_buf *buf,
         memcpy(buf->addr, init, buf_size);
     }
 
-    if (aml_bus_type != SDIO_MODE) {
+    if (aml_bus_type == PCIE_MODE) {
         buf->dma_addr = dma_map_single(aml_hw->dev, buf->addr, buf_size, dir);
         if (dma_mapping_error(aml_hw->dev, buf->dma_addr)) {
             kfree(buf->addr);
@@ -221,9 +221,11 @@ void aml_ipc_buf_dealloc(struct aml_hw *aml_hw, struct aml_ipc_buf *buf)
 {
     if (!buf->addr)
         return;
-    dma_unmap_single(aml_hw->dev, buf->dma_addr, buf->size, DMA_TO_DEVICE);
-    kfree(buf->addr);
-    buf->addr = NULL;
+    if (aml_bus_type == PCIE_MODE) {
+        dma_unmap_single(aml_hw->dev, buf->dma_addr, buf->size, DMA_TO_DEVICE);
+        kfree(buf->addr);
+        buf->addr = NULL;
+    }
 }
 
 /**
@@ -247,7 +249,7 @@ int aml_ipc_buf_a2e_init(struct aml_hw *aml_hw, struct aml_ipc_buf *buf,
 {
     buf->addr = data;
     buf->size = buf_size;
-    if (aml_bus_type != SDIO_MODE) {
+    if (aml_bus_type == PCIE_MODE) {
         buf->dma_addr = dma_map_single(aml_hw->dev, buf->addr, buf_size,
                                        DMA_TO_DEVICE);
         if (dma_mapping_error(aml_hw->dev, buf->dma_addr)) {
@@ -274,8 +276,10 @@ void aml_ipc_buf_release(struct aml_hw *aml_hw, struct aml_ipc_buf *buf,
 {
     if (!buf->addr)
         return;
-    dma_unmap_single(aml_hw->dev, buf->dma_addr, buf->size, dir);
-    buf->addr = NULL;
+   if (aml_bus_type == PCIE_MODE) {
+        dma_unmap_single(aml_hw->dev, buf->dma_addr, buf->size, dir);
+        buf->addr = NULL;
+    }
 }
 
 /**
@@ -962,6 +966,7 @@ void aml_txbuf_list_init(struct aml_hw *aml_hw)
     spin_lock_init(&aml_hw->tx_desc_lock);
     spin_lock_init(&aml_hw->rx_lock);
     spin_lock_init(&aml_hw->buf_end_lock);
+    spin_lock_init(&aml_hw->buf_start_lock);
 
     INIT_LIST_HEAD(&aml_hw->tx_buf_free_list);
     INIT_LIST_HEAD(&aml_hw->tx_buf_used_list);
@@ -1085,7 +1090,7 @@ static enum hrtimer_restart aml_set_tx_lock_timeout(struct hrtimer *timer)
     aml_hw->g_tx_to = 1;
     aml_hw->g_hr_lock_timer_valid = 0;
 
-    up(&aml_hw->aml_tx_task_sem);
+    up(&aml_hw->aml_tx_sem);
     return HRTIMER_NORESTART;
 }
 
@@ -1149,11 +1154,14 @@ int aml_tx_task(void *data)
 #ifndef CONFIG_PT_MODE
     sched_setscheduler(current,SCHED_FIFO,&sch_param);
 #endif
-    while (1) {
+    while (!aml_hw->aml_tx_task_quit) {
         /* wait for work */
-        if (down_interruptible(&aml_hw->aml_tx_task_sem) != 0) {
+        if (down_interruptible(&aml_hw->aml_tx_sem) != 0) {
             /* interrupted, exit */
-            AML_PRINT(AML_DBG_MODULES_TX, "wait aml_tx_task_sem fail!\n");
+            AML_PRINT(AML_DBG_MODULES_TX, "wait aml_tx_sem fail!\n");
+            break;
+        }
+        if (aml_hw->aml_tx_task_quit) {
             break;
         }
 
@@ -1313,8 +1321,9 @@ int aml_tx_task(void *data)
             aml_hw->g_tx_param.tot_page_num = 0;
         }
     }
-
     vfree(amsdu_dynabuf);
+    complete_and_exit(&aml_hw->aml_tx_completion, 0);
+
     return 0;
 }
 
@@ -1369,7 +1378,7 @@ void aml_sdio_ipc_txdesc_push(struct aml_hw *aml_hw, struct aml_sw_txhdr *sw_txh
     list_add_tail(&sw_txhdr->list, &aml_hw->tx_desc_save);
     spin_unlock_bh(&aml_hw->tx_desc_lock);
 
-    up(&aml_hw->aml_tx_task_sem);
+    up(&aml_hw->aml_tx_sem);
 
 }
 
@@ -1596,6 +1605,10 @@ static u8 aml_msgind(void *pthis, void *arg)
 
     REG_SW_SET_PROFILING(aml_hw, SW_PROF_MSGIND);
 
+    if (aml_hw->cmd_mgr.state & AML_CMD_MGR_STATE_DEINIT) {
+        return 0;
+    }
+
     if (aml_bus_type == USB_MODE) {
         msg1 = &aml_hw->g_msg1;
         msg2 = &aml_hw->g_msg2;
@@ -1654,9 +1667,15 @@ static u8 aml_msgind(void *pthis, void *arg)
 static u8 aml_msgackind(void *pthis, void *hostid)
 {
     struct aml_hw *aml_hw = (struct aml_hw *)pthis;
+    if (aml_hw->cmd_mgr.state & AML_CMD_MGR_STATE_DEINIT) {
+        return 0;
+    }
 
     AML_INFO("msg ack hostid=0x%lx\n", hostid);
     aml_hw->cmd_mgr.llind(&aml_hw->cmd_mgr, (struct aml_cmd *)hostid);
+#ifdef CONFIG_LINUXPC_VERSION
+    msleep(70);
+#endif
     return -1;
 }
 
@@ -1983,7 +2002,8 @@ int aml_ipc_init(struct aml_hw *aml_hw, u8 *shared_ram, u8 *shared_host_rxbuf, u
 void aml_ipc_deinit(struct aml_hw *aml_hw)
 {
     AML_DBG(AML_FN_ENTRY_STR);
-
+    if (aml_bus_type == PCIE_MODE)
+        aml_tcp_delay_ack_deinit(aml_hw);
     aml_ipc_tx_drain(aml_hw);
     aml_cmd_mgr_deinit(&aml_hw->cmd_mgr);
     aml_elems_deallocs(aml_hw);

@@ -26,6 +26,8 @@ enum aml_wq_type {
     AML_WQ_SYNC_TRACE,
     AML_WQ_SYNC_BEACON,
     AML_WQ_SHOW_TX_MSG,
+    AML_WQ_CHECK_SCC,
+    AML_WQ_RECY_CONNECT_RETRY,
     AML_WQ_MAX,
 };
 

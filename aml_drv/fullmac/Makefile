@@ -64,6 +64,7 @@ w2-y := aml_msg_tx.o        \
         aml_scc.o           \
         aml_wq.o            \
         aml_recy.o          \
+        aml_tcp_ack.o          \
         aml_task.o
 
 obj-m += w2_comm.o
@@ -73,8 +74,6 @@ w2_comm-objs := \
         ../aml_bus/sdio_common.o   \
         ../aml_bus/aml_w2_pci.o    \
         ../aml_bus/aml_w2_v7.o     \
-        ../aml_bus/w1_sdio.o       \
-        ../aml_bus/w1_usb.o        \
         ../aml_bus/w2_sdio.o       \
         ../aml_bus/aml_static_buf.o \
         ../aml_bus/w2_usb.o

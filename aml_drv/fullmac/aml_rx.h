@@ -21,10 +21,15 @@
 #define FW_BUFFER_NARROW   BIT(20)
 #define FW_BUFFER_EXPAND   BIT(21)
 
-#define BUFFER_STATUS      (BIT(0) | BIT(1))
-#define BUFFER_NARROW      BIT(0)
-#define BUFFER_EXPAND      BIT(1)
-#define BUFFER_UPDATE_FLAG BIT(2)
+#define BUFFER_STATUS           (BIT(0) | BIT(1))
+#define BUFFER_NARROW           BIT(0)
+#define BUFFER_EXPAND           BIT(1)
+#define BUFFER_UPDATE_FLAG      BIT(2)
+#define BUFFER_NOTIFY           BIT(3)
+#define BUFFER_WRAP             BIT(4)
+#define BUFFER_END_NEED_WRAP    BIT(5)
+#define BUFFER_END_WRAP         BIT(6)
+#define BUFFER_END_NO_NEED_WRAP BIT(7)
 
 #define RXDESC_CNT_READ_ONCE 32
 

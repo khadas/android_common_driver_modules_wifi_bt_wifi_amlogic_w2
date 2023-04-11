@@ -40,6 +40,8 @@
     (!(flags & (AML_CMD_FLAG_WAIT_ACK | AML_CMD_FLAG_WAIT_CFM)))
 
 #define AML_CMD_MAX_QUEUED         8
+#define AML_FW_PC_POINTER   0x00a070b4
+#define CMD_CRASH_FW_PC_NUM 5
 
 #ifdef CONFIG_AML_FHOST
 #include "ipc_fhost.h"

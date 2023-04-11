@@ -14,7 +14,7 @@
 
 /* IRQ handler to be registered by platform driver */
 int aml_irq_usb_hdlr(void *data);
-int aml_task(void *data);
+int aml_irq_task(void *data);
 
 irqreturn_t aml_irq_sdio_hdlr(int irq, void *dev_id);
 void aml_irq_sdio_hdlr_for_pt(struct sdio_func *func);

@@ -234,6 +234,7 @@ static void aml_v7_platform_deinit(struct aml_plat_pci *aml_plat_pci)
 {
     struct aml_v7 *aml_v7 = (struct aml_v7 *)aml_plat_pci->priv;
 
+    printk("%s %d\n", __func__, __LINE__);
     pci_disable_device(aml_plat_pci->pci_dev);
     iounmap(aml_v7->pci_bar0_vaddr);
     iounmap(aml_v7->pci_bar2_vaddr);
@@ -325,7 +326,7 @@ int aml_v7_platform_init(struct pci_dev *pci_dev, struct aml_plat_pci **aml_plat
         goto out_request;
     }
 
-    if (pci_enable_msi(pci_dev))
+    if ((ret = pci_enable_msi(pci_dev)))
     {
         dev_err(&(pci_dev->dev), "pci_enable_msi failed\n");
         goto out_msi;
@@ -335,6 +336,7 @@ int aml_v7_platform_init(struct pci_dev *pci_dev, struct aml_plat_pci **aml_plat
     if (!(aml_v7->pci_bar2_vaddr = (u8 *)pci_ioremap_bar(pci_dev, 2)))
     {
         dev_err(&(pci_dev->dev), "pci_ioremap_bar(%d) failed\n", 2);
+        ret = -EIO;
         goto out_bar2;
     }
 
@@ -343,6 +345,7 @@ int aml_v7_platform_init(struct pci_dev *pci_dev, struct aml_plat_pci **aml_plat
     if (!(aml_v7->pci_bar4_vaddr = (u8 *)pci_ioremap_bar(pci_dev, 4)))
     {
         dev_err(&(pci_dev->dev), "pci_ioremap_bar(%d) failed\n", 4);
+        ret = -EIO;
         goto out_bar4;
     }
 

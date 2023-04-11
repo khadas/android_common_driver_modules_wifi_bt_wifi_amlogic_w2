@@ -55,7 +55,6 @@
 #define REG_OF_SYNC_RSSI (MAC_SRAM_BASE + 0x14)
 #define REG_OF_VENDOR_ID (MAC_SRAM_BASE + 0x4)
 
-
 #define CPU_CLK_REG_ADDR 0x00a0d090
 #define CPU_CLK_VALUE 0x4f530033 // 240M
 
@@ -351,5 +350,7 @@ void aml_get_vid(struct aml_plat *aml_plat);
 int aml_platform_reset(struct aml_plat *aml_plat);
 int aml_plat_lmac_load(struct aml_plat *aml_plat);
 void aml_plat_mpif_sel(struct aml_plat *aml_plat);
+int aml_sdio_create_thread(struct aml_hw *aml_hw);
+void aml_sdio_destroy_thread(struct aml_hw *aml_hw);
 
 #endif /* _AML_PLAT_H_ */

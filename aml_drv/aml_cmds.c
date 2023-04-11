@@ -77,13 +77,16 @@ int aml_msg_task(void *data)
 #ifndef CONFIG_PT_MODE
     sched_setscheduler(current,SCHED_RR,&sch_param);
 #endif
-    while (1) {
+    while (!aml_hw->aml_msg_task_quit) {
         if (down_interruptible(&aml_hw->aml_msg_sem) != 0) {
             printk("%s:%d wait aml_msg_sem fail!\n", __func__, __LINE__);
             break;
         }
 
         AML_DBG(AML_FN_ENTRY_STR);
+        if (aml_hw->aml_msg_task_quit) {
+            break;
+        }
 
         spin_lock_bh(&cmd_mgr->lock);
         cmd = NULL;
@@ -103,6 +106,7 @@ int aml_msg_task(void *data)
             kfree(cmd->a2e_msg);
         }
     }
+    complete_and_exit(&aml_hw->aml_msg_completion, 0);
 
     return 0;
 }
@@ -125,7 +129,20 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
     spin_lock_bh(&cmd_mgr->lock);
 
     if (cmd_mgr->state == AML_CMD_MGR_STATE_CRASHED) {
+        u32 i;
         printk(KERN_CRIT"cmd queue crashed\n");
+
+        for (i = 0; i < NX_VIRT_DEV_MAX; i++) {
+            if (aml_hw->vif_table[i] != NULL) {
+                struct aml_vif *vif = aml_hw->vif_table[i];
+                for (i = 0; i < CMD_CRASH_FW_PC_NUM; i++) {
+                    AML_INFO("fw_pc:%08x", aml_read_reg(vif->ndev, AML_FW_PC_POINTER));
+                    mdelay(100);
+                }
+                break;
+            }
+        }
+
         cmd->result = -EPIPE;
         spin_unlock_bh(&cmd_mgr->lock);
         return -EPIPE;
@@ -216,6 +233,14 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
             }
         }
         if (!ret || tout/5 == 0) {
+            u32 i;
+            struct aml_vif *vif = NULL;
+            for (i = 0; i < NX_VIRT_DEV_MAX; i++) {
+                if (aml_hw->vif_table[i] != NULL) {
+                    vif = aml_hw->vif_table[i];
+                    break;
+                }
+            }
             printk(KERN_CRIT"cmd timed-out\n");
             cmd_dump(cmd);
             spin_lock_bh(&cmd_mgr->lock);
@@ -225,6 +250,12 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
                 cmd_complete(cmd_mgr, cmd);
             }
             spin_unlock_bh(&cmd_mgr->lock);
+            if (vif != NULL) {
+                for (i = 0; i < CMD_CRASH_FW_PC_NUM; i++) {
+                    AML_INFO("fw_pc:%08x\n", aml_read_reg(vif->ndev, AML_FW_PC_POINTER));
+                    mdelay(100);
+                }
+            }
         }
         #endif
     }

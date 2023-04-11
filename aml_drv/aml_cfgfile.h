@@ -12,7 +12,11 @@
 #ifndef _AML_CFGFILE_H_
 #define _AML_CFGFILE_H_
 
+#ifdef CONFIG_LINUXPC_VERSION
+#define AML_CFGFILE_DEFAULT_PATH   "/lib/firmware/wifi_conf.txt"
+#else
 #define AML_CFGFILE_DEFAULT_PATH   "/data/vendor/wifi/wifi_conf.txt"
+#endif
 #define AML_CFGFILE_LBUF_MAXLEN    64
 #define AML_CFGFILE_FBUF_MAXLEN    (AML_CFGFILE_LBUF_MAXLEN * 16)
 

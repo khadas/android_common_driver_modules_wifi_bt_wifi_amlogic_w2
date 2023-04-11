@@ -474,58 +474,35 @@ int aml_get_rf_reg(struct net_device *dev, char *str_addr, union iwreq_data *wrq
     return 0;
 }
 
-int aml_get_csi_status_com(struct net_device *dev)
+int aml_get_csi_status_com(struct net_device *dev, union iwreq_data *wrqu)
 {
-    unsigned int ret = 0;
+    unsigned int ret_copy = 0;
     struct csi_status_com_get_ind ind;
 
     memset(&ind, 0, sizeof(struct csi_status_com_get_ind));
-    ret = aml_csi_status_com_read(dev, &ind);
-
-    if (ret == 0)
-    {
-        printk("time_stamp: %llu \n", ind.time_stamp);
-        printk("mac_ra:     %02X%02X-%02X%02X-%02X%02X \n", ind.mac_ra[0], ind.mac_ra[1], ind.mac_ra[2], ind.mac_ra[3], ind.mac_ra[4], ind.mac_ra[5]);
-        printk("mac_ta:     %02X%02X-%02X%02X-%02X%02X \n", ind.mac_ta[0], ind.mac_ta[1], ind.mac_ta[2], ind.mac_ta[3], ind.mac_ta[4], ind.mac_ta[5]);
-        printk("freq_band:  %u \n", ind.frequency_band);
-        printk("bw:         %u \n", ind.bw);
-        printk("rssi:       %d \n", ind.rssi[0]);
-        printk("snr:        %u \n", ind.snr[0]);
-        printk("noise:      %u %u %u %u\n", ind.noise[0], ind.noise[1], ind.noise[2], ind.noise[3]);
-        printk("phase_incr: %d \n", ind.phase_incr[0]);
-        printk("pro_mode:   0x%x \n", ind.protocol_mode);
-        printk("frame_type: 0x%x \n", ind.frame_type);
-        printk("chain_num:  %u \n", ind.chain_num);
-        printk("csi_len:    %u \n", ind.csi_len);
-        printk("chan_index: %u \n", ind.primary_channel_index);
-        printk("phyerr:     %u \n", ind.phyerr);
-        printk("rate:       %u \n", ind.rate);
-        printk("reserved:   %u %u \n", ind.reserved[0], ind.reserved[1]);
-        printk("agc_code:   %u \n", ind.agc_code);
-        printk("channel:    %u \n", ind.channel);
-        printk("packet_idx: %u \n", ind.packet_idx);
-    }
+    aml_csi_status_com_read(dev, &ind);
+    wrqu->data.length = sizeof(ind);
+    ret_copy = copy_to_user(wrqu->data.pointer, (void*)&ind, wrqu->data.length);
+    if (ret_copy != 0)
+        AML_INFO("copy csi com to user failed, failed num:%d%%%d", ret_copy, wrqu->data.length);
 
     return 0;
 }
 
-int aml_get_csi_status_sp(struct net_device *dev, int csi_mode, int csi_time_interval)
+int aml_get_csi_status_sp(struct net_device *dev, union iwreq_data *wrqu, char *extra)
 {
-    int i;
-    unsigned int ret = 0;
+    unsigned int ret_copy = 0;
     struct csi_status_sp_get_ind ind;
+    int *param = (int *)extra;
+    int csi_mode = param[0];
+    int csi_time_interval= param[1];
 
     memset(&ind, 0, sizeof(struct csi_status_sp_get_ind));
-    ret = aml_csi_status_sp_read(dev, csi_mode, csi_time_interval, &ind);
-
-    if (ret == 0)
-    {
-        for (i = 0; i <= 255; i = i + 4)
-        {
-            printk("Num: 0x%02x:0x%08x--0x%02x:0x%08x--0x%02x:0x%08x--0x%02x:0x%08x \n", \
-                    i, ind.csi[i], i + 1, ind.csi[i + 1], i + 2, ind.csi[i + 2], i + 3, ind.csi[i + 3]);
-        }
-    }
+    aml_csi_status_sp_read(dev, csi_mode, csi_time_interval, &ind);
+    wrqu->data.length = sizeof(ind.csi);
+    ret_copy = copy_to_user(wrqu->data.pointer, (void*)ind.csi, wrqu->data.length);
+    if (ret_copy != 0)
+        AML_INFO("copy csi sp to user failed, failed num:%d%%%d", ret_copy, wrqu->data.length);
 
     return 0;
 }
@@ -1369,6 +1346,20 @@ static int aml_get_buf_state(struct net_device *dev)
     return 0;
 }
 
+static int aml_get_tcp_ack_info(struct net_device *dev)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
+    struct aml_tcp_sess_mgr *ack_mgr = &aml_hw->ack_mgr;
+    printk("ack_mgr->max_drop_cnt=%u\n", atomic_read(&ack_mgr->max_drop_cnt));
+    printk("ack_mgr->enable=%u\n", atomic_read(&ack_mgr->enable));
+    printk("ack_mgr->max_timeout=%u\n", atomic_read(&ack_mgr->max_timeout));
+    printk("ack_mgr->dynamic_adjust=%u\n", atomic_read(&ack_mgr->dynamic_adjust));
+    printk("ack_mgr->total_drop_cnt=%u\n", ack_mgr->total_drop_cnt);
+
+    return 0;
+}
+
 static int aml_set_txpage_once(struct net_device *dev, int txpage)
 {
     struct aml_vif *aml_vif = netdev_priv(dev);
@@ -1399,6 +1390,54 @@ static int aml_set_txcfm_tri_tx(struct net_device *dev, int tri_tx_thr)
     return 0;
 }
 
+static int aml_set_tsq(struct net_device *dev, int tsq)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw * aml_hw = aml_vif->aml_hw;
+
+    if (aml_hw->tsq == tsq) {
+        printk("tcp tsq did not change, ignore\n");
+        return 0;
+    }
+
+    aml_hw->tsq = tsq;
+    printk("set tcp tsq:0x%x success\n", aml_hw->tsq);
+    return 0;
+}
+
+static int aml_set_tcp_delay_ack(struct net_device *dev, int enable)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw * aml_hw = aml_vif->aml_hw;
+    struct aml_tcp_sess_mgr *ack_mgr = &aml_hw->ack_mgr;
+
+    atomic_set(&ack_mgr->enable, enable);
+    printk("set tcp delay ack:ack_mgr->enable=%u\n", atomic_read(&ack_mgr->enable));
+    return 0;
+}
+
+static int aml_set_max_drop_num(struct net_device *dev, int num)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw * aml_hw = aml_vif->aml_hw;
+    struct aml_tcp_sess_mgr *ack_mgr = &aml_hw->ack_mgr;
+
+    atomic_set(&ack_mgr->max_drop_cnt, num);
+    atomic_set(&ack_mgr->dynamic_adjust, 0);
+    printk("set tcp delay ack:ack_mgr->max_drop_cnt=%u,dynamic adjust=%d\n", atomic_read(&ack_mgr->max_drop_cnt), atomic_read(&ack_mgr->dynamic_adjust));
+    return 0;
+}
+
+static int aml_set_max_timeout(struct net_device *dev, int time)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw * aml_hw = aml_vif->aml_hw;
+    struct aml_tcp_sess_mgr *ack_mgr = &aml_hw->ack_mgr;
+
+    atomic_set(&ack_mgr->max_timeout, time);
+    printk("set tcp delay ack:ack_mgr->max_timeout=%u\n", atomic_read(&ack_mgr->max_timeout));
+    return 0;
+}
 
 static int aml_send_twt_teardown(struct net_device *dev, int id)
 {
@@ -3423,6 +3462,18 @@ static int aml_iwpriv_send_para1(struct net_device *dev,
         case AML_IWP_SET_LIMIT_POWER:
             aml_set_limit_power_status(dev, set1);
             break;
+        case AML_IWP_SET_TSQ:
+            aml_set_tsq(dev, set1);
+            break;
+        case AML_IWP_SET_TCP_DELAY_ACK:
+            aml_set_tcp_delay_ack(dev, set1);
+            break;
+        case AML_IWP_SET_MAX_DROP_NUM:
+            aml_set_max_drop_num(dev, set1);
+            break;
+        case AML_IWP_SET_MAX_TIMEOUT:
+            aml_set_max_timeout(dev, set1);
+            break;
         default:
             printk("%s %d: param err\n", __func__, __LINE__);
             break;
@@ -3468,9 +3519,6 @@ static int aml_iwpriv_send_para2(struct net_device *dev,
             break;
         case AML_IWP_SET_TX_PATH:
             aml_set_tx_path(dev, set1, set2);
-            break;
-        case AML_IWP_GET_CSI_STATUS_SP:
-            aml_get_csi_status_sp(dev, set1, set2);
             break;
         default:
             break;
@@ -3625,8 +3673,8 @@ static int aml_iwpriv_get(struct net_device *dev,
         case AML_IWP_GET_BUF_STATE:
             aml_get_buf_state(dev);
             break;
-        case AML_IWP_GET_CSI_STATUS_COM:
-            aml_get_csi_status_com(dev);
+        case AML_IWP_GET_TCP_DELAY_ACK_INFO:
+            aml_get_tcp_ack_info(dev);
             break;
         default:
             printk("%s %d param err\n", __func__, __LINE__);
@@ -3685,6 +3733,27 @@ static int aml_iwpriv_get_char(struct net_device *dev,
         case AML_IWP_GET_XOSC_OFFSET:
             aml_get_xosc_offset(dev,wrqu, extra);
             break;
+        default:
+            break;
+    }
+
+    return 0;
+}
+
+static int aml_iwpriv_get_int(struct net_device *dev,
+    struct iw_request_info *info, union iwreq_data *wrqu, char *extra)
+{
+    int sub_cmd = wrqu->data.flags;
+
+    switch (sub_cmd) {
+        case AML_IWP_GET_CSI_STATUS_COM:
+            aml_get_csi_status_com(dev, wrqu);
+            break;
+        case AML_IWP_GET_CSI_STATUS_SP:
+            aml_get_csi_status_sp(dev, wrqu, extra);
+            break;
+        default:
+            break;
     }
 
     return 0;
@@ -3716,7 +3785,7 @@ static iw_handler aml_iwpriv_private_handler[] = {
     aml_iwpriv_send_para3,
     NULL,
     aml_iwpriv_get_char,
-    NULL,
+    aml_iwpriv_get_int,
     aml_iwpriv_send_para4,
     NULL,
 };
@@ -3801,6 +3870,9 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_IWP_GET_BUF_STATE,
         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_buf_state"},
+    {
+        AML_IWP_GET_TCP_DELAY_ACK_INFO,
+        0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_tcp_info"},
     {
         SIOCIWFIRSTPRIV + 1,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, ""},
@@ -3891,6 +3963,18 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
         AML_IWP_SET_LIMIT_POWER,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_limit_power"},
     {
+        AML_IWP_SET_TSQ,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_tsq"},
+    {
+        AML_IWP_SET_TCP_DELAY_ACK,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_delay_ack"},
+    {
+        AML_IWP_SET_MAX_DROP_NUM,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_drop_num"},
+    {
+        AML_IWP_SET_MAX_TIMEOUT,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_ack_to"},
+    {
         SIOCIWFIRSTPRIV + 2,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 2, 0, ""},
     {
@@ -3974,6 +4058,15 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
         AML_IWP_GET_XOSC_OFFSET,
         IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "get_xosc_offset"},
     {
+        SIOCIWFIRSTPRIV + 6,
+        IW_PRIV_TYPE_INT | IW_PRIV_INT_SIZE_MASK, IW_PRIV_TYPE_BYTE | IW_PRIV_SIZE_MASK, ""},
+    {
+        AML_IWP_GET_CSI_STATUS_COM,
+        IW_PRIV_TYPE_INT | IW_PRIV_INT_SIZE_MASK, IW_PRIV_TYPE_BYTE | IW_PRIV_SIZE_MASK, "get_csi_com"},
+    {
+        AML_IWP_GET_CSI_STATUS_SP,
+        IW_PRIV_TYPE_INT | IW_PRIV_INT_SIZE_MASK, IW_PRIV_TYPE_BYTE | IW_PRIV_SIZE_MASK, "get_csi_sp"},
+    {
         SIOCIWFIRSTPRIV + 7,
         IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_FIXED | 4, 0, ""},
     {
@@ -3991,13 +4084,6 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_IWP_GET_WIFI_MAC_FROM_EFUSE,
         IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "get_wifi_mac"},
-    {
-        AML_IWP_GET_CSI_STATUS_COM,
-        0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_csi_com"},
-    {
-        AML_IWP_GET_CSI_STATUS_SP,
-        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 2, 0, "get_csi_sp"},
-
 };
 #endif
 

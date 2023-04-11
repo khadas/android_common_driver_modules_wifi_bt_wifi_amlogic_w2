@@ -35,7 +35,7 @@
 /* use set_user_nice() priority(100) to alleviate preempt cpu loading */
 #define AML_TASK_FUNC(data, name, func) do { \
     struct aml_hw *aml_hw = (struct aml_hw *)data; \
-    set_user_nice(current, -20); \
+    set_user_nice(current, 0); \
     while (!aml_hw->name->task_quit) { \
         if (down_interruptible(&aml_hw->name->task_sem) != 0) break; \
         if (aml_hw->name->task_quit) break; \
@@ -100,7 +100,18 @@ void aml_rxdesc_hdlr(struct aml_hw *aml_hw)
 
 int aml_task_rxdesc(void *data)
 {
-    AML_TASK_FUNC(data, rxdesc, aml_rxdesc_hdlr);
+    struct aml_hw *aml_hw = (struct aml_hw *)data;
+
+    set_user_nice(current, 5);
+    while (!aml_hw->rxdesc->task_quit) {
+        if (down_interruptible(&aml_hw->rxdesc->task_sem) != 0)
+            break;
+        if (aml_hw->rxdesc->task_quit)
+            break;
+        aml_rxdesc_hdlr(aml_hw);
+    }
+    complete_and_exit(&aml_hw->rxdesc->task_cmpl, 0);
+
     return 0;
 }
 
@@ -109,10 +120,24 @@ void aml_txcfm_hdlr(struct aml_hw *aml_hw)
     ipc_host_txcfm_handler(aml_hw->ipc_env);
 }
 
-
 int aml_task_txcfm(void *data)
 {
-    AML_TASK_FUNC(data, txcfm, aml_txcfm_hdlr);
+    struct aml_hw *aml_hw = (struct aml_hw *)data;
+    struct sched_param param = {0};
+
+    param.sched_priority = AML_TASK_PRI;
+#ifndef CONFIG_PT_MODE
+    sched_setscheduler(current, SCHED_FIFO, &param);
+#endif
+    while (!aml_hw->txcfm->task_quit) {
+        if (down_interruptible(&aml_hw->txcfm->task_sem) != 0)
+            break;
+        if (aml_hw->txcfm->task_quit)
+            break;
+        aml_txcfm_hdlr(aml_hw);
+    }
+    complete_and_exit(&aml_hw->txcfm->task_cmpl, 0);
+
     return 0;
 }
 

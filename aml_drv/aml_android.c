@@ -31,8 +31,6 @@ static int aml_android_cmdstr2id(char *cmdstr)
         const char *str = aml_android_cmd_tbl[i].str;
         if (!strncasecmp(cmdstr, str, strlen(str)))
             break;
-        if (i == (ARRAY_SIZE(aml_android_cmd_tbl)-1))
-            return -1;
     }
     return aml_android_cmd_tbl[i].id;
 }

@@ -53,7 +53,7 @@ u8 aml_scc_get_confilct_vif_idx(struct aml_vif *sap_vif)
                 sta_vif->ch_index != AML_CH_NOT_SET &&
                 sap_vif->ch_index != AML_CH_NOT_SET) {
             if (sta_vif->ch_index != sap_vif->ch_index) {
-                AML_INFO("scc channel conflict, sta:[%d,%d], softap:[%d,%d]\n",
+                AML_INFO("scc channel conflict , sta:[%d,%d], softap:[%d,%d]\n",
                     sta_vif->vif_index, sta_vif->ch_index, sap_vif->vif_index, sap_vif->ch_index);
                 return sta_vif->vif_index;
             }
@@ -142,9 +142,10 @@ int aml_scc_change_beacon(struct aml_hw *aml_hw,struct aml_vif *vif)
         // Forward the information to the LMAC
         error = aml_send_bcn_change(aml_hw, vif->vif_index, buf.dma_addr,
         bcn->len, bcn->head_len, bcn->tim_len, NULL);
-
-        if (buf.addr)
-            dma_unmap_single(aml_hw->dev, buf.dma_addr, buf.size, DMA_TO_DEVICE);
+        if (aml_bus_type == PCIE_MODE) {
+            if (buf.addr)
+                dma_unmap_single(aml_hw->dev, buf.dma_addr, buf.size, DMA_TO_DEVICE);
+        }
 
         return error;
     }
@@ -207,9 +208,10 @@ int aml_scc_change_beacon_ht_ie(struct wiphy *wiphy, struct net_device *dev, str
     // Forward the information to the LMAC
     error = aml_send_bcn_change(aml_hw, vif->vif_index, buf.dma_addr,
                                  bcn->len, bcn->head_len, bcn->tim_len, NULL);
-
-    if (buf.addr)
-        dma_unmap_single(aml_hw->dev, buf.dma_addr, buf.size, DMA_TO_DEVICE);
+    if (aml_bus_type == PCIE_MODE) {
+        if (buf.addr)
+            dma_unmap_single(aml_hw->dev, buf.dma_addr, buf.size, DMA_TO_DEVICE);
+    }
 
     return error;
 }

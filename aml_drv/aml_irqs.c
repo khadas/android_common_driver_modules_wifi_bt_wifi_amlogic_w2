@@ -22,7 +22,7 @@ int aml_irq_usb_hdlr(struct urb *urb)
         return IRQ_HANDLED;
     }
 
-    up(&aml_hw->aml_task_sem);
+    up(&aml_hw->aml_irq_sem);
     return IRQ_HANDLED;
 }
 
@@ -30,17 +30,17 @@ irqreturn_t aml_irq_sdio_hdlr(int irq, void *dev_id)
 {
     struct aml_hw *aml_hw = (struct aml_hw *)dev_id;
     disable_irq_nosync(irq);
-    up(&aml_hw->aml_task_sem);
+    up(&aml_hw->aml_irq_sem);
     return IRQ_HANDLED;
 }
 
 void aml_irq_sdio_hdlr_for_pt(struct sdio_func *func)
 {
     struct aml_hw *aml_hw = dev_get_drvdata(&func->dev);
-    up(&aml_hw->aml_task_sem);
+    up(&aml_hw->aml_irq_sem);
 }
 
-int aml_task(void *data)
+int aml_irq_task(void *data)
 {
     struct aml_hw *aml_hw = (struct aml_hw *)data;
     u32 status;
@@ -51,16 +51,19 @@ int aml_task(void *data)
 #ifndef CONFIG_PT_MODE
     sched_setscheduler(current,SCHED_FIFO,&sch_param);
 #endif
-    while (1) {
+    while (!aml_hw->aml_irq_task_quit) {
         /* wait for work */
-        if (down_interruptible(&aml_hw->aml_task_sem) != 0) {
+        if (down_interruptible(&aml_hw->aml_irq_sem) != 0) {
             /* interrupted, exit */
             printk("%s:%d wait aml_task_sem fail!\n", __func__, __LINE__);
             break;
         }
 
         REG_SW_SET_PROFILING(aml_hw, SW_PROF_AML_IPC_IRQ_HDLR);
-        while ((status = aml_hw->plat->ack_irq(aml_hw))) {
+        if (aml_hw->aml_irq_task_quit) {
+            break;
+        }
+        while ((!aml_hw->aml_irq_task_quit) && (status = aml_hw->plat->ack_irq(aml_hw))) {
             ipc_host_irq(aml_hw->ipc_env, status);
         }
 
@@ -82,6 +85,7 @@ int aml_task(void *data)
 
         REG_SW_CLEAR_PROFILING(aml_hw, SW_PROF_AML_IPC_IRQ_HDLR);
     }
+    complete_and_exit(&aml_hw->aml_irq_completion, 0);
 
     return 0;
 }

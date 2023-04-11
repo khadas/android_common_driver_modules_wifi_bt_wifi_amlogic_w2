@@ -8,7 +8,6 @@
 #include "wifi_sdio_cfg_addr.h"
 #include "sdio_common.h"
 #include "sg_common.h"
-#include "w1_sdio.h"
 #include "aml_interface.h"
 #include "wifi_w2_shared_mem_cfg.h"
 #include "aml_static_buf.h"
@@ -26,9 +25,7 @@ extern unsigned char g_sdio_after_porbe;
 
 extern unsigned char wifi_in_insmod;
 extern unsigned char wifi_in_rmmod;
-//extern unsigned char  wifi_sdio_access;
 extern unsigned char  chip_en_access;
-//extern unsigned char  wifi_sdio_timeout;
 extern unsigned char wifi_sdio_shutdown;
 
 static DEFINE_MUTEX(wifi_bt_sdio_mutex);

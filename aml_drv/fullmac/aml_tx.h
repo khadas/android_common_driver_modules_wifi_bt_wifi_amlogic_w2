@@ -308,5 +308,6 @@ int aml_update_tx_cfm(void *pthis);
 int aml_sdio_tx_task(void *data);
 bool aml_filter_sp_data_frame(struct sk_buff *skb,struct aml_vif *aml_vif,AML_SP_STATUS_E sp_status);
 
+int aml_prep_dma_tx(struct aml_hw *aml_hw, struct aml_sw_txhdr *sw_txhdr, void *frame_start);
 
 #endif /* _AML_TX_H_ */

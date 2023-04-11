@@ -8,7 +8,6 @@
 #include "wifi_w2_shared_mem_cfg.h"
 #include "sdio_common.h"
 #include "sg_common.h"
-#include "w1_sdio.h"
 #include "aml_interface.h"
 #include "w2_sdio.h"
 
@@ -22,9 +21,9 @@ unsigned char *g_func_kmalloc_buf = NULL;
 unsigned char wifi_irq_enable = 0;
 unsigned int  shutdown_i = 0;
 unsigned char wifi_sdio_shutdown = 0;
-extern unsigned char wifi_in_insmod;
-extern unsigned char wifi_in_rmmod;
-extern unsigned char  chip_en_access;
+unsigned char wifi_in_insmod;
+unsigned char wifi_in_rmmod;
+unsigned char  chip_en_access;
 extern unsigned char wifi_sdio_shutdown;
 
 static DEFINE_MUTEX(wifi_bt_sdio_mutex);
@@ -33,9 +32,6 @@ static DEFINE_MUTEX(wifi_ipc_mutex);
 unsigned char (*host_wake_req)(void);
 int (*host_suspend_req)(struct device *device);
 int (*host_resume_req)(struct device *device);
-extern void aml_w1_deinit_wlan_mem(void);
-extern int aml_w1_init_wlan_mem(void);
-extern chip_id_type aml_get_chip_type(void);
 
 struct sdio_func *aml_priv_to_func(int func_n)
 {
@@ -143,76 +139,9 @@ int _aml_sdio_request_buffer(unsigned char func_num,
 }
 
 
-void aml_sdio_read_chip_type_reg(unsigned int addr)
-{
-    int result;
-    int w_len = sizeof(unsigned long);
-    int r_len = sizeof(unsigned int);
-    void *kmalloc_buf;
-    unsigned char *r_kmalloc_buf = NULL;
-    unsigned int w_addr, r_addr;
-    unsigned int regdata = 0;
-    unsigned char*buf;
-    unsigned long sram_data;
-
-    AML_BT_WIFI_MUTEX_ON();
-
-    kmalloc_buf =  (unsigned char *)ZMALLOC(w_len, "sdio_write", GFP_DMA);
-    r_kmalloc_buf = (unsigned char *)ZMALLOC(r_len, "sdio_read", GFP_DMA);
-    if (kmalloc_buf == NULL || r_kmalloc_buf == NULL) {
-        ERROR_DEBUG_OUT("kmalloc buf fail\n");
-        AML_BT_WIFI_MUTEX_OFF();
-        return ;
-    }
-
-    w_addr = RG_SCFG_FUNC2_BADDR_A & SDIO_ADDR_MASK;
-    sram_data = ((unsigned long )(addr) & 0xfffe0000);
-    memcpy(kmalloc_buf, &sram_data, w_len);
-    result = _aml_sdio_request_buffer(SDIO_FUNC1, SDIO_OPMODE_INCREMENT, SDIO_WRITE, w_addr, kmalloc_buf, w_len);
-    if (result < 0) {
-        ERROR_DEBUG_OUT("_aml_sdio_request_buffer fail");
-        return;
-    }
-
-    r_addr = (unsigned long )(addr) & SDIO_ADDR_MASK;
-    buf = (unsigned char*)(&regdata);
-    result = _aml_sdio_request_buffer(SDIO_FUNC2, SDIO_OPMODE_FIXED, SDIO_READ, r_addr, r_kmalloc_buf, r_len);
-    if (result < 0) {
-        ERROR_DEBUG_OUT("_aml_sdio_request_buffer fail");
-        return;
-    }
-
-    if (r_kmalloc_buf != buf) {
-        memcpy(buf, r_kmalloc_buf, r_len);
-        FREE(r_kmalloc_buf, "sdio_read");
-    }
-
-    FREE(kmalloc_buf, "sdio_write");
-    AML_BT_WIFI_MUTEX_OFF();
-
-    chip_id |= regdata;
-    printk("%s: ********get chipid:0x%08x \n", __func__, chip_id);
-}
-
-void aml_sdio_read_chip_type(void)
-{
-    aml_sdio_read_chip_type_reg(WIFI_CHIP1_TYPE_ADDR);
-    aml_sdio_read_chip_type_reg(WIFI_CHIP2_TYPE_ADDR);
-    printk("%s: ********get chipid:0x%08x \n", __func__, chip_id);
-}
-
 void aml_sdio_init_ops(void)
 {
-    if (aml_get_chip_type() == WIFI_CHIP_W2) {
-        printk("%s: init w2 ops\n", __func__);
-        aml_sdio_init_w2_ops();
-    } else if (aml_get_chip_type() == WIFI_CHIP_W1) {
-        printk("%s: *********init w1 ops\n", __func__);
-        aml_w1_sdio_init_ops();
-    } else {
-        printk("chong: %s err chipid: %d \n", __func__, aml_get_chip_type());
-        return;
-    }
+    aml_sdio_init_w2_ops();
     return;
 }
 
@@ -253,25 +182,11 @@ int aml_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id)
         return 0;
     }
     printk("%s: %d, sdio probe success\n", __func__, __LINE__);
-
-    aml_sdio_read_chip_type();
-
-    if (aml_get_chip_type() == WIFI_CHIP_W1) {
-#ifdef NOT_AMLOGIC_PLATFORM
-        aml_w1_init_wlan_mem();
-#else
-        aml_w1_deinit_wlan_mem();
-#endif
-    }
-    if (aml_get_chip_type() == WIFI_CHIP_W2) {
-        aml_sdio_init_base_addr();
-    }
+    aml_sdio_init_base_addr();
     aml_sdio_init_ops();
+    g_hif_sdio_ops.hi_enable_scat(&g_hwif_sdio);
+    g_hif_sdio_ops.hi_enable_scat(&g_hwif_rx_sdio);
 
-    if (aml_get_chip_type() == WIFI_CHIP_W2) {
-        g_hif_sdio_ops.hi_enable_scat(&g_hwif_sdio);
-        g_hif_sdio_ops.hi_enable_scat(&g_hwif_rx_sdio);
-    }
     return ret;
 
 sdio_enable_error:
@@ -326,12 +241,6 @@ static const struct sdio_device_id aml_sdio[] =
     {SDIO_DEVICE(W2_VENDOR_AMLOGIC_EFUSE,W2_PRODUCT_AMLOGIC_EFUSE)},
     {SDIO_DEVICE(W2s_VENDOR_AMLOGIC_EFUSE,W2s_A_PRODUCT_AMLOGIC_EFUSE)},
     {SDIO_DEVICE(W2s_VENDOR_AMLOGIC_EFUSE,W2s_B_PRODUCT_AMLOGIC_EFUSE)},
-    {SDIO_DEVICE(W1_VENDOR_AMLOGIC,W1_PRODUCT_AMLOGIC) },
-    {SDIO_DEVICE(W1_VENDOR_AMLOGIC_EFUSE,W1_PRODUCT_AMLOGIC_EFUSE)},
-    {SDIO_DEVICE(W1u_VENDOR_AMLOGIC_EFUSE,W1us_PRODUCT_AMLOGIC_EFUSE)},
-    {SDIO_DEVICE(W1u_VENDOR_AMLOGIC_EFUSE,W1us_A_PRODUCT_AMLOGIC_EFUSE)},
-    {SDIO_DEVICE(W1u_VENDOR_AMLOGIC_EFUSE,W1us_B_PRODUCT_AMLOGIC_EFUSE)},
-    {SDIO_DEVICE(W1u_VENDOR_AMLOGIC_EFUSE,W1us_C_PRODUCT_AMLOGIC_EFUSE)},
     {}
 };
 
@@ -342,7 +251,6 @@ static struct sdio_driver aml_sdio_driver =
     .probe = aml_sdio_probe,
     .remove = aml_sdio_remove,
     .drv.pm = &aml_sdio_pm_ops,
-    .drv.shutdown = aml_sdio_shutdown,
 };
 
 int  aml_sdio_init(void)
@@ -410,43 +318,6 @@ int aml_sdio_insmod(void)
 void aml_sdio_rmmod(void)
 {
     aml_sdio_exit();
-}
-
-extern int wifi_irq_num(void);
-extern void config_pmu_reg_off(void);
-void aml_sdio_shutdown(struct device *device)
-{
-    printk("===>>> enter %s <<<===\n", __func__);
-    if (aml_get_chip_type() == WIFI_CHIP_W2) {
-        return;
-    }
-    if (wifi_irq_enable == 1) {
-
-#ifdef USE_SDIO_IRQ
-        struct sdio_func *func = g_hwif_sdio.sdio_func_if[SDIO_FUNC1];
-        sdio_claim_host(func);
-        sdio_release_irq(func);
-        sdio_release_host(func);
-#else
-    #ifndef CONFIG_PT_MODE
-        unsigned int irq_num = wifi_irq_num();
-        disable_irq(irq_num);
-    #endif
-#endif
-
-        wifi_irq_enable = 0;
-    }
-    shutdown_i += 1;
-    if (shutdown_i == 1) {
-        wifi_sdio_shutdown = 1;
-        config_pmu_reg_off();
-    } else if (shutdown_i == 7) {
-        shutdown_i = 0;
-        printk("===>>> end <<<===\n");
-    } else {
-        ;
-    }
-    printk("=== shutdown_i:%d ===\n", shutdown_i);
 }
 
 

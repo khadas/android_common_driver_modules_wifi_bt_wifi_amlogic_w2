@@ -84,6 +84,12 @@ static void aml_wq_doit(struct work_struct *work)
             case AML_WQ_RECY:
                 aml_recy_doit(aml_hw);
                 break;
+            case AML_WQ_CHECK_SCC:
+                aml_scc_check_chan_conflict(aml_hw);
+                break;
+            case AML_WQ_RECY_CONNECT_RETRY:
+                aml_recy_sta_connect(aml_hw, NULL);
+                break;
 #endif
             case AML_WQ_SYNC_TRACE:
                 aml_send_sync_trace(aml_hw);

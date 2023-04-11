@@ -605,7 +605,7 @@ static int aml_pcie_prep_dma_tx(struct aml_hw *aml_hw, struct aml_sw_txhdr *sw_t
 
     return 0;
 }
-static int aml_prep_dma_tx(struct aml_hw *aml_hw, struct aml_sw_txhdr *sw_txhdr,
+int aml_prep_dma_tx(struct aml_hw *aml_hw, struct aml_sw_txhdr *sw_txhdr,
                             void *frame_start)
 {
     if (aml_bus_type != PCIE_MODE) {
@@ -1388,6 +1388,48 @@ uint32_t aml_filter_sp_mgmt_frame(struct aml_vif *vif, u8 *buf, AML_SP_STATUS_E 
     return ret;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0) && LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
+#include <linux/kallsyms.h>
+#include <net/sock.h>
+void aml_pkt_orphan_partial(struct sk_buff *skb, int tsq)
+{
+    u32 fraction;
+    static void *p_tcp_wfree = NULL;
+
+    if (tsq <= 0) {
+        return;
+    }
+    if (!skb->destructor || skb->destructor == sock_wfree) {
+        return;
+    }
+    if (unlikely(!p_tcp_wfree)) {
+        char sym[KSYM_SYMBOL_LEN];
+        sprint_symbol(sym, (unsigned long)skb->destructor);
+        sym[9] = 0;
+        if (!strcmp(sym, "tcp_wfree")) {
+            p_tcp_wfree = skb->destructor;
+        }
+        else {
+            return;
+        }
+    }
+
+    if (unlikely(skb->destructor != p_tcp_wfree || !skb->sk)) {
+      return;
+    }
+    /* abstract a certain portion of skb truesize from the socket
+           * sk_wmem_alloc to allow more skb can be allocated for this
+           * socket for better cusion meeting WiFi device requirement
+           */
+    fraction = skb->truesize * (tsq - 1) / tsq;
+    skb->truesize -= fraction;
+
+    atomic_sub(fraction, &skb->sk->sk_wmem_alloc);
+    skb_orphan(skb);
+}
+#endif
+
+
 /**
  * netdev_tx_t (*ndo_start_xmit)(struct sk_buff *skb,
  *                               struct net_device *dev);
@@ -1447,11 +1489,17 @@ netdev_tx_t aml_start_xmit(struct sk_buff *skb, struct net_device *dev)
         skb = newskb;
     }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0) && LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
+    aml_pkt_orphan_partial(skb, aml_hw->tsq);
+#endif
     /* Get the STA id and TID information */
     sta = aml_get_tx_info(aml_vif, skb, &tid);
     if (!sta)
         goto free;
-
+    if (aml_bus_type == PCIE_MODE) {
+        if (aml_filter_tx_tcp_ack(dev, skb, sta))
+            return NETDEV_TX_OK;
+    }
     /**
      * filer special frame,reuse TXU_CNTRL_MESH_FWD
      * TBD,use own flag in next rom version
@@ -1466,6 +1514,7 @@ netdev_tx_t aml_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
     if (txq->idx == TXQ_INACTIVE)
         goto free;
+
 
 #ifdef CONFIG_AML_AMSDUS_TX
     if (aml_amsdu_add_subframe(aml_hw, skb, sta, txq))
@@ -1625,12 +1674,7 @@ int aml_start_mgmt_xmit(struct aml_vif *vif, struct aml_sta *sta,
             txq = aml_txq_vif_get(vif, NX_UNK_TXQ_TYPE);
         }
     }
-#ifdef CONFIG_AML_RECOVERY
-    if ((aml_recy->flags & (AML_RECY_ASSOC_INFO_SAVED | AML_RECY_EXTAUTH_REQUIRED))
-            && (vif->is_sta_mode)) {
-        txq = aml_txq_vif_get(vif, NX_UNK_TXQ_TYPE);
-    }
-#endif
+
     if (aml_bus_type == PCIE_MODE) {
         tx_headroom = AML_TX_HEADROOM;
     } else if (aml_bus_type == USB_MODE){
@@ -1777,7 +1821,7 @@ int aml_update_tx_cfm(void *pthis)
             (unsigned char *)SRAM_TXCFM_START_ADDR, sizeof(struct tx_sdio_usb_cfm_tag) * SRAM_TXCFM_CNT);
     }
 
-    up(&aml_hw->aml_tx_cfm_sem);
+    up(&aml_hw->aml_txcfm_sem);
     return 0;
 }
 
@@ -1803,17 +1847,23 @@ int aml_tx_cfm_task(void *data)
 #ifndef CONFIG_PT_MODE
     sched_setscheduler(current, SCHED_FIFO, &sch_param);
 #endif
-    while (1) {
+    while (!aml_hw->aml_txcfm_task_quit) {
         /* wait for work */
-        if (down_interruptible(&aml_hw->aml_tx_cfm_sem) != 0) {
+        if (down_interruptible(&aml_hw->aml_txcfm_sem) != 0) {
             /* interrupted, exit */
-            AML_PRINT(AML_DBG_MODULES_TX, "wait aml_tx_cfm_sem fail!\n");
+            AML_PRINT(AML_DBG_MODULES_TX, "wait aml_txcfm_sem fail!\n");
+            break;
+        }
+        if (aml_hw->aml_txcfm_task_quit) {
             break;
         }
 
         spin_lock_bh(&aml_hw->tx_lock);
         read_cfm = aml_hw->read_cfm;
         for (i = 0; i < SRAM_TXCFM_CNT; i++, drv_txcfm_idx = (drv_txcfm_idx + 1) % SRAM_TXCFM_CNT) {
+            if (aml_hw->aml_txcfm_task_quit) {
+                break;
+            }
             aml_hw->ipc_env->txcfm_idx = drv_txcfm_idx;
 
             cfm_data = read_cfm[drv_txcfm_idx];
@@ -1853,7 +1903,7 @@ int aml_tx_cfm_task(void *data)
             spin_unlock_bh(&aml_hw->tx_buf_lock);
             AML_PRINT(AML_DBG_MODULES_TX, "%s, tx_page_free_num=%d, credit=%d, pagenum=%d, skb=%p, cfm.credits=%d\n", __func__, aml_hw->g_tx_param.tx_page_free_num, txq->credits, page_num, skb, cfm.credits);
             if (aml_hw->g_tx_param.tx_page_free_num >= aml_hw->g_tx_param.txcfm_trigger_tx_thr) {
-                up(&aml_hw->aml_tx_task_sem);
+                up(&aml_hw->aml_tx_sem);
             }
 
             /* don't use txq->hwq as it may have changed between push and confirm */
@@ -1954,6 +2004,7 @@ int aml_tx_cfm_task(void *data)
         }
         spin_unlock_bh(&aml_hw->tx_lock);
     }
+    complete_and_exit(&aml_hw->aml_txcfm_completion, 0);
 
     return 0;
 }
