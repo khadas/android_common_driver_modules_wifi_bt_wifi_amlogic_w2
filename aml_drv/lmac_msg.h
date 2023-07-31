@@ -442,6 +442,9 @@ enum mm_sub_a2e_tag {
     MM_SUB_SHOW_TX_MSG,
     MM_SUB_CSI_STATUS_COM_GET,
     MM_SUB_CSI_STATUS_SP_GET,
+    MM_SUB_SET_DYNAMIC_BUF_STATE,
+    MM_SUB_SET_LA_CAPTURE,
+    MM_SUB_SET_LA_STATE,
     /// the MAX
     MM_SUB_A2E_MAX,
     /// New members cannot be added below
@@ -1339,6 +1342,7 @@ struct mm_csa_finish_ind
     u8_l status;
     /// New channel ctx index
     u8_l chan_idx;
+    struct mac_chan_op chan;
 };
 
 /// Structure containing the parameters of the @ref MM_CSA_TRAFFIC_IND message
@@ -1504,7 +1508,9 @@ struct scanu_macth_set
   //SSID to be matched; may be zero-length in case of BSSID match or no match (RSSI only)
   struct mac_ssid ssId;
   //BSSID to be matched; may be all-zero BSSID in case of SSID match or no match (RSSI only)
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,12,0)
   struct mac_addr bssid;
+#endif
   //don't report scan results below this threshold (in s32 dBm)
   int8_t    rssiThreshold;
   //Minimum rssi threshold for each band to be applied
@@ -1535,9 +1541,10 @@ struct scanu_bss_select_adjust {
 /// Structure containing the parameters of the @ref SCANU_SCHED_START_REQ message
 struct scanu_sched_scan_start_req
 {
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,12,0)
     //identifies this request.
     uint64_t reqid;
-
+#endif
     struct scanu_start_req scanu_req;
 
     //number of match sets
@@ -2969,6 +2976,7 @@ struct csi_status_com_get_ind
     u8_l mac_ta[6];
     u8_l frequency_band;
     u8_l bw;
+    u8_l nc[2];
     s8_l rssi[4];
     u8_l snr[4];
     u8_l noise[4];
@@ -2976,7 +2984,7 @@ struct csi_status_com_get_ind
     u32_l protocol_mode;
     u8_l frame_type;
     u8_l chain_num;
-    u8_l csi_len;
+    u8_l tones_num;
     u8_l primary_channel_index;
     u8_l phyerr;
     u8_l rate;
@@ -3283,6 +3291,12 @@ struct extcapab_req
 struct show_tx_msg_req_t
 {
     unsigned int token;
+};
+
+struct set_la_capture_req
+{
+    u32_l bus1;
+    u32_l bus2;
 };
 
 #endif // LMAC_MSG_H_

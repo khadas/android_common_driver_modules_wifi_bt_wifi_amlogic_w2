@@ -68,7 +68,8 @@ struct aml_mod_params aml_mod_params = {
     COMMON_PARAM(tx_lft, AML_TX_LIFETIME_MS, AML_TX_LIFETIME_MS)
     COMMON_PARAM(amsdu_maxnb, NX_TX_PAYLOAD_MAX, NX_TX_PAYLOAD_MAX)
     // By default, only enable UAPSD for Voice queue (see IEEE80211_DEFAULT_UAPSD_QUEUE comment)
-#ifdef CONFIG_AML_POWER_SAVE_MODE
+//#ifdef CONFIG_AML_POWER_SAVE_MODE
+#if 1
     COMMON_PARAM(uapsd_queues, 0, 0)
 #else
     COMMON_PARAM(uapsd_queues, IEEE80211_WMM_IE_STA_QOSINFO_AC_VO, IEEE80211_WMM_IE_STA_QOSINFO_AC_VO)

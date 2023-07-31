@@ -2,6 +2,8 @@
 #define _AML_P2P_H_
 
 #include "aml_defs.h"
+#include "aml_scc.h"
+
 #define P2P_ACTION_HDR_LEN      8
 #define GO_INTENT_H 15
 #define GO_INTENT_L 0
@@ -46,8 +48,9 @@ enum p2p_action_type {
 extern char p2p_pub_action_trace[][30];
 extern char p2p_action_trace[][30];
 extern u32 aml_get_p2p_ie_offset(const u8 *buf,u32 frame_len);
-extern void aml_change_p2p_chanlist(struct aml_vif *vif, u8 *buf, u32 frame_len,u32* frame_len_offset,u8 chan_no);
+extern void aml_change_p2p_chanlist(struct aml_vif *vif, u8 *buf, u32 frame_len,u32* frame_len_offset,struct cfg80211_chan_def chan_def);
 extern void aml_change_p2p_intent(struct aml_vif *vif, u8 *buf, u32 frame_len,u32* frame_len_offset);
+extern void aml_change_p2p_operchan(struct aml_vif *vif, u8 *buf, u32 frame_len, struct cfg80211_chan_def chan_def);
 
 
 #endif /* _AML_P2P_H_ */

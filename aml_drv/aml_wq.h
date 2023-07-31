@@ -28,6 +28,9 @@ enum aml_wq_type {
     AML_WQ_SHOW_TX_MSG,
     AML_WQ_CHECK_SCC,
     AML_WQ_RECY_CONNECT_RETRY,
+#ifndef CONFIG_AML_DEBUGFS
+    AML_WQ_ALLOC_RX_RATE,
+#endif
     AML_WQ_MAX,
 };
 

@@ -18,18 +18,46 @@
 #include "share_mem_map.h"
 #include "aml_scc.h"
 #include "aml_wq.h"
+#include "aml_sap.h"
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 41) && defined (CONFIG_AMLOGIC_KERNEL_VERSION))
-#include <linux/upstream_version.h>
-#endif
+#define CSA_COUNT               10
+#define CSA_BLOCK_TX            1
 
-#define AML_SCC_FRMBUF_MAXLEN  1000
+/* Headers */
+struct ieee80211_header {
+    __le16 frame_ctl;
+    __le16 duration_id;
+    u8 da[MAC_ADDR_LEN];
+    u8 sa[MAC_ADDR_LEN];
+    u8 bssid[MAC_ADDR_LEN];
+    __le16 seq_ctl;
+    u8 payload[0];
+} __packed;
 
-u8 bcn_save[AML_SCC_FRMBUF_MAXLEN];
-u8 probe_rsp_save[AML_SCC_FRMBUF_MAXLEN];
-u32 sap_init_band;
+struct aml_extended_csa{
+    u8 category;
+    u8 action_code;
+    u8 info[4];
+} __packed;
+
+struct aml_csa_wrapper{
+    u8 ie;
+    u8 len;
+    u8 info[3];
+} __packed;
+
+struct aml_csa_data {
+	struct ieee80211_header mac_header;
+    struct aml_extended_csa extend_csa;
+    struct aml_csa_wrapper csa_wrapper;
+} __packed;
+
+static u8 scc_use_csa = 1;
+static u8 probe_rsp_save[AML_SCC_FRMBUF_MAXLEN];
+static u32 sap_init_band;
 u32 beacon_need_update = 0;
-static u8 *scc_bcn_buf = NULL;
+static u8 *scc_bcn_buf = NULL;  //used in new channel
+static u8 *scc_csa_bcn = NULL;  //used in old channel, add csa ie
 char chan_width_trace[][35] = {
     "NL80211_CHAN_WIDTH_20_NOHT",
     "NL80211_CHAN_WIDTH_20",
@@ -46,7 +74,7 @@ char chan_width_trace[][35] = {
  *
  * Return vif's idx of diff chan
  */
-u8 aml_scc_get_confilct_vif_idx(struct aml_vif *sap_vif)
+u8 aml_scc_get_conflict_vif_idx(struct aml_vif *sap_vif)
 {
     u32 i;
     for (i = 0; i < NX_VIRT_DEV_MAX; i++) {
@@ -66,31 +94,10 @@ u8 aml_scc_get_confilct_vif_idx(struct aml_vif *sap_vif)
     return 0xff;
 }
 
-u8* aml_get_beacon_ie_addr(u8* buf, int frame_len,u8 eid)
-{
-    int len;
-    u8 *var_pos;
-    int var_offset = offsetof(struct ieee80211_mgmt, u.beacon.variable);
-    len = frame_len - var_offset;
-    var_pos = buf + var_offset;
-    return (u8*)cfg80211_find_ie(eid, var_pos, len);
-}
-
-u8* aml_get_probe_rsp_ie_addr(u8* buf, int frame_len,u8 eid)
-{
-    int len;
-    u8 *var_pos;
-    int var_offset = offsetof(struct ieee80211_mgmt, u.probe_resp.variable);
-    len = frame_len - var_offset;
-    var_pos = buf + var_offset;
-    return (u8*)cfg80211_find_ie(eid, var_pos, len);
-}
-
 /**
  * This function refresh beacon IEs by probe rsp frame
  *
  */
-
 int aml_scc_change_beacon(struct aml_hw *aml_hw,struct aml_vif *vif)
 {
     AML_DBG(AML_FN_ENTRY_STR);
@@ -106,7 +113,7 @@ int aml_scc_change_beacon(struct aml_hw *aml_hw,struct aml_vif *vif)
         u8 e_len;
         // Build the beacon
         if (scc_bcn_buf == NULL) {
-            scc_bcn_buf = kmalloc(bcn->len, GFP_KERNEL);
+            scc_bcn_buf = kmalloc(AML_SCC_FRMBUF_MAXLEN, GFP_KERNEL);
             if (!scc_bcn_buf)
                 return -ENOMEM;
         }
@@ -163,7 +170,7 @@ int aml_scc_change_beacon(struct aml_hw *aml_hw,struct aml_vif *vif)
  * This function change beacon frame's HT IE primary chan info
  *
  */
-int aml_scc_change_beacon_ht_ie(struct wiphy *wiphy, struct net_device *dev, struct aml_vif *target_vif)
+int aml_scc_change_beacon_ht_ie(struct wiphy *wiphy, struct net_device *dev, struct cfg80211_chan_def target_chdef)
 {
     struct aml_hw *aml_hw = wiphy_priv(wiphy);
     struct aml_vif *vif = netdev_priv(dev);
@@ -178,7 +185,7 @@ int aml_scc_change_beacon_ht_ie(struct wiphy *wiphy, struct net_device *dev, str
 
     // Build the beacon
     if (scc_bcn_buf == NULL) {
-        scc_bcn_buf = kmalloc(bcn->len, GFP_KERNEL);
+        scc_bcn_buf = kmalloc(AML_SCC_FRMBUF_MAXLEN, GFP_KERNEL);
         if (!scc_bcn_buf)
             return -ENOMEM;
     }
@@ -189,9 +196,8 @@ int aml_scc_change_beacon_ht_ie(struct wiphy *wiphy, struct net_device *dev, str
     tmp = (u8*)cfg80211_find_ie(WLAN_EID_HT_OPERATION, var_pos, len);
     if (tmp && tmp[1] >= sizeof(struct ieee80211_ht_operation)) {
         struct ieee80211_ht_operation *htop = (void *)(tmp + 2);
-        u8 target_chan_idx = target_vif->ch_index;
-        u32 target_freq = vif->aml_hw->chanctx_table[target_chan_idx].chan_def.chan->center_freq;
-        u8 chan_no = aml_ieee80211_freq_to_chan(target_freq, vif->aml_hw->chanctx_table[target_chan_idx].chan_def.chan->band);
+        u32 target_freq = target_chdef.chan->center_freq;
+        u8 chan_no = aml_ieee80211_freq_to_chan(target_freq, target_chdef.chan->band);
         htop->primary_chan = chan_no;
     }
 
@@ -218,15 +224,6 @@ int aml_scc_change_beacon_ht_ie(struct wiphy *wiphy, struct net_device *dev, str
     }
 
     return error;
-}
-
-/**
- * This function is called when start ap,and save bcn_buf
- *
- */
-void aml_scc_save_bcn_buf(u8 *bcn_buf, size_t len)
-{
-    memcpy(bcn_save, bcn_buf, len);
 }
 
 void aml_scc_sync_bcn(struct aml_hw *aml_hw, struct aml_wq *aml_wq)
@@ -279,41 +276,228 @@ u32 aml_scc_get_init_band(void)
     return sap_init_band;
 }
 
-/**
- * This function is called when softap mode need do chan switch to ensure in scc mode
- * 1.change beacon ie
- * 2.change chanctx link info
- * 3.notify cfg80211
- *
- */
-bool aml_handle_scc_chan_switch(struct aml_vif *vif, struct aml_vif *target_vif)
+void aml_scc_csa_finish(struct work_struct *ws)
 {
+    struct aml_csa *csa = container_of(ws, struct aml_csa, work);
+    struct aml_vif *vif = csa->vif;
+    struct aml_hw *aml_hw = vif->aml_hw;
+
+    AML_INFO("status:%d", csa->status);
+
+    if (!(csa->status)) {
+         if (aml_scc_change_beacon_ht_ie(vif->aml_hw->wiphy,vif->ndev,csa->chandef)) {
+            AML_INFO("bcn change ht ie fail\n");
+        }
+        mutex_lock(&vif->wdev.mtx);
+        __acquire(&vif->wdev.mtx);
+        spin_lock_bh(&aml_hw->cb_lock);
+        aml_chanctx_unlink(vif);
+        aml_chanctx_link(vif, csa->ch_idx, &csa->chandef);
+        if (aml_hw->cur_chanctx == csa->ch_idx) {
+            aml_radar_detection_enable_on_cur_channel(aml_hw);
+            aml_txq_vif_start(vif, AML_TXQ_STOP_CHAN, aml_hw);
+        } else
+            aml_txq_vif_stop(vif, AML_TXQ_STOP_CHAN, aml_hw);
+        spin_unlock_bh(&aml_hw->cb_lock);
+#ifdef CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT
+        cfg80211_ch_switch_notify(vif->ndev, &csa->chandef, 0);
+#else
+        cfg80211_ch_switch_notify(vif->ndev, &csa->chandef);
+#endif
+        mutex_unlock(&vif->wdev.mtx);
+        __release(&vif->wdev.mtx);
+    }
+    kfree(csa);
+    vif->ap.csa = NULL;
+}
+
+u8 aml_get_operation_class(struct cfg80211_chan_def chan_def)
+{
+    u8 region = 0;
+    bool suc = false;
+    suc = ieee80211_chandef_to_operating_class(&chan_def, &region);
+    if (!suc)
+        AML_INFO("error");
+    return region;
+}
+
+static int aml_csa_send_action(struct aml_hw *aml_hw, struct aml_vif *aml_vif, struct aml_sta *sta, struct cfg80211_chan_def chan_def)
+{
+    struct sk_buff *skb;
+    int ret = 0;
+    const u8 *peer = sta->mac_addr;
+    struct aml_csa_data* csa_data_p = NULL;
+    u64 cookie;
+    struct cfg80211_mgmt_tx_params params;
+
+    skb = netdev_alloc_skb(aml_vif->ndev,sizeof(struct aml_csa_data));
+    csa_data_p = (struct aml_csa_data*)skb_put(skb, sizeof(struct aml_csa_data));
+    csa_data_p->mac_header.frame_ctl = IEEE80211_STYPE_ACTION;
+    csa_data_p->mac_header.duration_id = 0;
+    memcpy(csa_data_p->mac_header.da, peer,MAC_ADDR_LEN);
+    memcpy(csa_data_p->mac_header.sa, aml_vif->ndev->dev_addr,MAC_ADDR_LEN);
+    memcpy(csa_data_p->mac_header.bssid, aml_vif->ndev->dev_addr,MAC_ADDR_LEN);
+    csa_data_p->extend_csa.category = WLAN_CATEGORY_PUBLIC;
+    csa_data_p->extend_csa.action_code = WLAN_PUB_ACTION_EXT_CHANSW_ANN; //ACT_PUBLIC_EXT_CHL_SWITCH
+    csa_data_p->extend_csa.info[0] = CSA_BLOCK_TX;
+    csa_data_p->extend_csa.info[1] = aml_get_operation_class(chan_def);
+    csa_data_p->extend_csa.info[2] = ieee80211_frequency_to_channel(chan_def.chan->center_freq);
+    csa_data_p->extend_csa.info[3] = CSA_COUNT;
+    csa_data_p->csa_wrapper.ie = WLAN_EID_WIDE_BW_CHANNEL_SWITCH;
+    csa_data_p->csa_wrapper.len = 3;
+    /* New channel width */
+    switch (chan_def.width) {
+        case NL80211_CHAN_WIDTH_80:
+            csa_data_p->csa_wrapper.info[0] = IEEE80211_VHT_CHANWIDTH_80MHZ;
+        break;
+        case NL80211_CHAN_WIDTH_160:
+            csa_data_p->csa_wrapper.info[0] = IEEE80211_VHT_CHANWIDTH_160MHZ;
+        break;
+        case NL80211_CHAN_WIDTH_80P80:
+            csa_data_p->csa_wrapper.info[0] = IEEE80211_VHT_CHANWIDTH_80P80MHZ;
+        break;
+        default:
+            csa_data_p->csa_wrapper.info[0] = IEEE80211_VHT_CHANWIDTH_USE_HT;
+    }
+    /* new center frequency segment 0 */
+    csa_data_p->csa_wrapper.info[1] = ieee80211_frequency_to_channel(chan_def.center_freq1);
+    /* new center frequency segment 1 */
+    if (chan_def.center_freq2)
+        csa_data_p->csa_wrapper.info[2] = ieee80211_frequency_to_channel(chan_def.center_freq2);
+    else
+        csa_data_p->csa_wrapper.info[2] = 0;
+    params.len = skb->len;
+    params.buf = skb->data;
+    ret = aml_start_mgmt_xmit(aml_vif, sta, &params, false, &cookie);
+    return ret;
+}
+
+/**
+ * This function is call when scc conflict detect
+ * Build csa beacon and initiate channel-switch procedure.
+ * When fw finish csa procedure, aml_scc_csa_finish will be called
+ * Return false when csa procedure init fail
+ */
+static int aml_scc_channel_switch(struct aml_hw *aml_hw, struct aml_vif *vif, struct cfg80211_chan_def chan_def)
+{
+    struct aml_ipc_buf buf = {0};
+    struct aml_bcn *bcn;
+    struct aml_csa *csa;
     struct net_device *dev = vif->ndev;
-    struct cfg80211_chan_def target_chdef = vif->aml_hw->chanctx_table[target_vif->ch_index].chan_def;
-    struct cfg80211_chan_def cur_chdef = vif->aml_hw->chanctx_table[vif->ch_index].chan_def;
+    u16 csa_oft[BCN_MAX_CSA_CPT];//csa offset,fw use to change csa cnt
+    u8 *bcn_buf;
+    int error = 0;
+    unsigned int addr;
+    u32 idx = 0;
+    u8 *pos = NULL;
 
-    if (target_chdef.chan == NULL) {
-        AML_INFO("chdef is null");
-        return false;
+    AML_DBG(AML_FN_ENTRY_STR);
+    if (vif->ap.csa) {
+        AML_INFO("another csa procedure is already exit");
+        return -ENOMEM;
     }
 
-    if (aml_scc_get_init_band() != target_chdef.chan->band) {
-        AML_INFO("init band conflict with target band [%d %d]\n",aml_scc_get_init_band(),target_chdef.chan->band);
-        return false;
-    }
-    if (aml_scc_change_beacon_ht_ie(vif->aml_hw->wiphy,dev,target_vif)) {
-        // if beacon buffer ie change fail
-        AML_INFO("bcn change ht ie fail \n");
-        return false;
+    bcn = &vif->ap.bcn;
+    if (scc_csa_bcn == NULL) {
+        scc_csa_bcn = kmalloc(AML_SCC_FRMBUF_MAXLEN, GFP_KERNEL);
+        if (!scc_csa_bcn) {
+            AML_INFO("csa bcn alloc fail");
+            return -ENOMEM;
+        }
     }
 
-    AML_INFO("chan %d,bw:%s --> chan %d,bw:%s ",
-        aml_ieee80211_freq_to_chan(cur_chdef.chan->center_freq, cur_chdef.chan->band),
-        chan_width_trace[cur_chdef.width],
-        aml_ieee80211_freq_to_chan(target_chdef.chan->center_freq, target_chdef.chan->band),
-        chan_width_trace[target_chdef.width]);
+    memcpy(scc_csa_bcn,bcn_save,bcn->len);
+    bcn_buf = scc_csa_bcn;
+    pos = &scc_csa_bcn[bcn->len];
+    *(pos + idx++) = WLAN_EID_CHANNEL_SWITCH; //ie
+    *(pos + idx++) = 3; //len
+    *(pos + idx++) = CSA_BLOCK_TX;//block tx
+    *(pos + idx++) = ieee80211_frequency_to_channel(chan_def.chan->center_freq);//new chan no
+    *(pos + idx++) = CSA_COUNT;//count
+    *(pos + idx++) = WLAN_EID_EXT_CHANSWITCH_ANN; //ie
+    *(pos + idx++) = 4; //len
+    *(pos + idx++) = CSA_BLOCK_TX;//block tx
+    *(pos + idx++) = aml_get_operation_class(chan_def);//new operating class
+    *(pos + idx++) = ieee80211_frequency_to_channel(chan_def.chan->center_freq);//chan no
+    *(pos + idx++) = CSA_COUNT;//count
+    if ((chan_def.width == NL80211_CHAN_WIDTH_80) || (chan_def.width == NL80211_CHAN_WIDTH_80P80) || (chan_def.width == NL80211_CHAN_WIDTH_160)) {
+        *(pos + idx++) = WLAN_EID_CHANNEL_SWITCH_WRAPPER; //ie
+        *(pos + idx++) = 5; //len
+        *(pos + idx++) = WLAN_EID_WIDE_BW_CHANNEL_SWITCH;   /* EID */
+        *(pos + idx++) = 3;                 /* IE length */
+        /* New channel width */
+        switch (chan_def.width) {
+            case NL80211_CHAN_WIDTH_80:
+                *(pos + idx++) = IEEE80211_VHT_CHANWIDTH_80MHZ;
+            break;
+            case NL80211_CHAN_WIDTH_160:
+                *(pos + idx++) = IEEE80211_VHT_CHANWIDTH_160MHZ;
+            break;
+            case NL80211_CHAN_WIDTH_80P80:
+                *(pos + idx++) = IEEE80211_VHT_CHANWIDTH_80P80MHZ;
+            break;
+            default:
+                *(pos + idx++) = IEEE80211_VHT_CHANWIDTH_USE_HT;
+        }
+        /* new center frequency segment 0 */
+        *(pos + idx++) = ieee80211_frequency_to_channel(chan_def.center_freq1);
+        /* new center frequency segment 1 */
+        if (chan_def.center_freq2)
+            *(pos + idx++) = ieee80211_frequency_to_channel(chan_def.center_freq2);
+        else
+            *(pos + idx++) = 0;
+    }
 
-    return true;
+    memset(csa_oft, 0, sizeof(csa_oft));
+    csa_oft[0] = bcn->len + 4;
+    csa_oft[1] = bcn->len + 10;
+    AML_INFO("vif_type:%d, bcn_len:%d, tim_len:%d, idx:%d, csa_oft[0]:%d, csa_oft[1]:%d", AML_VIF_TYPE(vif), bcn->len, bcn->tim_len, idx, csa_oft[0], csa_oft[1]);
+    if (aml_bus_type == PCIE_MODE) {
+        if ((error = aml_ipc_buf_a2e_init(aml_hw, &buf, bcn_buf, bcn->len + idx))) {
+            AML_INFO("ipc init fail");
+            return error;
+        }
+    } else if (aml_bus_type == USB_MODE) {
+        addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
+        aml_hw->plat->hif_ops->hi_write_sram((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len + idx, USB_EP4);
+    } else if (aml_bus_type == SDIO_MODE) {
+        addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
+        aml_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len + idx);
+    }
+
+    csa = kzalloc(sizeof(struct aml_csa), GFP_KERNEL);
+    if (!csa) {
+        AML_INFO("csa alloc fail");
+        return -ENOMEM;
+    }
+
+    memset(csa, 0, sizeof(struct aml_csa));
+    vif->ap.csa = csa;
+    csa->vif = vif;
+    csa->chandef = chan_def;
+    /* Send new Beacon. FW will extract channel and count from the beacon */
+    error = aml_send_bcn_change(aml_hw, vif->vif_index, buf.dma_addr, bcn->len + idx, bcn->head_len, bcn->tim_len, csa_oft);
+    if (error) {
+        kfree(csa);
+        vif->ap.csa = NULL;
+        AML_INFO("bcn send fail");
+    } else {
+        INIT_WORK(&csa->work, aml_scc_csa_finish);
+#ifndef CONFIG_PT_MODE
+    #ifdef CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT
+        cfg80211_ch_switch_started_notify(dev, &csa->chandef, 0, CSA_COUNT, CSA_BLOCK_TX);
+    #else
+        cfg80211_ch_switch_started_notify(dev, &csa->chandef, CSA_COUNT);
+    #endif
+#endif
+    }
+
+    if (aml_bus_type == PCIE_MODE) {
+        if (buf.addr)
+            dma_unmap_single(aml_hw->dev, buf.dma_addr, buf.size, DMA_TO_DEVICE);
+    }
+    /* coverity[leaked_storage] - csa have added to list */
+    return error;
 }
 
 /**
@@ -327,48 +511,81 @@ void aml_scc_check_chan_conflict(struct aml_hw *aml_hw)
     list_for_each_entry(vif, &aml_hw->vifs, list) {
         switch (AML_VIF_TYPE(vif)) {
             case NL80211_IFTYPE_AP:
+            case NL80211_IFTYPE_P2P_GO:
             {
-                u8 target_vif_idx = aml_scc_get_confilct_vif_idx(vif);
+                u8 target_vif_idx = 0;
                 struct mm_scc_cfm scc_cfm;
                 struct aml_vif *target_vif ;
-                struct cfg80211_chan_def chdef;
-
-                AML_INFO("chan conflict, target_vif_idx:%d", target_vif_idx);
+                struct cfg80211_chan_def target_chdef;
+                struct cfg80211_chan_def cur_chdef;
+                if (aml_recy_flags_chk(AML_RECY_STOP_AP_PROC)) {
+                    AML_INFO("proc stop ap,so not need to check");
+                    break;
+                }
+                target_vif_idx = aml_scc_get_conflict_vif_idx(vif);
+                AML_INFO("target_idx:%d, sta_list:%d, use_csa:%d", target_vif_idx, list_empty(&vif->ap.sta_list), scc_use_csa);
                 if (target_vif_idx == 0xff) {
                     break;
                 }
-                target_vif = aml_hw->vif_table[target_vif_idx];
-                chdef = vif->aml_hw->chanctx_table[target_vif->ch_index].chan_def;
 
+                target_vif = aml_hw->vif_table[target_vif_idx];
+                target_chdef = vif->aml_hw->chanctx_table[target_vif->ch_index].chan_def;
+                cur_chdef = vif->aml_hw->chanctx_table[vif->ch_index].chan_def;
                 if (target_vif->ch_index >= NX_CHAN_CTXT_CNT) {
                     AML_INFO("target ch_index invalid:%d", target_vif->ch_index);
                     break;
                 }
+                if (target_chdef.chan == NULL) {
+                    AML_INFO("target chdef is null");
+                    break;
+                }
 
-                if (aml_handle_scc_chan_switch(vif, vif->aml_hw->vif_table[target_vif_idx])) {
-                    if (aml_send_scc_conflict_notify(vif, target_vif_idx, &scc_cfm) == 0) {//notify fw
-                        if (scc_cfm.status == CO_OK) {
+                if (aml_scc_get_init_band() != target_chdef.chan->band) {
+                    AML_INFO("init band conflict with target band [%d %d]\n",aml_scc_get_init_band(),target_chdef.chan->band);
+                    break;
+                }
+                AML_INFO("chan %d,bw:%s --> chan %d,bw:%s ",
+                    aml_ieee80211_freq_to_chan(cur_chdef.chan->center_freq, cur_chdef.chan->band),
+                    chan_width_trace[cur_chdef.width],
+                    aml_ieee80211_freq_to_chan(target_chdef.chan->center_freq, target_chdef.chan->band),
+                    chan_width_trace[target_chdef.width]);
 
-                            aml_chanctx_unlink(vif);
-                            aml_chanctx_link(vif, target_vif->ch_index, &chdef);
-                            #ifdef CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT
-                            #if ((defined (AML_KERNEL_VERSION) && AML_KERNEL_VERSION >= 15) || LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0))
-                            cfg80211_ch_switch_notify(vif->ndev, &chdef, 0, 0);
-                            #else
-                            cfg80211_ch_switch_notify(vif->ndev, &chdef, 0);
-                            #endif
-                            #else
-                            cfg80211_ch_switch_notify(vif->ndev, &chdef);
-                            #endif
-                            if (vif->aml_hw->cur_chanctx == target_vif->ch_index) {
-                                aml_txq_vif_start(vif, AML_TXQ_STOP_CHAN, vif->aml_hw);
-                            }
-                            else {
-                                aml_txq_vif_stop(vif, AML_TXQ_STOP_CHAN, vif->aml_hw);
-                            }
-                            AML_SCC_BEACON_SET_STATUS(BEACON_UPDATE_WAIT_PROBE);
+                if (!(list_empty(&vif->ap.sta_list)) && scc_use_csa) {
+                    struct aml_sta *sta;
+                    list_for_each_entry(sta, &vif->ap.sta_list, list) {
+                        if (sta->valid) {
+                            int ret;
+                            aml_ps_bh_enable(aml_hw, sta, 1);//we always consider peer is sleep
+                            ret = aml_csa_send_action(aml_hw, vif, sta, target_chdef);
+                            AML_INFO("send csa action to :%pM,ret:%d", sta->mac_addr, ret);
                         }
-                        AML_INFO("scc_cfm.status:%d", scc_cfm.status);
+                    }
+                    aml_scc_channel_switch(aml_hw, vif, target_chdef);
+                }
+                else {
+                    if (!aml_scc_change_beacon_ht_ie(vif->aml_hw->wiphy,vif->ndev,target_chdef)) {
+                        if (aml_send_scc_conflict_notify(vif, target_vif_idx, &scc_cfm) == 0) {//notify fw
+                            if (scc_cfm.status == CO_OK) {
+                                aml_chanctx_unlink(vif);
+                                aml_chanctx_link(vif, target_vif->ch_index, &target_chdef);
+                                #ifdef CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT
+                                cfg80211_ch_switch_notify(vif->ndev, &target_chdef, 0);
+                                #else
+                                cfg80211_ch_switch_notify(vif->ndev, &target_chdef);
+                                #endif
+                                if (vif->aml_hw->cur_chanctx == target_vif->ch_index) {
+                                    aml_txq_vif_start(vif, AML_TXQ_STOP_CHAN, vif->aml_hw);
+                                }
+                                else {
+                                    aml_txq_vif_stop(vif, AML_TXQ_STOP_CHAN, vif->aml_hw);
+                                }
+                                AML_SCC_BEACON_SET_STATUS(BEACON_UPDATE_WAIT_PROBE);
+                            }
+                            AML_INFO("scc_cfm.status:%d", scc_cfm.status);
+                        }
+                    }
+                    else {
+                        AML_INFO("bcn change ht ie fail \n");
                     }
                 }
                 break;
@@ -382,6 +599,7 @@ void aml_scc_check_chan_conflict(struct aml_hw *aml_hw)
 void aml_scc_init(void)
 {
     scc_bcn_buf = NULL;
+    scc_csa_bcn = NULL;
 }
 
 void aml_scc_deinit(void)
@@ -389,5 +607,27 @@ void aml_scc_deinit(void)
     if (scc_bcn_buf) {
         kfree(scc_bcn_buf);
     }
+    if (scc_csa_bcn) {
+        kfree(scc_csa_bcn);
+    }
     AML_SCC_CLEAR_BEACON_UPDATE();
 }
+
+void aml_check_scc(void)
+{
+    if (aml_recy_flags_chk(AML_RECY_CHECK_SCC)) {
+        struct aml_wq *aml_wq;
+        enum aml_wq_type type = AML_WQ_CHECK_SCC;
+
+        aml_recy_flags_clr(AML_RECY_CHECK_SCC);
+        aml_wq = aml_wq_alloc(1);
+        if (!aml_wq) {
+            AML_INFO("alloc wq out of memory");
+            return;
+        }
+        aml_wq->id = AML_WQ_CHECK_SCC;
+        memcpy(aml_wq->data, &type, 1);
+        aml_wq_add(aml_recy->aml_hw, aml_wq);
+    }
+}
+

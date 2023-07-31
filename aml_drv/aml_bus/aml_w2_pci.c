@@ -14,9 +14,7 @@
 #include "aml_w2_v7.h"
 #include "usb_common.h"
 #include "aml_interface.h"
-#ifdef CONFIG_AML_POWER_SAVE_MODE
 #include "chip_intf_reg.h"
-#endif
 
 #define W2p_VENDOR_AMLOGIC_EFUSE 0x1F35
 #define W2p_PRODUCT_AMLOGIC_EFUSE 0x0602
@@ -92,16 +90,15 @@ static void aml_pci_remove(struct pci_dev *pci_dev)
     printk("%s:%d \n", __func__, __LINE__);
     g_aml_plat_pci->deinit(g_aml_plat_pci);
 }
+bool g_pcie_suspend = 0;
 static int aml_pci_suspend(struct pci_dev *pdev, pm_message_t state)
 {
     int ret;
-
+    g_pcie_suspend = 1;
     printk("%s\n", __func__);
     //aml_suspend_dump_cfgregs(bus, "BEFORE_EP_SUSPEND");
     pci_save_state(pdev);
     pci_enable_wake(pdev, PCI_D0, 1);
-    if (pci_is_enabled(pdev))
-        pci_disable_device(pdev);
 
     ret = pci_set_power_state(pdev, PCI_D3hot);
     if (ret) {
@@ -115,17 +112,9 @@ static int aml_pci_suspend(struct pci_dev *pdev, pm_message_t state)
 static int aml_pci_resume(struct pci_dev *pdev)
 {
     int err;
-#ifdef CONFIG_AML_POWER_SAVE_MODE
     unsigned int wake_flag;
-#endif
     printk("%s\n", __func__);
     pci_restore_state(pdev);
-
-    err = pci_enable_device(pdev);
-    if (err) {
-        ERROR_DEBUG_OUT("pci_enable_device error %d \n", err);
-        goto out;
-    }
 
     pci_set_master(pdev);
     err = pci_set_power_state(pdev, PCI_D0);
@@ -133,7 +122,6 @@ static int aml_pci_resume(struct pci_dev *pdev)
         ERROR_DEBUG_OUT("pci_set_power_state error %d \n", err);
         goto out;
     }
-#ifdef CONFIG_AML_POWER_SAVE_MODE
     wake_flag = aml_pci_read_for_bt(AML_ADDR_AON, RG_AON_A55);
     printk("%s %d wake_flag = 0x%x\n", __func__, __LINE__, wake_flag);
     while (!((wake_flag != 0xffffffff) && (wake_flag & BIT(0))))
@@ -146,16 +134,29 @@ static int aml_pci_resume(struct pci_dev *pdev)
         wake_flag = aml_pci_read_for_bt(AML_ADDR_AON, RG_AON_A55);
         udelay(10);
     }
-#endif
+    g_pcie_suspend = 0;
     printk("%s ok exit\n", __func__);
 out:
     return err;
 }
 
+extern uint32_t aml_pci_read_for_bt(int base, u32 offset);
+extern void aml_pci_write_for_bt(u32 val, int base, u32 offset);
+
+void aml_wifi_shutdown(void)
+{
+    // Notify fw to enter shutdown mode
+    unsigned int reg_data;
+
+    reg_data = aml_pci_read_for_bt(AML_ADDR_AON, RG_AON_A55);
+    reg_data |= BIT(28);
+    aml_pci_write_for_bt(reg_data, AML_ADDR_AON, RG_AON_A55);
+}
+
 static void aml_pci_shutdown(struct pci_dev *pdev)
 {
     g_pci_shutdown = 1;
-
+    aml_wifi_shutdown();
     if (pci_is_enabled(pdev)) {
         msleep(100);
         pci_disable_device(pdev);
@@ -308,4 +309,4 @@ EXPORT_SYMBOL(g_pci_shutdown);
 #ifndef CONFIG_AML_FPGA_PCIE
 EXPORT_SYMBOL(pcie_ep_addr_range);
 #endif
-
+EXPORT_SYMBOL(g_pcie_suspend);

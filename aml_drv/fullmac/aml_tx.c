@@ -337,6 +337,9 @@ u16 aml_select_txq(struct aml_vif *aml_vif, struct sk_buff *skb)
     struct wireless_dev *wdev = &aml_vif->wdev;
     struct aml_sta *sta = NULL;
     struct aml_txq *txq;
+    struct netdev_queue *netq;
+    int queue_index = 0, count = 0;
+    struct Qdisc *q;
     u16 netdev_queue;
     bool tdls_mgmgt_frame = false;
 
@@ -459,6 +462,20 @@ u16 aml_select_txq(struct aml_vif *aml_vif, struct sk_buff *skb)
 
         txq = aml_txq_sta_get(sta, skb->priority, aml_hw);
         netdev_queue = txq->ndev_idx;
+        queue_index = netdev_queue;
+        queue_index = netdev_cap_txqueue(aml_vif->ndev, queue_index);
+        netq = netdev_get_tx_queue(aml_vif->ndev, queue_index);
+        q = rcu_dereference_bh(netq->qdisc);
+        while (skb->protocol == cpu_to_be16(ETH_P_PAE) && !(q->flags & TCQ_F_NOLOCK) && count < 50) {
+            rcu_read_unlock_bh();
+            q = rcu_dereference_bh(netq->qdisc);
+            if (count%10 == 0) {
+                printk("txq flag is not ok, need wait dev active.  flag: %x\n", q->flags);
+            }
+            msleep(10);
+            count ++;
+            rcu_read_lock_bh();
+        }
     }
     else if (sta)
     {
@@ -903,11 +920,6 @@ static int aml_amsdu_add_subframe_header(struct aml_hw *aml_hw,
     list_add_tail(&amsdu_txhdr->list, &amsdu->hdrs);
     amsdu->len += amsdu_len;
 
-    if (aml_bus_type == PCIE_MODE) {
-        aml_ipc_sta_buffer(aml_hw, sw_txhdr->txq->sta,
-                            sw_txhdr->txq->tid, msdu_len);
-    }
-
     trace_amsdu_subframe(sw_txhdr);
     return 0;
 }
@@ -938,10 +950,6 @@ static bool aml_amsdu_add_subframe(struct aml_hw *aml_hw, struct sk_buff *skb,
 {
     bool res = false;
     struct ethhdr *eth;
-
-    if (aml_bus_type == USB_MODE) {
-        aml_hw->mod_params->amsdu_maxnb = 2;
-    }
 
     /* Adjust the maximum number of MSDU allowed in A-MSDU */
     aml_adjust_amsdu_maxnb(aml_hw);
@@ -1064,9 +1072,7 @@ static void aml_amsdu_dismantle(struct aml_hw *aml_hw, struct aml_sw_txhdr *sw_t
         size_t data_oft;
 
         list_del(&amsdu_txhdr->list);
-        if (aml_bus_type == PCIE_MODE) {
-            aml_ipc_sta_buffer(aml_hw, txq->sta, txq->tid, -amsdu_txhdr->msdu_len);
-        } else if (aml_bus_type == USB_MODE) {
+        if (aml_bus_type == USB_MODE) {
             tx_max_headroom = AML_USB_TX_HEADROOM;
         } else {
             tx_max_headroom = AML_SDIO_TX_HEADROOM;
@@ -1314,10 +1320,18 @@ uint32_t aml_filter_sp_mgmt_frame(struct aml_vif *vif, u8 *buf, AML_SP_STATUS_E 
                         if ((oui_subtype == P2P_ACTION_GO_NEG_RSP) || (oui_subtype == P2P_ACTION_GO_NEG_CFM) || (oui_subtype == P2P_ACTION_INVIT_RSP)) {
                             ret |= AML_SP_FRAME;
                         }
-#if 0 //code for debug p2p go intent & chanlist
+#if 0 //code for change p2p go intent & chanlist
                         if (sp_status == SP_STATUS_TX_START) {
                             if ((oui_subtype == P2P_ACTION_GO_NEG_REQ) || (oui_subtype == P2P_ACTION_GO_NEG_RSP) || (oui_subtype == P2P_ACTION_INVIT_RSP)) {
-                                aml_change_p2p_chanlist(vif,buf, frame_len,frame_len_offset,1);
+                                struct aml_vif *sta_vif ;
+                                sta_vif = vif->aml_hw->vif_table[0];
+                                if (sta_vif && sta_vif->sta.ap && (sta_vif->sta.ap->valid)) {
+                                    struct cfg80211_chan_def target_chdef;
+                                    target_chdef = vif->aml_hw->chanctx_table[sta_vif->ch_index].chan_def;
+                                    AML_INFO("p2p channel to:%d", aml_ieee80211_freq_to_chan(target_chdef.chan->center_freq, target_chdef.chan->band));
+                                    aml_change_p2p_chanlist(vif,buf, frame_len,frame_len_offset,target_chdef);
+                                    aml_change_p2p_operchan(vif,buf, frame_len,target_chdef);
+                                }
                             }
                             if ((oui_subtype == P2P_ACTION_GO_NEG_REQ) || (oui_subtype == P2P_ACTION_GO_NEG_RSP)) {
                                 aml_change_p2p_intent(vif,buf, frame_len,frame_len_offset);
@@ -1347,6 +1361,9 @@ uint32_t aml_filter_sp_mgmt_frame(struct aml_vif *vif, u8 *buf, AML_SP_STATUS_E 
                                 offset += sprintf(p + offset, "[DPP Configuration]");
                                 ret |= AML_DPP_ACTION_FRAME;
                             }
+                }
+                else if (action_code == WLAN_PUB_ACTION_EXT_CHANSW_ANN) {
+                    ret |= AML_CSA_ACTION_FRAME;
                 }
             }
             else if (category == P2P_ACTION) {
@@ -1469,6 +1486,11 @@ netdev_tx_t aml_start_xmit(struct sk_buff *skb, struct net_device *dev)
     } else {
         tx_max_headroom = AML_SDIO_TX_MAX_HEADROOM;
     }
+#ifdef CONFIG_AML_RECOVERY
+    if (aml_recy != NULL && aml_recy_flags_chk(AML_RECY_IPC_ONGOING | AML_RECY_DROP_XMIT_PKT)) {
+        goto free;
+    }
+#endif
 
 #ifdef CONFIG_AML_POWER_SAVE_MODE
     if (aml_bus_type == PCIE_MODE)
@@ -1496,10 +1518,10 @@ netdev_tx_t aml_start_xmit(struct sk_buff *skb, struct net_device *dev)
     sta = aml_get_tx_info(aml_vif, skb, &tid);
     if (!sta)
         goto free;
-    if (aml_bus_type == PCIE_MODE) {
-        if (aml_filter_tx_tcp_ack(dev, skb, sta))
-            return NETDEV_TX_OK;
-    }
+
+    if (aml_filter_tx_tcp_ack(dev, skb, sta))
+        return NETDEV_TX_OK;
+
     /**
      * filer special frame,reuse TXU_CNTRL_MESH_FWD
      * TBD,use own flag in next rom version
@@ -1694,6 +1716,12 @@ int aml_start_mgmt_xmit(struct aml_vif *vif, struct aml_sta *sta,
         dev_kfree_skb(skb);
         return -ENOMEM;
     }
+#ifdef CONFIG_AML_RECOVERY
+    if (aml_recy != NULL && aml_recy_flags_chk(AML_RECY_IPC_ONGOING | AML_RECY_DROP_XMIT_PKT)) {
+        dev_kfree_skb(skb);
+        return -ENOMEM;
+    }
+#endif
 
     /* Reserve headroom in skb. Do this so that we can easily re-use ieee80211
        functions that take skb with 802.11 frame as parameter */
@@ -1810,12 +1838,14 @@ int aml_update_tx_cfm(void *pthis)
 {
     struct aml_hw *aml_hw = pthis;
     struct tx_sdio_usb_cfm_tag *read_cfm;
-
+    int actual_length  = 0;
+    int ret = 0;
     read_cfm = aml_hw->read_cfm;
     if (aml_bus_type == USB_MODE) {
-        aml_hw->plat->hif_ops->hi_read_sram((unsigned char *)read_cfm,
-            (unsigned char *)SRAM_TXCFM_START_ADDR, sizeof(struct tx_sdio_usb_cfm_tag) * SRAM_TXCFM_CNT, USB_EP4);
 
+        ret = usb_bulk_msg(aml_hw->plat->usb_dev, usb_rcvbulkpipe(aml_hw->plat->usb_dev, USB_EP5), (void *)read_cfm, sizeof(struct tx_sdio_usb_cfm_tag) * SRAM_TXCFM_CNT, &actual_length, 100);
+        if (ret)
+            printk("usb bulk failed actual len is %d\n",actual_length);
     } else if (aml_bus_type == SDIO_MODE) {
         aml_hw->plat->hif_sdio_ops->hi_sram_read((unsigned char *)read_cfm,
             (unsigned char *)SRAM_TXCFM_START_ADDR, sizeof(struct tx_sdio_usb_cfm_tag) * SRAM_TXCFM_CNT);
@@ -1842,6 +1872,8 @@ int aml_tx_cfm_task(void *data)
     unsigned char  page_num = 0;
     struct sched_param sch_param;
     u16 dyna_page = 0;
+    u16 max_dyna_num;
+    uint32_t sp_ret = 0;
 
     sch_param.sched_priority = 91;
 #ifndef CONFIG_PT_MODE
@@ -1894,14 +1926,15 @@ int aml_tx_cfm_task(void *data)
             }
             spin_lock_bh(&aml_hw->tx_buf_lock);
             aml_hw->g_tx_param.tx_page_free_num += page_num;
-            if (aml_bus_type == SDIO_MODE) {
-                if (dyna_page == DYNA_PAGE_NUM)
-                    aml_hw->g_tx_param.tx_page_free_num += dyna_page;
-                else
-                    aml_hw->g_tx_param.tx_page_free_num -= dyna_page;
-            }
+
+            max_dyna_num = (aml_bus_type == SDIO_MODE) ? SDIO_DYNA_PAGE_NUM : USB_DYNA_PAGE_NUM;
+            if (dyna_page == max_dyna_num)
+                aml_hw->g_tx_param.tx_page_free_num += dyna_page;
+            else
+                aml_hw->g_tx_param.tx_page_free_num -= dyna_page;
+
             spin_unlock_bh(&aml_hw->tx_buf_lock);
-            AML_PRINT(AML_DBG_MODULES_TX, "%s, tx_page_free_num=%d, credit=%d, pagenum=%d, skb=%p, cfm.credits=%d\n", __func__, aml_hw->g_tx_param.tx_page_free_num, txq->credits, page_num, skb, cfm.credits);
+            AML_PRINT(AML_DBG_MODULES_TX, "%s, tx_page_free_num=%d, credit=%d, pagenum=%d, skb=%p, cfm.credits=%d, drv_txcfm_idx=%d\n", __func__, aml_hw->g_tx_param.tx_page_free_num, txq->credits, page_num, skb, cfm.credits, drv_txcfm_idx);
             if (aml_hw->g_tx_param.tx_page_free_num >= aml_hw->g_tx_param.txcfm_trigger_tx_thr) {
                 up(&aml_hw->aml_tx_sem);
             }
@@ -1923,12 +1956,20 @@ int aml_tx_cfm_task(void *data)
                 if ((ieee80211_is_deauth(mgmt->frame_control)) && (sw_txhdr->aml_vif->is_disconnect == 1)) {
                     sw_txhdr->aml_vif->is_disconnect = 0;
                 }
+
+                if (ieee80211_is_action(mgmt->frame_control)) {
+                    sp_ret = aml_filter_sp_mgmt_frame(sw_txhdr->aml_vif,(u8*)mgmt, cfm.status.acknowledged ? SP_STATUS_TX_SUC:SP_STATUS_TX_FAIL,0,0);
+                    if (sp_ret & AML_CSA_ACTION_FRAME) {
+                        AML_INFO("csa action send cfm, status:%d", cfm.status.acknowledged);
+                    }
+                }
                 /* Confirm transmission to CFG80211 */
                 cfg80211_mgmt_tx_status(&sw_txhdr->aml_vif->wdev,
                                     (unsigned long)skb, skb_mac_header(skb),
                                     sw_txhdr->frame_len,
-                                    cfm.status.acknowledged,
+                                    (sp_ret & AML_P2P_ACTION_FRAME) ? 0 : cfm.status.acknowledged,
                                     GFP_ATOMIC);
+                sp_ret = 0;
             } else if ((txq->idx != TXQ_INACTIVE) && cfm.status.sw_retry_required) {
                 sw_txhdr->desc.api.host.flags |= TXU_CNTRL_RETRY;
                 /* firmware postponed this buffer */
@@ -1941,14 +1982,12 @@ int aml_tx_cfm_task(void *data)
             /* STA may have disconnect (and txq stopped) when buffers were stored
                         in fw. In this case do nothing when they're returned */
             if (txq->idx != TXQ_INACTIVE) {
-                if (cfm.credits) {
-                    txq->credits += cfm.credits;
-                    if (txq->credits <= 0) {
-                        aml_txq_stop(txq, AML_TXQ_STOP_FULL);
-                    }
-                    else if (txq->credits > 0)
-                        aml_txq_start(txq, AML_TXQ_STOP_FULL);
+                txq->credits++;
+                if (txq->credits <= 0) {
+                    aml_txq_stop(txq, AML_TXQ_STOP_FULL);
                 }
+                else if (txq->credits > 0)
+                    aml_txq_start(txq, AML_TXQ_STOP_FULL);
 
                 /* continue service period */
                 if (unlikely(txq->push_limit && !aml_txq_is_full(txq))) {
@@ -1977,8 +2016,6 @@ int aml_tx_cfm_task(void *data)
                     aml_amsdu_del_subframe_header(amsdu_txhdr);
                     if (aml_bus_type == PCIE_MODE) {
                         aml_ipc_buf_a2e_release(aml_hw, &amsdu_txhdr->ipc_data);
-                        aml_ipc_sta_buffer(aml_hw, txq->sta, txq->tid,
-                            -amsdu_txhdr->msdu_len);
                     }
                     aml_tx_statistic(sw_txhdr->aml_vif, txq, cfm.status, amsdu_txhdr->msdu_len);
                     consume_skb(amsdu_txhdr->skb);
@@ -1989,7 +2026,6 @@ int aml_tx_cfm_task(void *data)
 
         if (aml_bus_type == PCIE_MODE) {
             aml_ipc_buf_a2e_release(aml_hw, &sw_txhdr->ipc_data);
-            aml_ipc_sta_buffer(aml_hw, txq->sta, txq->tid, -sw_txhdr->frame_len);
         }
         aml_tx_statistic(sw_txhdr->aml_vif, txq, cfm.status, sw_txhdr->frame_len);
 
@@ -2004,7 +2040,10 @@ int aml_tx_cfm_task(void *data)
         }
         spin_unlock_bh(&aml_hw->tx_lock);
     }
-    complete_and_exit(&aml_hw->aml_txcfm_completion, 0);
+    if (aml_hw->aml_txcfm_completion_init) {
+        aml_hw->aml_txcfm_completion_init = 0;
+        complete_and_exit(&aml_hw->aml_txcfm_completion, 0);
+    }
 
     return 0;
 }
@@ -2053,6 +2092,9 @@ int aml_txdatacfm(void *pthis, void *arg)
         }
         if (ieee80211_is_action(mgmt->frame_control)) {
             sp_ret = aml_filter_sp_mgmt_frame(sw_txhdr->aml_vif,(u8*)mgmt, cfm->status.acknowledged ? SP_STATUS_TX_SUC:SP_STATUS_TX_FAIL,0,0);
+            if (sp_ret & AML_CSA_ACTION_FRAME) {
+                AML_INFO("csa action send cfm, status:%d", cfm->status.acknowledged);
+            }
         }
         /* Confirm transmission to CFG80211 */
         cfg80211_mgmt_tx_status(&sw_txhdr->aml_vif->wdev,
@@ -2107,10 +2149,6 @@ int aml_txdatacfm(void *pthis, void *arg)
         list_for_each_entry_safe(amsdu_txhdr, tmp, &sw_txhdr->amsdu.hdrs, list) {
             aml_amsdu_del_subframe_header(amsdu_txhdr);
             aml_ipc_buf_a2e_release(aml_hw, &amsdu_txhdr->ipc_data);
-            if (aml_bus_type == PCIE_MODE) {
-                aml_ipc_sta_buffer(aml_hw, txq->sta, txq->tid,
-                                    -amsdu_txhdr->msdu_len);
-            }
             aml_tx_statistic(sw_txhdr->aml_vif, txq, cfm->status, amsdu_txhdr->msdu_len);
             consume_skb(amsdu_txhdr->skb);
         }
@@ -2118,9 +2156,6 @@ int aml_txdatacfm(void *pthis, void *arg)
 #endif /* CONFIG_AML_AMSDUS_TX */
 
     aml_ipc_buf_a2e_release(aml_hw, &sw_txhdr->ipc_data);
-    if (aml_bus_type == PCIE_MODE) {
-        aml_ipc_sta_buffer(aml_hw, txq->sta, txq->tid, -sw_txhdr->frame_len);
-    }
     aml_tx_statistic(sw_txhdr->aml_vif, txq, cfm->status, sw_txhdr->frame_len);
 
     kmem_cache_free(aml_hw->sw_txhdr_cache, sw_txhdr);
@@ -2153,9 +2188,15 @@ void aml_txq_credit_update(struct aml_hw *aml_hw, int sta_idx, u8 tid, s8 update
 
     aml_spin_lock(&aml_hw->tx_lock);
     if (txq->idx != TXQ_INACTIVE) {
+#ifdef CONFIG_CREDIT124
         if (update > NX_TXQ_INITIAL_CREDITS) {
             update = TX_MAX_CNT - NX_TXQ_INITIAL_CREDITS;
         }
+#else
+        if (aml_bus_type != PCIE_MODE && update > NX_TXQ_INITIAL_CREDITS) {
+            update = txq->hwq->size - NX_TXQ_INITIAL_CREDITS;
+        }
+#endif
 
         credits = txq->credits;
         if (aml_bus_type != PCIE_MODE) {

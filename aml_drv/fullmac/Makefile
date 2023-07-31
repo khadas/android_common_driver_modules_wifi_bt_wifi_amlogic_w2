@@ -37,6 +37,9 @@ CONFIG_AML_DBG ?= n
 #should make PROJ=SDIO VER=LA for firmware also
 CONFIG_AML_LA ?= n
 
+#CSA mode scc
+CONIG_AML_CSA_MODE ?= y
+
 obj-m := w2.o
 w2-y := aml_msg_tx.o        \
         aml_msg_rx.o        \
@@ -64,8 +67,10 @@ w2-y := aml_msg_tx.o        \
         aml_scc.o           \
         aml_wq.o            \
         aml_recy.o          \
-        aml_tcp_ack.o          \
-        aml_task.o
+        aml_tcp_ack.o       \
+        aml_task.o          \
+        aml_rps.o           \
+        aml_sap.o
 
 obj-m += w2_comm.o
 w2_comm-objs := \
@@ -107,6 +112,7 @@ ccflags-$(CONFIG_AML_SW_PROFILING) += -DCONFIG_AML_SW_PROFILING
 ccflags-$(CONFIG_AML_MUMIMO_TX) += -DCONFIG_AML_MUMIMO_TX
 ccflags-$(CONFIG_AML_SUSPEND) += -DCONFIG_AML_SUSPEND
 ccflags-$(CONFIG_AML_LA) += -DCONFIG_AML_LA
+ccflags-$(CONIG_AML_CSA_MODE) += -DCONIG_AML_CSA_MODE
 
 ifeq ($(CONFIG_AML_MUMIMO_TX), y)
 ccflags-y += -DCONFIG_USER_MAX=2
@@ -120,21 +126,36 @@ else
 ccflags-y += -DNX_TXQ_CNT=4
 endif
 
+#for buildroot
+ifeq ($(CONFIG_BUILDROOT), y)
+ccflags-y += -Wno-error=format=
+ccflags-y += -Wno-format
+ccflags-y += -Wno-error=implicit-fallthrough=
+ccflags-y += -Wno-error=vla
+ccflags-y += -Wno-error=overflow
+endif
+
 # for host debug
 ccflags-y += -DDEBUG_CODE
 # scc mode config
 ccflags-y += -DSCC_MODE
 #hostapd cannot handle sta+softap scc mode,so do sta_softap scc in fw&drv
 ccflags-y += -DSCC_STA_SOFTAP
+
+#for credit 124
+#ccflags-y += -DCONFIG_CREDIT124
+# 4.9 compile
+ccflags-y += -w
+
 # For old kernel (<=3.19)
 ifeq ($(shell test $(VERSION) -lt 4 -a "$(CONFIG_VENDOR_AML)" = y ; echo $$?),0)
 ccflags-y += -DCONFIG_VENDOR_AML_VHT_NO80
 endif
 
-quiet_cmd_genvers = GENVERSION $@
-      cmd_genvers = ($(if $(KBUILD_EXTMOD),,$(srctree)/)$(src)/../mkvers.sh aml_version_gen.h $@)
+#quiet_cmd_genvers = GENVERSION $@
+#      cmd_genvers = ($(if $(KBUILD_EXTMOD),,$(srctree)/)$(src)/../mkvers.sh aml_version_gen.h $@)
 
-$(obj)/aml_main.o: $(obj)/aml_version_gen.h
+#$(obj)/aml_main.o: $(obj)/aml_version_gen.h
 
 # To avoid always regenerating aml_version_gen.h (i.e. depend on FORCE), add
 # dependency on all object (which already include dependency on headers files).
@@ -142,7 +163,7 @@ $(obj)/aml_main.o: $(obj)/aml_version_gen.h
 # dependency, so instead add dependency only on aml_main.c. This will fail to
 # regenerate aml_version_gen.h if dependency of only aml_main.c is changed.
 # This is OK as, currently, the only such dependency is aml_version.h
-$(obj)/aml_version_gen.h: $(addprefix $(obj)/,$(filter-out aml_main.o, $(aml_fdrv-y))) $(src)/aml_main.c
-	$(call cmd,genvers)
+#$(obj)/aml_version_gen.h: $(addprefix $(obj)/,$(filter-out aml_main.o, $(aml_fdrv-y))) $(src)/aml_main.c
+#	$(call cmd,genvers)
 
-clean-files := aml_version_gen.h
+#clean-files := aml_version_gen.h

@@ -65,6 +65,7 @@ const int nx_txuser_cnt[] =
  */
 void ipc_host_rxdesc_handler(struct ipc_host_env_tag *env)
 {
+    struct aml_hw *aml_hw = env->pthis;
     // For profiling
     REG_SW_SET_PROFILING(env->pthis, SW_PROF_IRQ_E2A_RXDESC);
 
@@ -74,6 +75,8 @@ void ipc_host_rxdesc_handler(struct ipc_host_env_tag *env)
         return;
     }
 #endif
+    if (aml_bus_type == PCIE_MODE)
+        ipc_host_disable_irq(env, IPC_IRQ_E2A_RXDESC);
 
     // LMAC has triggered an IT saying that a reception has occurred.
     // Then we first need to check the validity of the current hostbuf, and the validity
@@ -88,6 +91,22 @@ void ipc_host_rxdesc_handler(struct ipc_host_env_tag *env)
         if (env->cb.recv_data_ind(env->pthis, env->rxbuf[env->rxbuf_idx]) != 0)
         #endif //(CONFIG_AML_FULLMAC)
             break;
+    }
+#ifdef CONFIG_AML_NAPI
+    if ((aml_hw->napi_enable) && (!skb_queue_empty(&aml_hw->napi_rx_pending_queue))) {
+        unsigned long flags;
+        spin_lock_irqsave(&aml_hw->napi_rx_upload_queue.lock, flags);
+        skb_queue_splice_tail_init(&aml_hw->napi_rx_pending_queue, &aml_hw->napi_rx_upload_queue);
+        spin_unlock_irqrestore(&aml_hw->napi_rx_upload_queue.lock, flags);
+        napi_schedule(&aml_hw->napi);
+    }
+#endif
+    if (aml_bus_type == PCIE_MODE) {
+        ipc_host_enable_irq(env,IPC_IRQ_E2A_RXDESC);
+        // Signal to the embedded CPU that at least one buffer is available
+        ipc_app2emb_trigger_set(env->pthis, IPC_IRQ_A2E_RXBUF_BACK);
+        // Signal to the embedded CPU that at least one descriptor is available
+        ipc_app2emb_trigger_set(env->pthis, IPC_IRQ_A2E_RXDESC_BACK);
     }
 
     // For profiling
@@ -105,11 +124,12 @@ static void ipc_host_radar_handler(struct ipc_host_env_tag *env)
 {
 #ifdef CONFIG_AML_RADAR
     struct aml_hw *aml_hw = env->pthis;
-    struct radar_pulse_array_desc *pulses = env->radar[env->radar_idx]->addr;
+    struct radar_pulse_array_desc *pulses = NULL;
 
     if (aml_bus_type != PCIE_MODE) {
         pulses = &aml_hw->g_pulses;
     }
+
     if (aml_bus_type == USB_MODE) {
         aml_hw->plat->hif_ops->hi_read_sram((unsigned char *)pulses,
             (unsigned char *)(unsigned long)(RADAR_EVENT_DESC_ARRAY + aml_hw->radar_pulse_index * 56),
@@ -203,6 +223,10 @@ static void ipc_usb_host_msgack_handler(struct ipc_host_env_tag *env)
 
     ASSERT_ERR(hostid);
     ASSERT_ERR(env->msga2e_cnt == (((struct lmac_msg *)(&msg_a2e_buf.msg))->src_id & 0xFF));
+    if (!hostid) {
+        AML_INFO("error: a2e msg hostid is null\n");
+        return;
+    }
 
     env->msga2e_hostid = NULL;
     env->msga2e_cnt++;
@@ -217,7 +241,10 @@ static void ipc_sdio_host_msgack_handler(struct ipc_host_env_tag *env)
     aml_hw->plat->hif_sdio_ops->hi_random_ram_read((unsigned char *)&msg_a2e_buf, (unsigned char *)&env->shared->msg_a2e_buf, sizeof(struct ipc_a2e_msg));
     ASSERT_ERR(hostid);
     ASSERT_ERR(env->msga2e_cnt == (((struct lmac_msg *)(&msg_a2e_buf.msg))->src_id & 0xFF));
-
+    if (!hostid) {
+        AML_INFO("error: a2e msg hostid is null\n");
+        return;
+    }
     printk("%s %p\n", __func__, hostid);
     env->msga2e_hostid = NULL;
     env->msga2e_cnt++;
@@ -458,15 +485,23 @@ void ipc_host_init(struct ipc_host_env_tag *env,
 
     INIT_LIST_HEAD(&env->tx_hostid_available);
     INIT_LIST_HEAD(&env->tx_hostid_pushed);
-    tx_hostid = env->tx_hostid;
     aml_hw = (struct aml_hw *)env->pthis;
-    for (i = 0; i < ARRAY_SIZE(env->tx_hostid); i++, tx_hostid++) {
-        tx_hostid->hostid = i + 1; // +1 so that 0 is not a valid value
-        if (aml_bus_type != PCIE_MODE) {
+    if (aml_bus_type == PCIE_MODE) {
+        tx_hostid = env->tx_hostid;
+
+        for (i = 0; i < ARRAY_SIZE(env->tx_hostid); i++, tx_hostid++) {
+            tx_hostid->hostid = i + 1; // +1 so that 0 is not a valid value
+            list_add_tail(&tx_hostid->list, &env->tx_hostid_available);
+        }
+    } else {
+        tx_hostid = env->tx_hostid_sdio_usb;
+
+        for (i = 0; i < ARRAY_SIZE(env->tx_hostid_sdio_usb); i++, tx_hostid++) {
+            tx_hostid->hostid = i + 1; // +1 so that 0 is not a valid value
             aml_hw->hostid_prefix = i + 1;
             tx_hostid->hostid = tx_hostid->hostid | (aml_hw->hostid_prefix << 16);
+            list_add_tail(&tx_hostid->list, &env->tx_hostid_available);
         }
-        list_add_tail(&tx_hostid->list, &env->tx_hostid_available);
     }
 }
 
@@ -501,6 +536,7 @@ void record_push_rx_buf(u32 dma_addr,u32 host_id, u16 rxbuf_idx)
 int ipc_host_rxbuf_push(struct ipc_host_env_tag *env, struct aml_ipc_buf *buf)
 {
     struct ipc_shared_rx_buf *host_rxbuf;
+    unsigned int hostid = AML_RXBUFF_HOSTID_GET(buf);
 
     if (aml_bus_type == PCIE_MODE) {
         host_rxbuf = g_host_rxbuf + env->rxbuf_idx;
@@ -508,10 +544,10 @@ int ipc_host_rxbuf_push(struct ipc_host_env_tag *env, struct aml_ipc_buf *buf)
         host_rxbuf = (struct ipc_shared_rx_buf *)&env->shared->host_rxbuf[env->rxbuf_idx];
     }
 
-    host_rxbuf->hostid = AML_RXBUFF_HOSTID_GET(buf);
+    host_rxbuf->hostid = hostid;
     host_rxbuf->dma_addr = buf->dma_addr;
-    if ((host_rxbuf->hostid == 0) || (host_rxbuf->hostid > AML_RXBUFF_MAX)) {
-        AML_INFO("hostid invalid:%x", host_rxbuf->hostid);
+    if ((hostid == 0) || (hostid > AML_RXBUFF_MAX)) {
+        AML_INFO("hostid invalid:%x", hostid);
     }
 
 #ifdef DEBUG_CODE
@@ -519,18 +555,14 @@ int ipc_host_rxbuf_push(struct ipc_host_env_tag *env, struct aml_ipc_buf *buf)
         printk("push rxbuf, idx:%d, host_id:0x%x, buf:%08x, addr:%08x, dma_addr:%08x\n",
                 env->rxbuf_idx, host_rxbuf->hostid, buf, buf->addr, buf->dma_addr);
     }
-    if ((aml_bus_type == PCIE_MODE) && (host_rxbuf->dma_addr != buf->dma_addr)) {
-        printk("err: host_rxbuf=0x%x, dma_addr=0x%x, rxbuf_idx=%d, hostid=%d",
-                host_rxbuf->dma_addr, buf->dma_addr, env->rxbuf_idx, host_rxbuf->hostid);
-    }
 
     if (aml_bus_type == PCIE_MODE) {
-        record_push_rx_buf(host_rxbuf->dma_addr, host_rxbuf->hostid, env->rxbuf_idx);
+        record_push_rx_buf(buf->dma_addr, hostid, env->rxbuf_idx);
     }
 #endif
 
     // Signal to the embedded CPU that at least one buffer is available
-    ipc_app2emb_trigger_set(env->pthis, IPC_IRQ_A2E_RXBUF_BACK);
+    //ipc_app2emb_trigger_set(env->pthis, IPC_IRQ_A2E_RXBUF_BACK);
 
     // Increment the array index
     if (aml_bus_type == PCIE_MODE) {
@@ -543,6 +575,21 @@ int ipc_host_rxbuf_push(struct ipc_host_env_tag *env, struct aml_ipc_buf *buf)
 }
 
 #ifdef CONFIG_AML_FULLMAC
+#ifdef DEBUG_CODE
+struct debug_push_rxdesc_info debug_push_rxdesc[DEBUG_RX_BUF_CNT];
+u16 debug_push_rxdesc_idx = 0;
+void record_push_rx_desc(u32 dma_addr,u16 rxdesc_idx)
+{
+    debug_push_rxdesc[debug_push_rxdesc_idx].addr = dma_addr;
+    debug_push_rxdesc[debug_push_rxdesc_idx].idx = rxdesc_idx;
+    debug_push_rxdesc[debug_push_rxdesc_idx].time = jiffies;
+    debug_push_rxdesc_idx++;
+    if (debug_push_rxdesc_idx == DEBUG_RX_BUF_CNT) {
+        debug_push_rxdesc_idx = 0;
+    }
+}
+#endif
+
 /**
  ******************************************************************************
  */
@@ -563,9 +610,13 @@ int ipc_host_rxdesc_push(struct ipc_host_env_tag *env, struct aml_ipc_buf *buf)
     host_rxdesc->dma_addr = buf->dma_addr;
 
     env->rxdesc[env->rxdesc_idx] = buf;
-
+#ifdef DEBUG_CODE
+    if (aml_bus_type == PCIE_MODE) {
+        record_push_rx_desc(buf->dma_addr, env->rxdesc_idx);
+    }
+#endif
     // Signal to the embedded CPU that at least one descriptor is available
-    ipc_app2emb_trigger_set(env->pthis, IPC_IRQ_A2E_RXDESC_BACK);
+    //ipc_app2emb_trigger_set(env->pthis, IPC_IRQ_A2E_RXDESC_BACK);
     if (aml_bus_type == PCIE_MODE) {
         env->rxdesc_idx = (env->rxdesc_idx + 1) % (IPC_RXDESC_CNT + IPC_RXDESC_CNT_EXT);
     } else {
@@ -690,6 +741,9 @@ void ipc_host_dbginfo_push(struct ipc_host_env_tag *env, struct aml_ipc_buf *buf
 /**
  ******************************************************************************
  */
+#define TXDESC_TRIGGER_THS 18
+#define TXDESC_DYNAMIC_THS 6
+struct aml_txdesc_trigger g_txdesc_trigger;
 void ipc_host_txdesc_push(struct ipc_host_env_tag *env, struct aml_ipc_buf *buf)
 {
     if (aml_bus_type == PCIE_MODE) {
@@ -710,7 +764,23 @@ void ipc_host_txdesc_push(struct ipc_host_env_tag *env, struct aml_ipc_buf *buf)
     }
 
     // trigger interrupt to firmware
-    ipc_app2emb_trigger_setf(env->pthis, IPC_IRQ_A2E_TXDESC);
+    //ipc_app2emb_trigger_setf(env->pthis, IPC_IRQ_A2E_TXDESC);
+    if (g_txdesc_trigger.ths_enable > 0) {
+        if (++g_txdesc_trigger.txdesc_cnt > g_txdesc_trigger.tx_pcie_ths) {
+            // trigger interrupt to firmware
+            ipc_app2emb_trigger_setf(env->pthis, IPC_IRQ_A2E_TXDESC);
+            g_txdesc_trigger.txdesc_cnt = 0;
+            g_txdesc_trigger.dynamic_cnt++;
+            if (g_txdesc_trigger.dynamic_cnt == TXDESC_DYNAMIC_THS) {
+                g_txdesc_trigger.tx_pcie_ths++;
+                g_txdesc_trigger.dynamic_cnt = 0;
+            }
+            if (g_txdesc_trigger.tx_pcie_ths > TXDESC_TRIGGER_THS)
+                g_txdesc_trigger.tx_pcie_ths = TXDESC_TRIGGER_THS;
+        }
+    } else {
+        ipc_app2emb_trigger_setf(env->pthis, IPC_IRQ_A2E_TXDESC);
+    }
 }
 
 /**
@@ -783,7 +853,7 @@ void *ipc_host_tx_host_id_to_ptr_for_sdio_usb(struct ipc_host_env_tag *env, uint
     struct ipc_hostid *tx_hostid_tmp, *next;
     u8 find = 0;
 
-    if (unlikely(!hostid || ((hostid & 0xffff) > ARRAY_SIZE(env->tx_hostid))))
+    if (unlikely(!hostid || ((hostid & 0xffff) > ARRAY_SIZE(env->tx_hostid_sdio_usb))))
         return NULL;
 
     list_for_each_entry_safe(tx_hostid_tmp, next, &env->tx_hostid_pushed, list) {
@@ -942,6 +1012,10 @@ void ipc_host_irq(struct ipc_host_env_tag *env, uint32_t status)
     if (((status & SDIO_IRQ_E2A_TRACE) && (aml_bus_type != PCIE_MODE)))
     {
         ipc_host_trace_handler(env);
+    }
+    if ((status & IPC_IRQ_E2A_UNSUP_RX_VEC) && (aml_bus_type != PCIE_MODE))
+    {
+        printk("la page had been released completely!\n");
     }
 }
 

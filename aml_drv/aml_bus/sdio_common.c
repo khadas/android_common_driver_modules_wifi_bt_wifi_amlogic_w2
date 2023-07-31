@@ -11,6 +11,9 @@
 #include "aml_interface.h"
 #include "w2_sdio.h"
 
+#ifdef CONFIG_PT_MODE
+unsigned char g_sdio_is_probe = 0;
+#endif
 struct aml_hwif_sdio g_hwif_sdio;
 unsigned char g_sdio_wifi_bt_alive;
 unsigned char g_sdio_driver_insmoded;
@@ -25,6 +28,8 @@ unsigned char wifi_in_insmod;
 unsigned char wifi_in_rmmod;
 unsigned char  chip_en_access;
 extern unsigned char wifi_sdio_shutdown;
+extern unsigned char wifi_drv_rmmod_ongoing;
+extern struct aml_bus_state_detect bus_state_detect;
 
 static DEFINE_MUTEX(wifi_bt_sdio_mutex);
 static DEFINE_MUTEX(wifi_ipc_mutex);
@@ -32,6 +37,9 @@ static DEFINE_MUTEX(wifi_ipc_mutex);
 unsigned char (*host_wake_req)(void);
 int (*host_suspend_req)(struct device *device);
 int (*host_resume_req)(struct device *device);
+extern void extern_wifi_set_enable(int is_on);
+extern void aml_sdio_random_word_write(unsigned int addr, unsigned int data);
+extern unsigned int aml_sdio_random_word_read(unsigned int addr);
 
 struct sdio_func *aml_priv_to_func(int func_n)
 {
@@ -185,7 +193,11 @@ int aml_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id)
     aml_sdio_init_base_addr();
     aml_sdio_init_ops();
     g_hif_sdio_ops.hi_enable_scat(&g_hwif_sdio);
-    g_hif_sdio_ops.hi_enable_scat(&g_hwif_rx_sdio);
+   // g_hif_sdio_ops.hi_enable_scat(&g_hwif_rx_sdio);
+
+#ifdef CONFIG_PT_MODE
+    g_sdio_is_probe = 1;
+#endif
 
     return ret;
 
@@ -232,6 +244,11 @@ static void  aml_sdio_remove(struct sdio_func *func)
         return 0;
 }
 
+void aml_sdio_shutdown(struct device *device)
+{
+    aml_sdio_random_word_write(RG_AON_A55, aml_sdio_random_word_read(RG_AON_A55) | BIT(28));
+}
+
 static SIMPLE_DEV_PM_OPS(aml_sdio_pm_ops, aml_sdio_pm_suspend,
                      aml_sdio_pm_resume);
 
@@ -251,6 +268,7 @@ static struct sdio_driver aml_sdio_driver =
     .probe = aml_sdio_probe,
     .remove = aml_sdio_remove,
     .drv.pm = &aml_sdio_pm_ops,
+    .drv.shutdown = aml_sdio_shutdown,
 };
 
 int  aml_sdio_init(void)
@@ -280,13 +298,52 @@ void  aml_sdio_exit(void)
     sdio_unregister_driver(&aml_sdio_driver);
     g_sdio_driver_insmoded = 0;
     g_sdio_after_porbe = 0;
-    if (g_func_kmalloc_buf) {
-        //FREE(g_func_kmalloc_buf, "func_sdio_read");
-        g_func_kmalloc_buf = NULL;
-    }
+
     printk("*****************aml sdio common driver is rmmoded********************\n");
 }
 
+void aml_sdio_reset(void)
+{
+#ifndef CONFIG_PT_MODE
+    int reg = 0;
+    int try_count = 0;
+
+    printk("%s: ******* sdio reset begin *******\n", __func__);
+Try_again:
+#ifndef CONFIG_PT_MODE
+#ifndef CONFIG_LINUXPC_VERSION
+    extern_wifi_set_enable(0);
+#endif
+#endif
+    aml_sdio_exit();
+    while (g_sdio_driver_insmoded == 1) {
+        msleep(5);
+    }
+#ifndef CONFIG_PT_MODE
+#ifndef CONFIG_LINUXPC_VERSION
+    extern_wifi_set_enable(1);
+    sdio_reinit();
+#endif
+#endif
+    aml_sdio_init();
+    while (g_sdio_driver_insmoded == 0) {
+        msleep(5);
+    }
+    if (bus_state_detect.is_drv_load_finished) {
+        bus_state_detect.bus_err = 0;
+        reg = g_hif_sdio_ops.hi_random_word_read(0xf0101c);
+        if ((bus_state_detect.bus_err) && try_count <= 3) {
+            try_count++;
+            printk("%s: *******sdio reset failed, try again(%d)", __func__, try_count);
+            goto Try_again;
+        }
+        bus_state_detect.bus_reset_ongoing = 0;
+    }
+
+    printk("%s: ******* sdio reset end *******\n", __func__);
+    return;
+#endif
+}
 
 /*set_wifi_bt_sdio_driver_bit() is used to determine whether to unregister sdio power driver.
   *Only when g_sdio_wifi_bt_alive is 0, then call aml_sdio_exit().
@@ -309,8 +366,16 @@ void set_wifi_bt_sdio_driver_bit(bool is_register, int shift)
 
 int aml_sdio_insmod(void)
 {
-
     aml_sdio_init();
+
+#ifdef CONFIG_PT_MODE
+    if (!g_sdio_is_probe) {
+        aml_sdio_exit();
+        printk("%s(%d) err found! g_sdio_is_probe: %d\n",__func__, __LINE__, g_sdio_is_probe);
+        return -1;
+    }
+#endif
+
     printk("%s(%d) start...\n",__func__, __LINE__);
     return 0;
 }
@@ -318,9 +383,11 @@ int aml_sdio_insmod(void)
 void aml_sdio_rmmod(void)
 {
     aml_sdio_exit();
+    g_hif_sdio_ops.hi_cleanup_scat(&g_hwif_sdio);
+    wifi_drv_rmmod_ongoing = 0;
 }
 
-
+EXPORT_SYMBOL(aml_sdio_reset);
 EXPORT_SYMBOL(wifi_irq_enable);
 EXPORT_SYMBOL(aml_sdio_insmod);
 EXPORT_SYMBOL(aml_sdio_rmmod);

@@ -1017,6 +1017,20 @@ int aml_log_file_info_init(int mode, int size)
     mutex_unlock(&trace_log_file_info.mutex);
     return ret;
 }
+void aml_log_file_info_deinit(void)
+{
+    if (trace_log_file_info.log_buf) {
+        kfree(trace_log_file_info.log_buf);
+        trace_log_file_info.log_buf = NULL;
+    }
+
+    if (trace_log_file_info.ptr) {
+        kfree(trace_log_file_info.ptr);
+        trace_log_file_info.ptr = NULL;
+    }
+
+    return;
+}
 
 loff_t aml_get_file_size(const char *filename)
 {

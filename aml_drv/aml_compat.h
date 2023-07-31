@@ -312,12 +312,13 @@ enum {
 #endif // 4.17
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 12, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0)
 #define aml_cfg80211_add_iface(wiphy, name, name_assign_type, type, params) \
     aml_cfg80211_add_iface(wiphy, name, name_assign_type, type, u32 *flags, params)
 
 #define aml_cfg80211_change_iface(wiphy, dev, type, params) \
     aml_cfg80211_change_iface(wiphy, dev, type, u32 *flags, params)
-
+#endif
 #define CCFS0(vht) vht->center_freq_seg1_idx
 #define CCFS1(vht) vht->center_freq_seg2_idx
 
@@ -401,7 +402,7 @@ struct cfg80211_roam_info {
 #define RX_ENC_HT_GF(s) { s->encoding = RX_ENC_HT;      \
         s->enc_flags |= RX_ENC_FLAG_HT_GF; }
 #define RX_ENC_VHT(s) s->encoding = RX_ENC_VHT
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) || (defined CONFIG_KERNEL_AX_PATCH)
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4, 19, 0)
 #define RX_ENC_HE(s) s->encoding = RX_ENC_HE
 #else
 #define RX_ENC_HE(s) s->encoding = RX_ENC_VHT
@@ -486,7 +487,11 @@ struct cfg80211_roam_info {
 /******************************************************************************
  * Android GKI
  *****************************************************************************/
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
 static inline int CALL_USERMODEHELPER(const char *path, char **argv, char **envp, int wait)
+#else
+static inline int CALL_USERMODEHELPER(char *path, char **argv, char **envp, int wait)
+#endif
 {
 #ifdef CONFIG_ANDROID_GKI
 	UNUSED(path);

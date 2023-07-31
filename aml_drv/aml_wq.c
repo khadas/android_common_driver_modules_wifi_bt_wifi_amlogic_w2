@@ -9,7 +9,6 @@
 *
 ****************************************************************************************
 */
-
 #include "aml_wq.h"
 #include "aml_recy.h"
 #include "aml_msg_tx.h"
@@ -69,6 +68,9 @@ void aml_wq_del(struct aml_hw *aml_hw)
 }
 
 extern void aml_show_tx_msg(struct aml_hw *aml_hw,struct aml_wq *aml_wq);
+#ifndef CONFIG_AML_DEBUGFS
+extern void aml_alloc_global_rx_rate(struct aml_hw *aml_hw, struct aml_wq *aml_wq);
+#endif
 static void aml_wq_doit(struct work_struct *work)
 {
     struct aml_wq *aml_wq = NULL;
@@ -100,7 +102,11 @@ static void aml_wq_doit(struct work_struct *work)
             case AML_WQ_SHOW_TX_MSG:
                 aml_show_tx_msg(aml_hw, aml_wq);
                 break;
-
+#ifndef CONFIG_AML_DEBUGFS
+            case AML_WQ_ALLOC_RX_RATE:
+                aml_alloc_global_rx_rate(aml_hw, aml_wq);
+                break;
+#endif
             default:
                 AML_INFO("wq type(%d) unknown", aml_wq->id);
                 break;

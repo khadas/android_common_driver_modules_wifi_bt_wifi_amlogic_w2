@@ -49,6 +49,11 @@ static void aml_send_tcp_ack(struct aml_tcp_ack_tx *tx_info)
     sw_txhdr->amsdu.len = 0;
     sw_txhdr->amsdu.nb = 0;
 #endif
+#ifdef CONFIG_AML_RECOVERY
+    if (aml_recy != NULL && aml_recy_flags_chk(AML_RECY_IPC_ONGOING | AML_RECY_DROP_XMIT_PKT)) {
+        goto free;
+    }
+#endif
 
     /* Prepare IPC buffer for DMA transfer */
     eth = (struct ethhdr *)skb->data;
@@ -260,7 +265,8 @@ static int aml_check_tcp_ack_type(unsigned char *data,
     ip_hdr_len = iphdr->ihl * 4;
     temp = (unsigned char *)(iphdr) + ip_hdr_len;
     tcphdr = (struct tcphdr *)temp;
-    if (!(temp[13] & 0x10))
+    /*only tcp ack flag*/
+    if (temp[13] != 0x10)
         return 0;
     tcp_tot_len = ntohs(iphdr->tot_len) - ip_hdr_len;
     ret = aml_get_tcp_ack_info(tcphdr, tcp_tot_len);
@@ -348,6 +354,13 @@ void aml_tcp_delay_ack_init(struct aml_hw *aml_hw)
     atomic_set(&ack_mgr->max_drop_cnt, MAX_DROP_TCP_ACK_CNT);
     atomic_set(&ack_mgr->max_timeout, MAX_TCP_ACK_TIMEOUT);
     atomic_set(&ack_mgr->dynamic_adjust, 1);
+
+    if (aml_bus_type != PCIE_MODE) {
+        atomic_set(&ack_mgr->enable, 1);
+        atomic_set(&ack_mgr->dynamic_adjust, 0);
+        atomic_set(&ack_mgr->max_drop_cnt, MAX_DROP_TCP_ACK_CNT_SDIO);
+    }
+
     ack_mgr->last_time = jiffies;
     ack_mgr->total_drop_cnt = 0;
     ack_mgr->timeout = msecs_to_jiffies(TCK_SESS_TIMEOUT_TIME);
@@ -359,7 +372,7 @@ void aml_tcp_delay_ack_init(struct aml_hw *aml_hw)
         tcp_info->timeout = msecs_to_jiffies(TCK_SESS_TIMEOUT_TIME);
         timer_setup(&tcp_info->timer, aml_tcp_ack_timeout, 0);
     }
-    //atomic_set(&ack_mgr->enable, 1);
+    atomic_set(&ack_mgr->enable, 1);
 }
 
 void aml_tcp_delay_ack_deinit(struct aml_hw *aml_hw)

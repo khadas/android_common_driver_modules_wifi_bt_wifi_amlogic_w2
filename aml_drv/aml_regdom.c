@@ -63,7 +63,7 @@ const struct ieee80211_regdomain regdom_us = {
         REG_RULE(5260-10, 5320+10, 80, 6, 20, NL80211_RRF_DFS |
                 NL80211_RRF_AUTO_BW),
         /* channel 100..140 - DFS required */
-        REG_RULE(5500-10, 5720+10, 160, 6, 20, NL80211_RRF_AUTO_BW),
+        REG_RULE(5500-10, 5720+10, 160, 6, 20, NL80211_RRF_DFS | NL80211_RRF_AUTO_BW),
         /* channels 149..165 */
         REG_RULE(5745-10, 5825+10, 80, 6, 20, 0),
     }

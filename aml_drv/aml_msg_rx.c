@@ -24,12 +24,17 @@
 #include "aml_compat.h"
 #include "aml_main.h"
 #include <linux/inetdevice.h>
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,10,0)
 #include <net/addrconf.h>
+#endif
 #include "aml_defs.h"
 #include "aml_recy.h"
 #include "aml_interface.h"
 #include "aml_msg_rx.h"
 #include "aml_scc.h"
+
+extern bool pt_mode;
+
 
 static int aml_freq_to_idx(struct aml_hw *aml_hw, int freq)
 {
@@ -660,6 +665,63 @@ static inline int aml_rx_csa_finish_ind(struct aml_hw *aml_hw,
     return 0;
 }
 
+void aml_sta_notify_csa_ch_switch(struct aml_hw *aml_hw, struct ipc_e2a_msg *msg)
+{
+    struct ieee80211_channel *notify_channel = NULL;
+    struct cfg80211_chan_def chandef = {0};
+    struct mm_csa_finish_ind *ind = (struct mm_csa_finish_ind *)msg->param;
+    struct aml_vif *vif;
+    bool found = false;
+    struct aml_chanctx *ctxt;
+
+    // Look for VIF entry
+    list_for_each_entry(vif, &aml_hw->vifs, list) {
+        if ((AML_VIF_TYPE(vif) == NL80211_IFTYPE_AP) || (AML_VIF_TYPE(vif) == NL80211_IFTYPE_P2P_GO))
+            continue;
+        if (vif->vif_index == ind->vif_index) {
+            found=true;
+            break;
+        }
+    }
+
+    AML_INFO("csa_status:%d, csa_chanidx:%d, csa_vif:%d, found:%d, vif_type:%d",
+             ind->status, ind->chan_idx, ind->vif_index, found, AML_VIF_TYPE(vif));
+    if (found && (ind->status == 0)) {
+        notify_channel = ieee80211_get_channel(aml_hw->wiphy, ind->chan.prim20_freq);
+        cfg80211_chandef_create(&chandef, notify_channel, NL80211_CHAN_NO_HT);
+        if (!aml_hw->mod_params->ht_on)
+            chandef.width = NL80211_CHAN_WIDTH_20_NOHT;
+        else
+            chandef.width = (enum nl80211_chan_width)chnl2bw[ind->chan.type];
+        chandef.center_freq1 = ind->chan.center1_freq;
+        chandef.center_freq2 = ind->chan.center2_freq;
+
+        AML_INFO("chandef.center_freq1:%d, chandef.center_freq2:%d", chandef.center_freq1, chandef.center_freq2);
+
+        mutex_lock(&vif->wdev.mtx);
+        __acquire(&vif->wdev.mtx);
+        #ifdef CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT
+        cfg80211_ch_switch_notify(vif->ndev, &chandef, 0);
+        #else
+        cfg80211_ch_switch_notify(vif->ndev, &chandef);
+        #endif
+        mutex_unlock(&vif->wdev.mtx);
+        __release(&vif->wdev.mtx);
+
+        ctxt = &vif->aml_hw->chanctx_table[vif->ch_index];
+        if (!ctxt->chan_def.chan) {
+            ctxt->chan_def = chandef;
+        }
+
+        if (AML_VIF_TYPE(vif) == NL80211_IFTYPE_STATION) {
+            aml_recy_flags_set(AML_RECY_CHECK_SCC);
+            aml_check_scc();
+        }
+    }
+
+    return;
+}
+
 static inline int aml_rx_csa_traffic_ind(struct aml_hw *aml_hw,
                                           struct aml_cmd *cmd,
                                           struct ipc_e2a_msg *msg)
@@ -816,6 +878,16 @@ static inline int aml_sdio_rx_scanu_result_ind(struct aml_hw *aml_hw)
 #endif
 
         mgmt = (struct ieee80211_mgmt *)ind->payload;
+
+        if ((uint8_t *)mgmt < aml_hw->scanres_payload_buf || (uint8_t *)mgmt >  (aml_hw->scanres_payload_buf + (SCAN_RESULTS_MAX_CNT*500) - 21)) {
+            printk("buf start:%08x buf end:%08x mgmt:%08x\n", aml_hw->scanres_payload_buf,
+                (aml_hw->scanres_payload_buf + SCAN_RESULTS_MAX_CNT*500) ,mgmt);
+            printk("ind:%08x len:%d\n", ind, ind->length);
+            list_del(&scan_res->list);
+            list_add_tail(&scan_res->list, &aml_hw->scan_res_available_list);
+            continue;
+        }
+
         mgmt->u.probe_resp.timestamp = timestamp;
         ie = mgmt->u.probe_resp.variable;
         /*
@@ -843,7 +915,7 @@ static inline int aml_sdio_rx_scanu_result_ind(struct aml_hw *aml_hw)
         cfg80211_put_bss(aml_hw->wiphy, bss);
 
         list_del(&scan_res->list);
-        list_add_tail(&scan_res->list, &aml_hw->scan_res_avilable_list);
+        list_add_tail(&scan_res->list, &aml_hw->scan_res_available_list);
     }
     spin_unlock_bh(&aml_hw->scan_lock);
 
@@ -1086,7 +1158,7 @@ static inline int aml_rx_sm_connect_ind(struct aml_hw *aml_hw,
             "center_freq:%d, center_freq1:%d, roamed:%d",
             ind->vif_idx, ind->status_code, ind->ap_idx,
             ind->chan.prim20_freq, ind->chan.center1_freq, ind->roamed);
-    aml_vif->sta.scan_hang = 0;
+    aml_set_scan_hang(aml_vif, 0, __func__, __LINE__);
     aml_hw->is_connectting = 0;
     /* Retrieve IE addresses and lengths */
     req_ie = (const u8 *)ind->assoc_ie_buf;
@@ -1116,6 +1188,13 @@ static inline int aml_rx_sm_connect_ind(struct aml_hw *aml_hw,
         sta->center_freq2 = ind->chan.center2_freq;
         aml_vif->sta.ap = sta;
         aml_vif->generation++;
+
+        if (aml_vif->sta.flags & AML_STA_FT_OVER_DS)
+            aml_vif->sta.flags &= ~AML_STA_FT_OVER_DS;
+
+        if (aml_vif->sta.flags & AML_STA_FT_OVER_AIR)
+            aml_vif->sta.flags &= ~AML_STA_FT_OVER_AIR;
+
         chan = ieee80211_get_channel(aml_hw->wiphy, ind->chan.prim20_freq);
 
         cfg80211_chandef_create(&chandef, chan, NL80211_CHAN_NO_HT);
@@ -1135,6 +1214,10 @@ static inline int aml_rx_sm_connect_ind(struct aml_hw *aml_hw,
         memcpy(sta->ac_param, ind->ac_param, sizeof(sta->ac_param));
         aml_txq_sta_init(aml_hw, sta, txq_status);
         aml_dbgfs_register_sta(aml_hw, sta);
+#ifndef CONFIG_AML_DEBUGFS
+        aml_recy_flags_set(AML_RECY_RX_RATE_ALLOC);
+        aml_rx_rate_wq(&sta->sta_idx);
+#endif
         aml_txq_tdls_vif_init(aml_vif);
         aml_mu_group_sta_init(sta, NULL);
         /* Look for TDLS Channel Switch Prohibited flag in the Extended Capability
@@ -1183,10 +1266,11 @@ static inline int aml_rx_sm_connect_ind(struct aml_hw *aml_hw,
 #endif
 
 #ifdef CONFIG_AML_RECOVERY
-        /*recovery conenct has no inetaddr_event,so check scc here */
-        aml_recy_check_scc();
+        /*recovery connect has no inetaddr_event,so check scc here */
+        aml_check_scc();
 #endif
-
+        if (pt_mode)
+            aml_set_scan_hang(aml_vif, 1, __func__, __LINE__);
     } else {
         aml_external_auth_disable(aml_vif);
     }
@@ -1234,6 +1318,7 @@ static inline int aml_rx_sm_connect_ind(struct aml_hw *aml_hw,
                 } else {
                     AML_INFO("can't find bss in kernel");
                 }
+
                 cfg80211_connect_bss(dev, (const u8 *)ind->bssid.array, bss, req_ie, ind->assoc_req_ie_len, rsp_ie,
                     #if LINUX_VERSION_CODE <= KERNEL_VERSION(4, 12, 0)
                                     ind->assoc_rsp_ie_len, ind->status_code, GFP_ATOMIC);
@@ -1266,7 +1351,7 @@ static inline int aml_rx_sm_disconnect_ind(struct aml_hw *aml_hw,
     if (aml_vif == NULL)
         return 0;
 
-    AML_INFO("vif_idx:%d", aml_vif->vif_index);
+    AML_INFO("vif_idx:%d, reason_code: %d, reassoc: %d", aml_vif->vif_index, ind->reason_code, ind->reassoc);
 
     dev = aml_vif->ndev;
 
@@ -1294,7 +1379,10 @@ static inline int aml_rx_sm_disconnect_ind(struct aml_hw *aml_hw,
         aml_txq_sta_deinit(aml_hw, aml_vif->sta.ap);
         aml_txq_tdls_vif_deinit(aml_vif);
         aml_dbgfs_unregister_sta(aml_hw, aml_vif->sta.ap);
-        AML_INFO("sta assoc ap info was cleared");
+#ifndef CONFIG_AML_DEBUGFS
+        aml_dealloc_global_rx_rate(aml_hw, aml_vif->sta.ap);
+#endif
+        AML_INFO("sta assoc ap info was cleared,sta_idx:%d", aml_vif->sta.ap->sta_idx);
         spin_lock_bh(&aml_vif->ap_lock);
         aml_vif->sta.ap->valid = false;
         aml_vif->sta.ap = NULL;
@@ -1303,9 +1391,11 @@ static inline int aml_rx_sm_disconnect_ind(struct aml_hw *aml_hw,
     aml_vif->generation++;
     aml_external_auth_disable(aml_vif);
     aml_chanctx_unlink(aml_vif);
-    aml_vif->sta.scan_hang = 0;
+    aml_set_scan_hang(aml_vif, 0, __func__, __LINE__);
 #ifdef CONFIG_AML_RECOVERY
-    aml_recy_flags_clr(AML_RECY_ASSOC_INFO_SAVED);
+    if ((aml_recy) && (aml_vif->vif_index == aml_recy->assoc_info.vif_idx)) {
+        aml_recy_flags_clr(AML_RECY_ASSOC_INFO_SAVED);
+    }
 #endif
 
     return 0;
@@ -1658,7 +1748,9 @@ static inline int aml_rx_dbg_error_ind(struct aml_hw *aml_hw,
 {
     AML_DBG(AML_FN_ENTRY_STR);
 
+#ifndef CONFIG_PT_MODE
     aml_error_ind(aml_hw);
+#endif
 
     return 0;
 }

@@ -1,13 +1,13 @@
 #config version info <char> version must be consistent with the WIFI_CALI_VERSION in c code
 #After updating the parameters, it must be modified at the same time.
-version=5
+version=11
 
 #cali config <short>
 cali_config=0x0
 
 #frequency offset <char>
 freq_offset=0
-htemp_freq_offset=4
+htemp_freq_offset=20
 
 #cca ed detect mode
 cca_ed_det=0
@@ -38,53 +38,36 @@ wftx_pwrtbl_en=1
 cw2mod=0xfe,0xfc,0x2,0xfe,0xfe,0xfe
 
 #wf2g olpc target_pwr limit
-#wf2g_11b_tpwr=22,22,22,22
-#wf2g_11g_tpwr=22,22,22,21,21,21,20,18
-#wf2g_ht20_tpwr=22,22,22,21,20,19,18,17
-#wf2g_ht40_tpwr=21,21,21,19,19,19,18,17
-#wf2g_vht20_tpwr=22,22,22,21,20,19,19,17,16
-#wf2g_vht40_tpwr=21,21,21,21,21,20,18,17,16,14
-#wf2g_he20_tpwr=20,20,20,19,19,19,19,18,16,16,13,13
-#wf2g_he40_tpwr=21,21,21,20,20,20,19,18,17,16,14,14
 wf2g_11b_tpwr=21,21,21,21
-wf2g_11g_tpwr=21,20,20,19,19,18,17,17
-wf2g_ht20_tpwr=20,20,20,19,19,18,17,17
-wf2g_ht40_tpwr=20,20,20,19,19,18,17,17
-wf2g_vht20_tpwr=20,20,20,19,19,18,17,17,16
-wf2g_vht40_tpwr=20,20,20,19,19,18,17,17,16,16
-wf2g_he20_tpwr=20,20,20,19,19,18,17,17,16,16,14,14
-wf2g_he40_tpwr=20,20,20,19,19,18,17,17,16,16,14,14
+wf2g_11g_tpwr=20,20,20,19,19,19,19,18
+wf2g_ht20_tpwr=20,20,20,19,19,18,18,17
+wf2g_ht40_tpwr=19,19,19,19,18,17,16,16
+wf2g_vht20_tpwr=20,20,20,19,19,18,17,16,15
+wf2g_vht40_tpwr=19,19,19,19,19,18,17,17,16,15
+wf2g_he20_tpwr=19,19,19,19,19,18,17,17,16,15,13,13
+wf2g_he40_tpwr=20,20,20,19,19,18,17,17,16,15,13,13
 
 #wf5g olpc target_pwr limit
-#wf5g_11a_tpwr=16,16,16,15,15,14,13,12
-#wf5g_ht20_tpwr=16,16,16,15,14,13,12,11
-#wf5g_ht40_tpwr=15,15,15,15,14,13,12,11
-#wf5g_vht20_tpwr=16,16,16,15,14,13,12,11,11
-#wf5g_vht40_tpwr=15,15,15,15,14,13,12,12,11,10
-#wf5g_vht80_tpwr=14,14,14,13,13,13,12,12,11,10
-#wf5g_hesu20_tpwr=15,15,15,15,15,14,13,12,11,11,10,10
-#wf5g_hesu40_tpwr=15,15,15,14,14,14,13,12,11,11,10,10
-#wf5g_hesu80_tpwr=14,14,14,13,13,13,12,11,10,9,8,8
-wf5g_11a_tpwr=18,18,17,16,15,14,13,13
-wf5g_ht20_tpwr=18,18,17,16,15,14,13,13
-wf5g_ht40_tpwr=18,18,17,16,15,14,13,13
-wf5g_vht20_tpwr=18,18,17,16,15,14,13,13,13
-wf5g_vht40_tpwr=18,18,17,16,15,14,13,13,13,12
-wf5g_vht80_tpwr=17,17,17,16,15,14,13,13,13,12
-wf5g_hesu20_tpwr=18,17,17,16,15,14,13,13,13,12,11,11
-wf5g_hesu40_tpwr=17,17,17,16,15,14,13,13,13,12,11,11
-wf5g_hesu80_tpwr=16,16,16,16,15,14,13,13,13,12,11,11
+wf5g_11a_tpwr=16,16,16,16,15,14,13,13
+wf5g_ht20_tpwr=15,15,15,15,15,14,13,13
+wf5g_ht40_tpwr=15,15,15,15,15,14,13,12
+wf5g_vht20_tpwr=14,14,14,14,14,14,13,13,12
+wf5g_vht40_tpwr=15,15,15,15,15,14,13,13,12,12
+wf5g_vht80_tpwr=14,14,14,14,14,14,13,13,12,11
+wf5g_he20_tpwr=14,14,14,14,14,14,13,13,12,11,10,10
+wf5g_he40_tpwr=15,15,15,15,15,14,13,13,12,11,10,10
+wf5g_he80_tpwr=14,14,14,14,14,14,13,13,12,11,10,10
 
 
 #use xosc_ctune and offset power in txt:0
 #use xosc_ctune and offset power in efuse:1
-customer_efuse_en=0
+customer_efuse_en=1
 
 #use looggain in txt:0, use looggain in efuse:1
-FT_efuse_en=0
+FT_efuse_en=1
 
-#enable xosc ctune:1
-xosc_ctune_vld=1
+#enable txt xosc ctune:1, use efuse value:0
+xosc_ctune_vld=0
 
 #enable loopgain:1
 absolute_power_wf0_2g_vld=1
@@ -98,8 +81,10 @@ offset_power_wf0_5g_vld=1
 offset_power_wf1_2g_vld=1
 offset_power_wf1_5g_vld=1
 
-pwr_delta_wf0_customer_vld=1
-pwr_delta_wf1_customer_vld=1
+#use first offset power in txt:0
+#use second offset power in txt:1
+pwr_delta_wf0_customer_vld=0
+pwr_delta_wf1_customer_vld=0
 
 #xosc ctune value
 xosc_ctune=0x00

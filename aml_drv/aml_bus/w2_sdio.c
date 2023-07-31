@@ -15,6 +15,7 @@
 uint8_t *g_mmc_misc;
 struct aml_hwif_sdio g_hwif_rx_sdio;
 struct aml_hif_sdio_ops g_hif_sdio_ops;
+extern struct aml_bus_state_detect bus_state_detect;
 
 extern unsigned char g_wifi_in_insmod;
 extern unsigned char *g_func_kmalloc_buf;
@@ -141,6 +142,15 @@ int aml_sdio_bottom_write(unsigned char func_num, unsigned int addr, void *buf, 
     result = _aml_sdio_request_buffer(func_num, incr_addr, SDIO_WRITE, addr, kmalloc_buf, len);
 
     AML_BT_WIFI_MUTEX_OFF();
+    if (result && !bus_state_detect.bus_err) {
+        if (bus_state_detect.is_drv_load_finished) {
+            bus_state_detect.bus_err = 1;
+            ERROR_DEBUG_OUT("sdio bus error(%d), will do reovery later\n", result);
+        } else {
+            bus_state_detect.bus_err = 2;
+            ERROR_DEBUG_OUT("sdio bus error(%d), sdio reset by timer later\n", result);
+         }
+    }
     return result;
 }
 
@@ -194,6 +204,16 @@ int aml_sdio_bottom_read(unsigned char func_num, int addr, void *buf, size_t len
     }
 
     AML_BT_WIFI_MUTEX_OFF();
+    if (result && !bus_state_detect.bus_err) {
+        if (bus_state_detect.is_drv_load_finished) {
+            bus_state_detect.bus_err = 1;
+            ERROR_DEBUG_OUT("sdio bus error(%d), will do reovery later\n", result);
+        } else {
+            bus_state_detect.bus_err = 2;
+            ERROR_DEBUG_OUT("sdio bus error(%d), sdio reset by timer later\n", result);
+         }
+    }
+
     return result;
 }
 
@@ -337,7 +357,12 @@ void aml_sdio_desc_read(unsigned char* buf, unsigned char* addr, size_t len)
 
 void aml_sdio_func6_set_base_addr(unsigned int addr)
 {
-    if (addr >= (RXBUF_START_ADDR + LEN_128K)) {
+    if (addr >= (RXBUF_START_ADDR + LEN_256K)) {
+        if (rx_buffer_base_addr != (RXBUF_START_ADDR + LEN_256K)) {
+            rx_buffer_base_addr = RXBUF_START_ADDR + LEN_256K;
+            aml_sdio_self_define_domain_write32(RG_SCFG_FUNC6_BADDR_A, rx_buffer_base_addr);
+        }
+    } else if (addr >= (RXBUF_START_ADDR + LEN_128K)) {
         if (rx_buffer_base_addr != (RXBUF_START_ADDR + LEN_128K)) {
             rx_buffer_base_addr = RXBUF_START_ADDR + LEN_128K;
             aml_sdio_self_define_domain_write32(RG_SCFG_FUNC6_BADDR_A, rx_buffer_base_addr);
@@ -360,9 +385,14 @@ void aml_sdio_func6_rx_buffer_read(unsigned char *buf, unsigned char *addr, size
     aml_sdio_bottom_read(func_type, ((SYS_TYPE)addr % rx_buffer_base_addr),
         buf, len, SDIO_OPMODE_INCREMENT);
 }
+
 void aml_sdio_rx_buffer_read(unsigned char *buf, unsigned char *addr, size_t len, unsigned char scat_use)
 {
-    if (len > LEN_128K) {
+    if (len > LEN_256K) {
+        aml_sdio_func6_rx_buffer_read(buf, addr, LEN_128K, scat_use);
+        aml_sdio_func6_rx_buffer_read(buf + LEN_128K, addr + LEN_128K, LEN_128K, scat_use);
+        aml_sdio_func6_rx_buffer_read(buf + LEN_256K, addr + LEN_256K, len - LEN_256K, scat_use);
+    } else if (len > LEN_128K) {
         aml_sdio_func6_rx_buffer_read(buf, addr, LEN_128K, scat_use);
         aml_sdio_func6_rx_buffer_read(buf + LEN_128K, addr + LEN_128K, len - LEN_128K, scat_use);
     } else {
@@ -370,15 +400,27 @@ void aml_sdio_rx_buffer_read(unsigned char *buf, unsigned char *addr, size_t len
     }
 }
 
+
 //sdio func7 for bt
 void aml_bt_sdio_read_sram(unsigned char *buf, unsigned char *addr, SYS_TYPE len)
 {
+    if (bus_state_detect.bus_err) {
+        printk("%s: sdio bus is recovery ongoing, can not read/write\n", __func__);
+        return;
+    }
+
     aml_sdio_bottom_read(SDIO_FUNC7, ((SYS_TYPE)addr & SDIO_ADDR_MASK),
         buf, len, (len > 8 ? SDIO_OPMODE_INCREMENT : SDIO_OPMODE_FIXED));
 }
 
 void aml_bt_sdio_write_sram(unsigned char *buf, unsigned char *addr, SYS_TYPE len)
 {
+
+    if (bus_state_detect.bus_err) {
+        printk("%s: sdio bus is recovery ongoing, can not read/write\n", __func__);
+        return;
+    }
+
     aml_sdio_bottom_write(SDIO_FUNC7, ((SYS_TYPE)addr & SDIO_ADDR_MASK),
         buf, len, (len > 8 ? SDIO_OPMODE_INCREMENT : SDIO_OPMODE_FIXED));
 }
@@ -393,6 +435,11 @@ unsigned int aml_bt_hi_read_word(unsigned int addr)
      * all 128k space in one sdio-function use only
      * one address-mapping: 32-bit AHB Address = BaseAddr + cmdRegAddr
      */
+
+    if (bus_state_detect.bus_err) {
+        printk("%s: sdio bus is recovery ongoing, can not read/write\n", __func__);
+        return regdata;
+    }
 
     reg_tmp = aml_sdio_self_define_domain_read32( RG_SDIO_IF_MISC_CTRL);
 
@@ -413,6 +460,11 @@ unsigned int aml_bt_hi_read_word(unsigned int addr)
 void aml_bt_hi_write_word(unsigned int addr,unsigned int data)
 {
     unsigned int reg_tmp;
+
+    if (bus_state_detect.bus_err) {
+        printk("%s: sdio bus is recovery ongoing, can not read/write\n", __func__);
+        return;
+    }
     /*
      * make sure function 5 section address-mapping feature is disabled,
      * when this feature is disabled,
@@ -503,6 +555,12 @@ int aml_sdio_scat_req_rw(struct amlw_hif_scatter_req *scat_req)
         func_num = SDIO_FUNC4;
     else
         func_num = SDIO_FUNC6;
+#ifdef CONFIG_AML_RECOVERY
+    if (bus_state_detect.bus_err) {
+        aml_sdio_scat_complete(scat_req);
+        return 0;
+    }
+#endif
 
     func = hif_sdio->sdio_func_if[func_num];
     host = func->card->host;
@@ -605,6 +663,12 @@ int aml_sdio_scat_req_rw(struct amlw_hif_scatter_req *scat_req)
         {
             ERROR_DEBUG_OUT("ERROR CMD53 %s cmd_error = %d data_error=%d\n",
                 (scat_req->req & HIF_WRITE) ? "write" : "read", mmc_cmd.error, mmc_dat.error);
+#ifdef CONFIG_AML_RECOVERY
+            if (!bus_state_detect.bus_err) {
+               bus_state_detect.bus_err = 1;
+            }
+            break;
+#endif
         }
 
     }
@@ -879,7 +943,6 @@ void aml_sdio_init_w2_ops(void)
 
     //for suspend & resume
     ops->hif_suspend = aml_sdio_suspend;
-
     g_sdio_after_porbe = 1;
 
     // check and wake firstly.
@@ -889,7 +952,7 @@ void aml_sdio_init_w2_ops(void)
 
 void aml_sdio_init_base_addr(void)
 {
-    g_func_kmalloc_buf = (unsigned char *)aml_mem_prealloc(AML_PREALLOC_SDIO, LEN_256K);
+    g_func_kmalloc_buf = (unsigned char *)aml_mem_prealloc(AML_PREALLOC_SDIO, WLAN_AML_SDIO_SIZE);
     if (!g_func_kmalloc_buf) {
          printk(">>>sdio kmalloc failed!");
     }
@@ -918,6 +981,7 @@ void aml_sdio_init_base_addr(void)
 
 EXPORT_SYMBOL(g_hwif_rx_sdio);
 EXPORT_SYMBOL(g_hif_sdio_ops);
+
 
 
 void aml_sdio_calibration(void)

@@ -106,7 +106,10 @@ int aml_msg_task(void *data)
             kfree(cmd->a2e_msg);
         }
     }
+    if (aml_hw->aml_msg_completion_init) {
+        aml_hw->aml_msg_completion_init = 0;
     complete_and_exit(&aml_hw->aml_msg_completion, 0);
+    }
 
     return 0;
 }
@@ -131,20 +134,20 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
     if (cmd_mgr->state == AML_CMD_MGR_STATE_CRASHED) {
         u32 i;
         printk(KERN_CRIT"cmd queue crashed\n");
-
-        for (i = 0; i < NX_VIRT_DEV_MAX; i++) {
-            if (aml_hw->vif_table[i] != NULL) {
-                struct aml_vif *vif = aml_hw->vif_table[i];
-                for (i = 0; i < CMD_CRASH_FW_PC_NUM; i++) {
-                    AML_INFO("fw_pc:%08x", aml_read_reg(vif->ndev, AML_FW_PC_POINTER));
-                    mdelay(100);
-                }
-                break;
-            }
-        }
-
         cmd->result = -EPIPE;
         spin_unlock_bh(&cmd_mgr->lock);
+        if (aml_bus_type == PCIE_MODE) {
+            for (i = 0; i < NX_VIRT_DEV_MAX; i++) {
+                if (aml_hw->vif_table[i] != NULL) {
+                    struct aml_vif *vif = aml_hw->vif_table[i];
+                    for (i = 0; i < CMD_CRASH_FW_PC_NUM; i++) {
+                        AML_INFO("fw_pc:%08x", aml_read_reg(vif->ndev, AML_FW_PC_POINTER));
+                        mdelay(100);
+                    }
+                    break;
+                }
+            }
+        }
         return -EPIPE;
     }
 
@@ -250,10 +253,12 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
                 cmd_complete(cmd_mgr, cmd);
             }
             spin_unlock_bh(&cmd_mgr->lock);
-            if (vif != NULL) {
-                for (i = 0; i < CMD_CRASH_FW_PC_NUM; i++) {
-                    AML_INFO("fw_pc:%08x\n", aml_read_reg(vif->ndev, AML_FW_PC_POINTER));
-                    mdelay(100);
+            if (aml_bus_type == PCIE_MODE) {
+                if (vif != NULL) {
+                    for (i = 0; i < CMD_CRASH_FW_PC_NUM; i++) {
+                        AML_INFO("fw_pc:%08x\n", aml_read_reg(vif->ndev, AML_FW_PC_POINTER));
+                        mdelay(100);
+                    }
                 }
             }
         }
@@ -311,6 +316,11 @@ static int cmd_mgr_llind(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
         }
     }
     aml_spin_unlock(&cmd_mgr->lock);
+
+#ifdef CONFIG_LINUXPC_VERSION
+    if (defer_push == true)
+        msleep(200);
+#endif
 
     return 0;
 }
@@ -387,6 +397,9 @@ static int cmd_mgr_msgind(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd_e2amsg *ms
 
     if (!found)
         cmd_mgr_run_callback(aml_hw, NULL, msg, cb);
+
+    if (msg->id == MSG_I(MM_CSA_FINISH_IND))
+        aml_sta_notify_csa_ch_switch(aml_hw, msg);
 
     return 0;
 }

@@ -92,6 +92,8 @@
 #define   PHY_RESET                    BIT(0)
 #define   MAC_RESET                    BIT(1)
 #define   CPU_RESET                    BIT(2)
+#define   USB_RESET                    BIT(5)
+#define   SDIO_RESET                   BIT(6)
 
 /* MAC platform */
 #define NXMAC_VERSION_1_ADDR           0x00B00004

@@ -12,6 +12,7 @@
 #include <linux/etherdevice.h>
 #include <net/ieee80211_radiotap.h>
 
+#include "aml_wq.h"
 #include "aml_defs.h"
 #include "aml_rx.h"
 #include "aml_tx.h"
@@ -23,6 +24,7 @@
 #include "share_mem_map.h"
 #include "reg_ipc_app.h"
 #include "sg_common.h"
+
 struct vendor_radiotap_hdr {
     u8 oui[3];
     u8 subns;
@@ -39,7 +41,6 @@ struct vendor_radiotap_hdr {
  * Select the vif that should receive this frame. Returns NULL if the destination
  * vif is not active or vif is not specified in the descriptor.
  */
-static inline
 struct aml_vif *aml_rx_get_vif(struct aml_hw *aml_hw, int vif_idx)
 {
     struct aml_vif *aml_vif = NULL;
@@ -63,7 +64,7 @@ struct aml_vif *aml_rx_get_vif(struct aml_hw *aml_hw, int vif_idx)
 static void aml_rx_statistic(struct aml_hw *aml_hw, struct hw_rxhdr *hw_rxhdr,
                               struct aml_sta *sta)
 {
-#ifdef CONFIG_AML_DEBUGFS
+//#ifdef CONFIG_AML_DEBUGFS
     struct aml_stats *stats = aml_hw->stats;
     struct aml_vif *aml_vif;
     struct aml_rx_rate_stats *rate_stats = &sta->stats.rx_rate;
@@ -164,7 +165,7 @@ static void aml_rx_statistic(struct aml_hw *aml_hw, struct hw_rxhdr *hw_rxhdr,
     sta->stats.rx_pkts ++;
     sta->stats.rx_bytes += hw_rxhdr->hwvect.len;
     sta->stats.last_act = jiffies;
-#endif
+//#endif
 }
 
 /**
@@ -424,10 +425,24 @@ resend_n_forward:
                 skb_reset_mac_header(rx_skb);
                 skip_after_eth_hdr = 0;
             }
-
             /* Update statistics */
             aml_vif->net_stats.rx_packets++;
             aml_vif->net_stats.rx_bytes += rx_skb->len;
+#ifdef CONFIG_AML_NAPI
+            if (aml_hw->napi_enable) {
+                __skb_queue_tail(&aml_hw->napi_rx_pending_queue, rx_skb);
+               /*if rx pending pkts >= napi_pend_pkt_num,extract to napi_rx_upload_queue,and schedule napi for poll*/
+               /*if rx pending pkts < napi_pend_pkt_num,schedule napi in ipc_host_rxdesc_handler*/
+                if (skb_queue_len(&aml_hw->napi_rx_pending_queue) >= aml_hw->napi_pend_pkt_num) {
+                    unsigned long flags;
+                    spin_lock_irqsave(&aml_hw->napi_rx_upload_queue.lock, flags);
+                    skb_queue_splice_tail_init(&aml_hw->napi_rx_pending_queue, &aml_hw->napi_rx_upload_queue);
+                    spin_unlock_irqrestore(&aml_hw->napi_rx_upload_queue.lock, flags);
+                    napi_schedule(&aml_hw->napi);
+                }
+                continue;
+            }
+#endif
             REG_SW_SET_PROFILING(aml_hw, SW_PROF_IEEE80211RX);
             netif_receive_skb(rx_skb);
             REG_SW_CLEAR_PROFILING(aml_hw, SW_PROF_IEEE80211RX);
@@ -437,6 +452,31 @@ resend_n_forward:
     }
 
     return res;
+}
+
+static void aml_rx_assoc_req(struct aml_hw *aml_hw, struct sk_buff *skb)
+{
+    struct ieee80211_mgmt *mgmt = (struct ieee80211_mgmt *)skb->data;
+    u8 *ht_cap_ie;
+    int var_offset;
+
+    if (ieee80211_is_assoc_req(mgmt->frame_control)) {
+        var_offset = offsetof(struct ieee80211_mgmt, u.assoc_req.variable);
+        ht_cap_ie = cfg80211_find_ie(WLAN_EID_HT_CAPABILITY, mgmt->u.assoc_req.variable, skb->len - var_offset);
+    }
+    else {
+        var_offset = offsetof(struct ieee80211_mgmt, u.reassoc_req.variable);
+        ht_cap_ie = cfg80211_find_ie(WLAN_EID_HT_CAPABILITY, mgmt->u.reassoc_req.variable, skb->len - var_offset);
+    }
+
+    memcpy(aml_hw->rx_assoc_info.addr, mgmt->sa, ETH_ALEN);
+
+    if (ht_cap_ie) {
+        struct ieee80211_ht_cap *ht_cap = ht_cap_ie + 2;
+        aml_hw->rx_assoc_info.htcap = ht_cap->cap_info;
+    }
+    else
+        aml_hw->rx_assoc_info.htcap = 0;
 }
 
 /**
@@ -484,6 +524,9 @@ static void aml_rx_mgmt(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
         // and cannot call cfg80211_ft_event from atomic context so defer message processing
         aml_rx_defer_skb(aml_hw, aml_vif, skb);
     } else {
+        if (ieee80211_is_assoc_req(mgmt->frame_control) || ieee80211_is_reassoc_req(mgmt->frame_control)) {
+            aml_rx_assoc_req(aml_hw, skb);
+        }
         cfg80211_rx_mgmt(&aml_vif->wdev, hw_rxhdr->phy_info.phy_prim20_freq,
                          rxvect->rssi1, skb->data, skb->len, 0);
     }
@@ -1161,6 +1204,10 @@ u8 aml_unsup_rx_vec_ind(void *pthis, void *arg) {
     struct rx_vector_desc rx_vect_desc;
     u8 rtap_len, vend_rtap_len = sizeof(*rtap);
 
+    if (aml_bus_type != PCIE_MODE) {
+        return -1;
+    }
+
     aml_ipc_buf_e2a_sync(aml_hw, ipc_buf, sizeof(struct rx_vector_desc));
 
     skb = ipc_buf->addr;
@@ -1304,6 +1351,8 @@ void aml_rxdata_deinit(void)
 
     list_for_each_entry_safe(rxdata, rxdata_tmp, &free_rxdata_list, list)
         kfree(rxdata);
+    list_for_each_entry_safe(rxdata, rxdata_tmp, &reorder_list, list)
+        kfree(rxdata);
 }
 
 struct rxdata *aml_get_rxdata_from_free_list(void)
@@ -1351,7 +1400,7 @@ void aml_scan_clear_scan_res(struct aml_hw *aml_hw)
     spin_lock_bh(&aml_hw->scan_lock);
     list_for_each_entry_safe(scan_res, next, &aml_hw->scan_res_list, list) {
         list_del(&scan_res->list);
-        list_add_tail(&scan_res->list, &aml_hw->scan_res_avilable_list);
+        list_add_tail(&scan_res->list, &aml_hw->scan_res_available_list);
     }
     spin_unlock_bh(&aml_hw->scan_lock);
 }
@@ -1467,28 +1516,27 @@ void aml_sdio_get_rxdata(struct aml_hw *p_this, struct drv_stat_desc *arg1, stru
 
 }
 
-s8 rx_skb_handle(struct rx_desc_head *desc_stat, struct aml_hw *aml_hw, struct rxdata *rxdata_clear)
+s8 rx_skb_handle(struct rx_desc_head *desc_stat, struct aml_hw *aml_hw, struct rxdata *rxdata_clear, uint8_t *rxbuf_end)
 {
     struct rxdata *rxdata = NULL;
     uint8_t eth_hdr_offset = 0;
     struct sk_buff *skb = NULL;
     struct aml_vif *aml_vif;
     uint32_t upload_len = 0;
-    uint8_t *host_buf_end_addr = aml_hw->host_buf + aml_hw->rx_buf_end - RXBUF_START_ADDR;
     struct hw_rxhdr *hw_rxhdr = NULL;
 
     eth_hdr_offset = desc_stat->frame_len & 0xff;
     desc_stat->frame_len >>= 8;
 
     /* Check if we need to delete the buffer */
-    if (desc_stat->status & RX_STAT_DELETE) {
+    if (rxdata_clear && (desc_stat->status & RX_STAT_DELETE)) {
         list_del(&rxdata_clear->list);
         dev_kfree_skb(rxdata_clear->skb);
         aml_put_rxdata_back_to_free_list(rxdata_clear);
         return 0;
     }
 
-    if (desc_stat->status == RX_STAT_FORWARD) {
+    if (rxdata_clear && (desc_stat->status == RX_STAT_FORWARD)) {
         list_del(&rxdata_clear->list);
         desc_stat->frame_len = rxdata_clear->frame_len;
         skb = rxdata_clear->skb;
@@ -1502,20 +1550,20 @@ s8 rx_skb_handle(struct rx_desc_head *desc_stat, struct aml_hw *aml_hw, struct r
     } else {
         skb = dev_alloc_skb(desc_stat->frame_len + sizeof(struct hw_rxhdr));
         if (skb == NULL) {
-            printk("%s,%d, skb == NULL\n", __func__, __LINE__);
+            printk("%s,%d, skb == NULL, alloc len(0x%x) failed\n", __func__, __LINE__, desc_stat->frame_len + sizeof(struct hw_rxhdr));
             return -ENOMEM;
         }
         skb_reserve(skb, sizeof(struct hw_rxhdr));
 
-        if (aml_hw->host_buf_start + RX_DESC_SIZE > host_buf_end_addr) {
-            hw_rxhdr = (struct hw_rxhdr *)(aml_hw->host_buf + RX_HEADER_OFFSET);
+        if ((aml_hw->host_buf_start < rxbuf_end) && (aml_hw->host_buf_start + RX_DESC_SIZE > rxbuf_end)) {
+            hw_rxhdr = (struct hw_rxhdr *)(rxbuf_end + RX_HEADER_OFFSET);
 
         } else {
             hw_rxhdr = (struct hw_rxhdr *)(aml_hw->host_buf_start + RX_HEADER_OFFSET);
         }
 
         //printk("buf_start:%08x, eth_hdr_offset:%08x, desc_stat->frame_len:%08x, size:%08x\n",
-        //    aml_hw->host_buf_start, eth_hdr_offset, desc_stat->frame_len, host_buf_end_addr - aml_hw->host_buf_start);
+        //    aml_hw->host_buf_start, eth_hdr_offset, desc_stat->frame_len, rxbuf_end - aml_hw->host_buf_start);
 
         /*
         not loop: all data in buffer in sequence
@@ -1527,30 +1575,33 @@ s8 rx_skb_handle(struct rx_desc_head *desc_stat, struct aml_hw *aml_hw, struct r
         5. rxdesc, rpd, offset, part of payload in buffer end, then rpd in buffer start, payload in buffer start
         */
 
-        if (aml_hw->host_buf_start + RX_PAYLOAD_OFFSET + eth_hdr_offset + desc_stat->frame_len > host_buf_end_addr) {//loop
-            if (aml_hw->host_buf_start + RX_DESC_SIZE < host_buf_end_addr) {
-                if (aml_hw->host_buf_start + RX_PAYLOAD_OFFSET < host_buf_end_addr) {
+        if ((aml_hw->host_buf_start < rxbuf_end) && (aml_hw->host_buf_start + RX_PAYLOAD_OFFSET + eth_hdr_offset + desc_stat->frame_len > rxbuf_end)) {//loop
+            if (aml_hw->host_buf_start + RX_DESC_SIZE < rxbuf_end) {
+                if (aml_hw->host_buf_start + RX_PAYLOAD_OFFSET < rxbuf_end) {
+#ifndef CONFIG_AML_RX_MINISIZE
                     if (hw_rxhdr->flags_is_80211_mpdu) {
-                        if (aml_hw->host_buf_start + RX_PAYLOAD_OFFSET + desc_stat->frame_len <= host_buf_end_addr) {
+                        if (aml_hw->host_buf_start + RX_PAYLOAD_OFFSET + desc_stat->frame_len <= rxbuf_end) {
                             memcpy((unsigned char *)skb->data, aml_hw->host_buf_start + RX_PAYLOAD_OFFSET + eth_hdr_offset, desc_stat->frame_len);
                         } else {
-                            memcpy((unsigned char *)skb->data, aml_hw->host_buf + eth_hdr_offset, desc_stat->frame_len);
+                            memcpy((unsigned char *)skb->data, rxbuf_end + eth_hdr_offset, desc_stat->frame_len);
                         }
-                    } else {
-                        if (aml_hw->host_buf_start + RX_PAYLOAD_OFFSET + UNWRAP_SIZE < host_buf_end_addr) {//5
-                            upload_len = host_buf_end_addr - aml_hw->host_buf_start - RX_PAYLOAD_OFFSET - eth_hdr_offset;
+                    } else
+#endif
+                    {
+                        if (aml_hw->host_buf_start + RX_PAYLOAD_OFFSET + UNWRAP_SIZE < rxbuf_end) {//5
+                            upload_len = rxbuf_end - aml_hw->host_buf_start - RX_PAYLOAD_OFFSET - eth_hdr_offset;
                             memcpy((unsigned char *)skb->data, aml_hw->host_buf_start + RX_PAYLOAD_OFFSET + eth_hdr_offset, upload_len);
-                            memcpy((unsigned char *)skb->data + upload_len, aml_hw->host_buf + RX_PD_LEN, desc_stat->frame_len - upload_len);
+                            memcpy((unsigned char *)skb->data + upload_len, rxbuf_end + RX_PD_LEN, desc_stat->frame_len - upload_len);
                         } else {//4
-                            memcpy((unsigned char *)skb->data, aml_hw->host_buf + eth_hdr_offset, desc_stat->frame_len);
+                            memcpy((unsigned char *)skb->data, rxbuf_end + eth_hdr_offset, desc_stat->frame_len);
                         }
                     }
                 } else {//2,3
-                    memcpy((unsigned char *)skb->data, aml_hw->host_buf + RX_PD_LEN + eth_hdr_offset, desc_stat->frame_len);
+                    memcpy((unsigned char *)skb->data, rxbuf_end + RX_PD_LEN + eth_hdr_offset, desc_stat->frame_len);
                 }
 
             } else {//  1
-                memcpy((unsigned char *)skb->data, aml_hw->host_buf + RX_PAYLOAD_OFFSET + eth_hdr_offset, desc_stat->frame_len);
+                memcpy((unsigned char *)skb->data, rxbuf_end + RX_PAYLOAD_OFFSET + eth_hdr_offset, desc_stat->frame_len);
             }
 
         } else {//  not loop
@@ -1569,6 +1620,8 @@ s8 rx_skb_handle(struct rx_desc_head *desc_stat, struct aml_hw *aml_hw, struct r
             skb_push(skb, sizeof(struct hw_rxhdr));
             memcpy((unsigned char *)skb->data, hw_rxhdr, sizeof(struct hw_rxhdr));
             list_add_tail(&rxdata->list, &reorder_list);
+        }  else {
+            dev_kfree_skb(skb);
         }
         return 0;
     }
@@ -1750,7 +1803,6 @@ check_len_update:
                 dev_kfree_skb(skb);
         }
     }
-
     spin_unlock_bh(&aml_hw->rx_lock);
     return 0;
 }
@@ -1801,247 +1853,203 @@ void aml_trigger_rst_rxd(struct aml_hw *aml_hw, uint32_t addr_rst)
         aml_hw->rx_buf_state &= ~BUFFER_NOTIFY;
     }
 
+    if (aml_hw->rx_buf_state & BUFFER_EXPEND_FINSH) {
+        /* Host rx expend had finshed, notify the firmware */
+        addr_rst |= BIT(26);
+        printk("%s,%d: BUFFER_EXPEND_FINSH last_addr = %x, addr_rst = %x", __func__, __LINE__, last_addr, addr_rst);
+        aml_hw->rx_buf_state &= ~BUFFER_EXPEND_FINSH;
+    }
+
     cmd_buf[0] = 1;
     cmd_buf[1] = addr_rst;
 
     if (last_addr != addr_rst) {
         if (aml_bus_type == USB_MODE) {
             aml_hw->plat->hif_ops->hi_write_sram((unsigned char *)cmd_buf, (unsigned char *)(SYS_TYPE)(CMD_DOWN_FIFO_FDH_ADDR), 8, USB_EP4);
-        } else if (aml_bus_type == SDIO_MODE) {
+        } else if ((aml_bus_type == SDIO_MODE) && (aml_hw->state == WIFI_SUSPEND_STATE_NONE)) {
             aml_hw->plat->hif_sdio_ops->hi_sram_write((unsigned char*)cmd_buf, (unsigned char *)(SYS_TYPE)(CMD_DOWN_FIFO_FDH_ADDR), 8);
         }
         last_addr = addr_rst;
     }
 }
 
-void aml_sdio_dynamic_buffer_check(struct aml_hw *aml_hw)
+void aml_sdio_dynamic_buffer_check(struct aml_hw *aml_hw, struct rxbuf_list *rxbuf_list)
 {
-    if (aml_hw->rx_buf_state & BUFFER_STATUS) {
+    if ((aml_hw->rx_buf_state & BUFFER_STATUS) && !aml_hw->la_enable) {
         if (aml_hw->rx_buf_state & BUFFER_NARROW) {
-            printk("%s,%d: rx_host_switch_addr = %x, host_buf_start = %x, host_buf_end = %x, host_buf_samll=%x, rx_buf_state= %x\n", __func__, __LINE__,
-               aml_hw->rx_host_switch_addr, aml_hw->host_buf_start, aml_hw->host_buf_end, aml_hw->host_buf + LEN_128K, aml_hw->rx_buf_state);
+            printk("%s,%d:reduce fw_new_pos=%x, fw_buf_pos=%x\n", __func__, __LINE__,
+                       (aml_hw->fw_new_pos & ~AML_WRAP), (aml_hw->fw_buf_pos & ~AML_WRAP));
 
-            /*
-             There are two scenarios for host rx reduce:
-             1.host_buf_end > rx_host_switch_addr,host_buf_end requires wrap and must be greater than or equal to rx_host_switch_addr.
-             2.host_buf_end <= rx_host_switch_addr,host_buf_end does not require wrap,only greater than or equal to rx_host_switch_addr.
-            */
-            if (((aml_hw->rx_buf_state & BUFFER_END_NEED_WRAP) && (aml_hw->rx_buf_state & BUFFER_END_WRAP) && (aml_hw->host_buf_end >= aml_hw->rx_host_switch_addr))
-                || ((aml_hw->rx_buf_state & BUFFER_END_NO_NEED_WRAP) && (aml_hw->host_buf_end >= aml_hw->rx_host_switch_addr))) {
-                /* host_buf_start equals host_buf_end, indicating that the data processing is complete */
-                while (aml_hw->host_buf_start != aml_hw->host_buf_end) {
-                    udelay(2);
-                }
-
+            if ((aml_hw->rx_buf_state & BUFFER_UPDATE_FLAG) == 0) {
+                aml_hw->rx_buf_state |= BUFFER_UPDATE_FLAG;
+                return;
+            }
+            if (aml_bus_type == SDIO_MODE) {
                 aml_hw->rx_buf_end = RXBUF_END_ADDR_SMALL;
                 aml_hw->rx_buf_len = RX_BUFFER_LEN_SMALL;
-                aml_hw->rx_buf_state &= ~(BUFFER_STATUS);
-                aml_hw->rx_buf_state |= BUFFER_NOTIFY;
-
-                if (aml_hw->rx_buf_state & BUFFER_END_NEED_WRAP) {
-                    aml_hw->rx_buf_state &= ~(BUFFER_END_NEED_WRAP);
-                    aml_hw->rx_buf_state &= ~(BUFFER_END_WRAP);
-                }
-                if (aml_hw->rx_buf_state & BUFFER_END_NO_NEED_WRAP) {
-                    aml_hw->rx_buf_state &= ~(BUFFER_END_NO_NEED_WRAP);
-                }
-
-                printk("%s,%d: rx buffer reduce:%x, host_buf_end = %x, host_buf_start = %x\n",
-                    __func__, __LINE__, aml_hw->rx_buf_state, aml_hw->host_buf_end, aml_hw->host_buf_start);
-
-                /*
-                  After rx_buf_len is updated, an rxdesc cannot be saved from host_buf_start to rx_buf_end.
-                  host_buf_start and host_buf_end need to be updated to the initial position of host_buf.
-                */
-                if ((aml_hw->host_buf + aml_hw->rx_buf_len - aml_hw->host_buf_start) < RX_DESC_SIZE) {
-                    spin_lock(&aml_hw->buf_start_lock);
-                    aml_hw->host_buf_start = aml_hw->host_buf;
-                    spin_unlock(&aml_hw->buf_start_lock);
-
-                    spin_lock(&aml_hw->buf_end_lock);
-                    aml_hw->host_buf_end = aml_hw->host_buf;
-                    spin_unlock(&aml_hw->buf_end_lock);
-                }
+            } else {
+                aml_hw->rx_buf_end = USB_RXBUF_END_ADDR_SMALL;
+                aml_hw->rx_buf_len = USB_RX_BUFFER_LEN_SMALL;
             }
-        } else {
-            if ((aml_hw->rx_buf_state & BUFFER_UPDATE_FLAG) == 0 ) {
+            aml_hw->rx_buf_state &= ~(BUFFER_STATUS);
+            aml_hw->rx_buf_state &= ~(BUFFER_UPDATE_FLAG);
+            aml_hw->rx_buf_state |= BUFFER_NOTIFY;
+            printk("%s,%d:reduce_finsh rx_buf_state = %x\n", __func__, __LINE__, aml_hw->rx_buf_state);
+        } else if (aml_hw->rx_buf_state & BUFFER_EXPAND) {
+            printk("%s,%d:expend fw_new_pos=%x, fw_buf_pos=%x\n", __func__, __LINE__,
+                (aml_hw->fw_new_pos & ~AML_WRAP), (aml_hw->fw_buf_pos & ~AML_WRAP));
+            if (((aml_hw->rx_buf_state & BUFFER_UPDATE_FLAG) == 0) && ((aml_hw->fw_new_pos & ~AML_WRAP) < RXBUF_END_ADDR_SMALL)) {
                 aml_hw->rx_buf_state |= BUFFER_UPDATE_FLAG;
                 return;
             }
 
-            while (aml_hw->host_buf_start != aml_hw->host_buf_end) {
-                udelay(10);
+            if (aml_bus_type == SDIO_MODE) {
+                aml_hw->rx_buf_end = RXBUF_END_ADDR_LARGE;
+                aml_hw->rx_buf_len = RX_BUFFER_LEN_LARGE;
+            } else{
+                aml_hw->rx_buf_end = USB_RXBUF_END_ADDR_LARGE;
+                aml_hw->rx_buf_len = USB_RX_BUFFER_LEN_LARGE;
             }
-            aml_hw->rx_buf_end = RXBUF_END_ADDR_LARGE;
-            aml_hw->rx_buf_len= RX_BUFFER_LEN_LARGE;
-            aml_hw->rx_buf_state &= ~(BUFFER_STATUS | BUFFER_UPDATE_FLAG);
-            printk("%s rx buffer enlarge:%x\n", __func__, aml_hw->rx_buf_state);
+
+            aml_hw->rx_buf_state &= ~(BUFFER_STATUS);
+            aml_hw->rx_buf_state &= ~(BUFFER_UPDATE_FLAG);
+            aml_hw->rx_buf_state |= BUFFER_EXPEND_FINSH;
+            printk("%s,%d:enlarge_finsh rx_buf_state = %x\n", __func__, __LINE__, aml_hw->rx_buf_state);
         }
     }
+
+    rxbuf_list->rx_buf_end = aml_hw->rx_buf_end;
+    rxbuf_list->rx_buf_len = aml_hw->rx_buf_len;
+}
+
+void aml_rxbuf_list_init(struct aml_hw *aml_hw)
+{
+    int i = 0;
+
+    INIT_LIST_HEAD(&aml_hw->rxbuf_free_list);
+    INIT_LIST_HEAD(&aml_hw->rxbuf_used_list);
+
+    for (i = 0; i < RXBUF_NUM; i++) {
+        INIT_LIST_HEAD(&aml_hw->rxbuf_list[i].list);
+        aml_hw->rxbuf_list[i].rxbuf = (u8 *)aml_hw->rxbufs + i * RXBUF_SIZE;
+        list_add_tail(&aml_hw->rxbuf_list[i].list, &aml_hw->rxbuf_free_list);
+     }
+    printk("%s host_buf:%08x\n", __func__, aml_hw->rxbufs);
+}
+
+struct rxbuf_list *aml_get_rxbuf_list_from_used_list(struct aml_hw *aml_hw)
+{
+    struct rxbuf_list *rxbuf_list = NULL;
+
+    spin_lock_bh(&aml_hw->used_list_lock);
+    if (!list_empty(&aml_hw->rxbuf_used_list)) {
+        rxbuf_list = list_first_entry(&aml_hw->rxbuf_used_list, struct aml_txbuf, list);
+        list_del(&rxbuf_list->list);
+    }
+    spin_unlock_bh(&aml_hw->used_list_lock);
+
+    return rxbuf_list;
+}
+
+struct rxbuf_list *aml_get_rxbuf_list_from_free_list(struct aml_hw *aml_hw)
+{
+    struct rxbuf_list *rxbuf_list = NULL;
+
+    spin_lock_bh(&aml_hw->free_list_lock);
+    if (!list_empty(&aml_hw->rxbuf_free_list)) {
+        rxbuf_list = list_first_entry(&aml_hw->rxbuf_free_list, struct aml_txbuf, list);
+        list_del(&rxbuf_list->list);
+    }
+    spin_unlock_bh(&aml_hw->free_list_lock);
+
+    return rxbuf_list;
 }
 
 s8 aml_sdio_rxdataind(void *pthis, void *arg)
 {
     struct aml_hw *aml_hw = pthis;
     u8 result = -1;
-    u8 recalc_flag = 0;
-    u8 *rxdesc_addr = NULL;
-    uint32_t remain_len = 0;
     uint32_t need_len = 0;
-    uint32_t trans_len = 0;
     uint32_t fw_buf_pos = aml_hw->fw_buf_pos & ~AML_WRAP;
     uint32_t fw_new_pos = aml_hw->fw_new_pos & ~AML_WRAP;
-    uint32_t print_cnt = 0;
-    static uint32_t print_cnt1 = 0;
-    uint32_t rxdesc = 0, new_rxdesc = 0;
-    uint32_t offset = 0, all_offset = 0;
+    struct rxbuf_list *temp_list = NULL;
 
     REG_SW_SET_PROFILING(aml_hw, SW_PROF_AMLDATAIND);
-    if (aml_bus_type == SDIO_MODE)
-        aml_sdio_dynamic_buffer_check(aml_hw);
 
-    remain_len = CIRCLE_Subtract2(aml_hw->host_buf_start, aml_hw->host_buf_end, aml_hw->rx_buf_len);
-    need_len = CIRCLE_Subtract(fw_new_pos, fw_buf_pos, aml_hw->rx_buf_len);
-
-    if ((!need_len) && (aml_hw->fw_buf_pos != aml_hw->fw_new_pos))
-        need_len = aml_hw->rx_buf_len;
-
-    if ((need_len > LEN_128K) && (fw_buf_pos < RXBUF_END_ADDR_LARGE - LEN_128K)) {
-        need_len = LEN_128K;
-        recalc_flag = 1;
+    while (list_empty(&aml_hw->rxbuf_free_list)) {
+        usleep_range(2,3);
     }
 
-    trans_len = need_len + SDIO_BLKSIZE;
-    if ((trans_len > remain_len) && (remain_len != aml_hw->rx_buf_len)) {
-        if (trans_len < aml_hw->rx_buf_len / 2) {
-            print_cnt1++;
-            if (print_cnt1 > 50) {
-                AML_PRINT(AML_DBG_MODULES_RX,": trans: %x, remain: %x, rx_buf_len: %x, need_len: %x, fw_pre_pos: %x, fw_new_pos:%x,  h_buf_s: %x, h_buf_e: %x\n",
-                    trans_len, remain_len, aml_hw->rx_buf_len, need_len, fw_buf_pos, fw_new_pos,
-                    aml_hw->host_buf_start, aml_hw->host_buf_end);
-                print_cnt1 = 0;
-            }
-
-            return result;
-        }
-
-        while ((trans_len > remain_len) && (remain_len != aml_hw->rx_buf_len)
-            && ((aml_hw->rx_buf_len - remain_len) > RX_DESC_SIZE)) {
-            remain_len = CIRCLE_Subtract2(aml_hw->host_buf_start, aml_hw->host_buf_end, aml_hw->rx_buf_len);
-            print_cnt++;
-            if (print_cnt > 20) {
-                AML_PRINT(AML_DBG_MODULES_RX,": trans: %x, remain: %x, rx_buf_len: %x, need_len: %x, fw_pre_pos: %x, fw_new_pos:%x,  h_buf_s: %x, h_buf_e: %x\n",
-                    trans_len, remain_len, aml_hw->rx_buf_len, need_len, fw_buf_pos, fw_new_pos,
-                    aml_hw->host_buf_start, aml_hw->host_buf_end);
-                print_cnt = 0;
-                up(&aml_hw->aml_rx_sem);
-            }
-            udelay(10);
-        }
-    }
-    print_cnt1 = 0;
-    if (recalc_flag) {
-        if (aml_bus_type == SDIO_MODE) {
-            aml_hw->plat->hif_sdio_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf_end,
-                (unsigned char *)(unsigned long)fw_buf_pos, need_len, 0);
-        } else {
-            aml_hw->plat->hif_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf_end,
-                (unsigned char *)(unsigned long)fw_buf_pos, need_len, 0);
-        }
-
-        rxdesc = fw_buf_pos;
-        rxdesc_addr = aml_hw->host_buf_end;
-
-        while (1) {
-            new_rxdesc = *(uint32_t *)(rxdesc_addr + NEXT_PKT_OFFSET);
-            offset = new_rxdesc - rxdesc;
-            all_offset += offset;
-
-            if (all_offset > LEN_128K) {
-                all_offset -= offset;
-                break;
-            }
-
-            rxdesc = new_rxdesc;
-            rxdesc_addr += offset;
-        }
-
-        spin_lock(&aml_hw->buf_end_lock);
-        aml_hw->host_buf_end = aml_hw->host_buf_end + all_offset;
-        spin_unlock(&aml_hw->buf_end_lock);
-
-        aml_hw->fw_buf_pos = (aml_hw->fw_buf_pos & AML_WRAP) + rxdesc;
-        aml_trigger_rst_rxd(aml_hw, aml_hw->fw_buf_pos);
-        up(&aml_hw->aml_rx_sem);
-    } else {
-        if (aml_hw->fw_buf_pos != aml_hw->fw_new_pos) {
+    if (aml_hw->fw_buf_pos != aml_hw->fw_new_pos) {
+        temp_list = aml_get_rxbuf_list_from_free_list(aml_hw);
+        if (temp_list) {
+            aml_sdio_dynamic_buffer_check(aml_hw, temp_list);
+            need_len = CIRCLE_Subtract(fw_new_pos, fw_buf_pos, temp_list->rx_buf_len);
             if (aml_bus_type == SDIO_MODE) {
-                if (fw_buf_pos <= fw_new_pos) {
-                    if (need_len == aml_hw->rx_buf_len) {//all buf, host_buf_end is not sure
-                        aml_hw->plat->hif_sdio_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf,
-                            (unsigned char *)(unsigned long)RXBUF_START_ADDR, aml_hw->rx_buf_end - RXBUF_START_ADDR + 1, 0);
-                        aml_hw->rx_buf_state |= BUFFER_WRAP;
+                if (fw_new_pos > fw_buf_pos) {
+                    aml_hw->plat->hif_sdio_ops->hi_rx_buffer_read((unsigned char *)temp_list->rxbuf,
+                        (unsigned char *)(unsigned long)fw_buf_pos, need_len, 0);
 
-                    } else {
-                        aml_hw->plat->hif_sdio_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf_end,
-                            (unsigned char *)(unsigned long)fw_buf_pos, need_len, 0);
-                        spin_lock(&aml_hw->buf_end_lock);
-                        aml_hw->host_buf_end += need_len;
-                        spin_unlock(&aml_hw->buf_end_lock);
-                    }
-
-                 } else {
-                    if (aml_hw->rx_buf_len - fw_buf_pos >= RX_DESC_SIZE)
-                        aml_hw->plat->hif_sdio_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf_end,
-                            (unsigned char *)(unsigned long)fw_buf_pos, aml_hw->rx_buf_end - fw_buf_pos + 1, 0);
-
-                    if (fw_new_pos - RXBUF_START_ADDR)
-                        aml_hw->plat->hif_sdio_ops->hi_rx_buffer_read(aml_hw->host_buf,
-                            (unsigned char *)(unsigned long)RXBUF_START_ADDR, fw_new_pos - RXBUF_START_ADDR, 0);
-
-                    spin_lock(&aml_hw->buf_end_lock);
-                    aml_hw->host_buf_end = aml_hw->host_buf + (fw_new_pos - RXBUF_START_ADDR);
-                    if (aml_hw->rx_buf_state & BUFFER_END_NEED_WRAP) {
-                        aml_hw->rx_buf_state |= BUFFER_END_WRAP;
-                        printk("%s:%d BUFFER_END_WRAP!\n", __func__, __LINE__);
-                    }
-                    spin_unlock(&aml_hw->buf_end_lock);
-                }
-            } else if (aml_bus_type == USB_MODE) {
-                if (fw_buf_pos <= fw_new_pos) {
-                    if (need_len == aml_hw->rx_buf_len) {//all buf, host_buf_end is not sure
-                        aml_hw->plat->hif_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf,
-                            (unsigned char *)(unsigned long)RXBUF_START_ADDR, aml_hw->rx_buf_end - RXBUF_START_ADDR + 1, USB_EP4);
-                        aml_hw->rx_buf_state |= BUFFER_WRAP;
-                    } else {
-                        aml_hw->plat->hif_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf_end,
-                            (unsigned char *)(unsigned long)fw_buf_pos, need_len, USB_EP4);
-
-                        spin_lock(&aml_hw->buf_end_lock);
-                        aml_hw->host_buf_end += need_len;
-                        spin_unlock(&aml_hw->buf_end_lock);
-                    }
-
+                    temp_list->first_len = need_len;
+                    temp_list->second_len = 0;
                 } else {
-                    if (aml_hw->rx_buf_len - fw_buf_pos >= RX_DESC_SIZE)
-                        aml_hw->plat->hif_ops->hi_rx_buffer_read((unsigned char *)aml_hw->host_buf_end,
-                            (unsigned char *)(unsigned long)fw_buf_pos, aml_hw->rx_buf_end - fw_buf_pos + 1, USB_EP4);
+                    if (temp_list->rx_buf_end - fw_buf_pos < RX_DESC_SIZE) {
+                        if (fw_new_pos > RXBUF_START_ADDR)
+                            aml_hw->plat->hif_sdio_ops->hi_rx_buffer_read((unsigned char *)temp_list->rxbuf,
+                                (unsigned char *)(unsigned long)RXBUF_START_ADDR, fw_new_pos - RXBUF_START_ADDR, 0);
 
-                    if (fw_new_pos - RXBUF_START_ADDR)
-                        aml_hw->plat->hif_ops->hi_rx_buffer_read(aml_hw->host_buf,
-                            (unsigned char *)(unsigned long)RXBUF_START_ADDR, fw_new_pos - RXBUF_START_ADDR, USB_EP4);
+                        temp_list->first_len = 0;
+                        temp_list->second_len = fw_new_pos - RXBUF_START_ADDR;
+                    } else {
+                        aml_hw->plat->hif_sdio_ops->hi_rx_buffer_read((unsigned char *)temp_list->rxbuf,
+                            (unsigned char *)(unsigned long)fw_buf_pos, temp_list->rx_buf_end - fw_buf_pos, 0);
 
-                   spin_lock(&aml_hw->buf_end_lock);
-                   aml_hw->host_buf_end = aml_hw->host_buf + (fw_new_pos - RXBUF_START_ADDR);
-                   spin_unlock(&aml_hw->buf_end_lock);
+                        if (fw_new_pos > RXBUF_START_ADDR)
+                            aml_hw->plat->hif_sdio_ops->hi_rx_buffer_read((unsigned char *)temp_list->rxbuf + (temp_list->rx_buf_end - fw_buf_pos),
+                                (unsigned char *)(unsigned long)RXBUF_START_ADDR, fw_new_pos - RXBUF_START_ADDR, 0);
+
+                        temp_list->first_len = temp_list->rx_buf_end - fw_buf_pos;
+                        temp_list->second_len = fw_new_pos - RXBUF_START_ADDR;
+                    }
+                }
+            } else { //USB
+                if (fw_new_pos > fw_buf_pos) {
+                    aml_hw->plat->hif_ops->hi_rx_buffer_read((unsigned char *)temp_list->rxbuf,
+                        (unsigned char *)(unsigned long)fw_buf_pos, need_len, USB_EP4);
+
+                        temp_list->first_len = need_len;
+                        temp_list->second_len = 0;
+                } else {
+                    if (temp_list->rx_buf_end - fw_buf_pos < RX_DESC_SIZE) {
+                        if (fw_new_pos > RXBUF_START_ADDR)
+                            aml_hw->plat->hif_ops->hi_rx_buffer_read((unsigned char *)temp_list->rxbuf,
+                                (unsigned char *)(unsigned long)RXBUF_START_ADDR, fw_new_pos - RXBUF_START_ADDR, USB_EP4);
+
+                        temp_list->first_len = 0;
+                        temp_list->second_len = fw_new_pos - RXBUF_START_ADDR;
+                    } else {
+                        aml_hw->plat->hif_ops->hi_rx_buffer_read((unsigned char *)temp_list->rxbuf,
+                            (unsigned char *)(unsigned long)fw_buf_pos, temp_list->rx_buf_end - fw_buf_pos, USB_EP4);
+
+                        if (fw_new_pos > RXBUF_START_ADDR)
+                            aml_hw->plat->hif_ops->hi_rx_buffer_read((unsigned char *)temp_list->rxbuf + (temp_list->rx_buf_end - fw_buf_pos),
+                                (unsigned char *)(unsigned long)RXBUF_START_ADDR, fw_new_pos - RXBUF_START_ADDR, USB_EP4);
+
+                        temp_list->first_len = temp_list->rx_buf_end - fw_buf_pos;
+                        temp_list->second_len = fw_new_pos - RXBUF_START_ADDR;
+                    }
                 }
             }
+
+            spin_lock(&aml_hw->used_list_lock);
+            list_add_tail(&temp_list->list, &aml_hw->rxbuf_used_list);
+            spin_unlock(&aml_hw->used_list_lock);
 
             aml_trigger_rst_rxd(aml_hw, aml_hw->fw_new_pos);
             aml_hw->fw_buf_pos = aml_hw->fw_new_pos;
-            up(&aml_hw->aml_rx_sem);
         }
     }
+    up(&aml_hw->aml_rx_sem);
 
     REG_SW_CLEAR_PROFILING(aml_hw, SW_PROF_AMLDATAIND);
     return result;
@@ -2061,9 +2069,9 @@ int aml_rx_task(void *data)
     int i = 0;
     struct rxdata *rxdata = NULL;
     struct rxdata *rxdata_tmp = NULL;
-    uint32_t has_data = (aml_hw->rx_buf_state & BUFFER_WRAP);
     struct sched_param sch_param;
     static int count = 0;
+    struct rxbuf_list *temp_list;
 
     sch_param.sched_priority = 91;
 #ifndef CONFIG_PT_MODE
@@ -2080,90 +2088,94 @@ int aml_rx_task(void *data)
             break;
         }
 
-        has_data = (aml_hw->rx_buf_state & BUFFER_WRAP);
-        aml_hw->rx_buf_state &= ~BUFFER_WRAP;
+        while (temp_list = aml_get_rxbuf_list_from_used_list(aml_hw)) {
+            aml_hw->host_buf_start = temp_list->rxbuf;
+            aml_hw->host_buf_end = temp_list->rxbuf + temp_list->first_len + temp_list->second_len;
 
-        while ((!aml_hw->aml_rx_task_quit) && ((aml_hw->host_buf_start != aml_hw->host_buf_end) || has_data)) {
-            next_fw_pkt = (uint32_t *)(aml_hw->host_buf_start + NEXT_PKT_OFFSET);
-            if (*next_fw_pkt > aml_hw->rx_buf_end || *next_fw_pkt < RXBUF_START_ADDR) {
-                printk("=======error:invalid address %08x, start:%08x, end:%08x, fw_pre_pos: %x, fw_new_pos: %x, last_fw_pos: %x\n",
-                    *next_fw_pkt, aml_hw->host_buf_start, aml_hw->host_buf_end,
-                    aml_hw->fw_buf_pos, aml_hw->fw_new_pos, aml_hw->last_fw_pos);
-                break;
-            }
+            while ((!aml_hw->aml_rx_task_quit) && (aml_hw->host_buf_start < aml_hw->host_buf_end)) {
+                next_fw_pkt = (uint32_t *)(aml_hw->host_buf_start + NEXT_PKT_OFFSET);
+                if (*next_fw_pkt > temp_list->rx_buf_end || *next_fw_pkt < RXBUF_START_ADDR) {
+                    printk("=======error:invalid address %08x, start:%08x, end:%08x, fw_pre_pos: %x, fw_new_pos: %x, last_fw_pos: %x\n",
+                        *next_fw_pkt, aml_hw->host_buf_start, aml_hw->host_buf_end,
+                        aml_hw->fw_buf_pos, aml_hw->fw_new_pos, aml_hw->last_fw_pos);
+                    break;
+                }
 
-            status_framlen = (uint32_t *)(aml_hw->host_buf_start + RX_STATUS_OFFSET);
-            fram_len = (uint32_t *)(aml_hw->host_buf_start + RX_FRMLEN_OFFSET);
-            desc_stat.hostid = (*status_framlen >> 16);
-            desc_stat.frame_len = (*fram_len << 8) | (*status_framlen & 0xff);
-            desc_stat.status = ((*status_framlen & 0xFF00) >> 8);
-            desc_stat.package_info = *(uint32_t *)(aml_hw->host_buf_start + RX_REORDER_LEN_OFFSET);
-            reorder_hostid_start = *(uint32_t *)(aml_hw->host_buf_start + RX_HOSTID_OFFSET);
-            reorder_len = *(uint32_t *)(aml_hw->host_buf_start + RX_REORDER_LEN_OFFSET) & 0xFF;
+                status_framlen = (uint32_t *)(aml_hw->host_buf_start + RX_STATUS_OFFSET);
+                fram_len = (uint32_t *)(aml_hw->host_buf_start + RX_FRMLEN_OFFSET);
+                desc_stat.hostid = (*status_framlen >> 16);
+                desc_stat.frame_len = (*fram_len << 8) | (*status_framlen & 0xff);
+                desc_stat.status = ((*status_framlen & 0xFF00) >> 8);
+#ifdef CONFIG_AML_RX_MINISIZE
+                desc_stat.package_info = *(uint16_t *)(aml_hw->host_buf_start + RX_REORDER_LEN_OFFSET);
+                reorder_len = desc_stat.package_info & 0xFF;
+                reorder_hostid_start = *(uint32_t *)(aml_hw->host_buf_start + RX_HOSTID_OFFSET);
+                reorder_hostid_start = (reorder_hostid_start & 0xFFFF);
+#else
+                desc_stat.package_info = *(uint32_t *)(aml_hw->host_buf_start + RX_REORDER_LEN_OFFSET);
+                reorder_hostid_start = *(uint32_t *)(aml_hw->host_buf_start + RX_HOSTID_OFFSET);
+                reorder_len = *(uint32_t *)(aml_hw->host_buf_start + RX_REORDER_LEN_OFFSET) & 0xFF;
+#endif
 
-            if (*status_framlen == 0 && reorder_len == 0) {
-                goto next_handle;
-            }
+                if (*status_framlen == 0 && reorder_len == 0) {
+                    goto next_handle;
+                }
 
-            if (desc_stat.status == RX_STAT_ALLOC && desc_stat.package_info != 0) {
-                for (i = 0; i < reorder_info[GET_TID(desc_stat.package_info)].reorder_len; ++i) {
-                    if (reorder_hostid_start == EXCEPT_HOSTID(reorder_info[GET_TID(desc_stat.package_info)].hostid + i)) {
-                        desc_stat.status = RX_STAT_ALLOC | RX_STAT_FORWARD;
-                        count++;
+                if (desc_stat.status == RX_STAT_ALLOC && desc_stat.package_info != 0) {
+                    for (i = 0; i < reorder_info[GET_TID(desc_stat.package_info)].reorder_len; ++i) {
+                        if (reorder_hostid_start == EXCEPT_HOSTID(reorder_info[GET_TID(desc_stat.package_info)].hostid + i)) {
+                            desc_stat.status = RX_STAT_ALLOC | RX_STAT_FORWARD;
+                            count++;
+                        }
+                    }
+                    if (count == reorder_info[GET_TID(desc_stat.package_info)].reorder_len) {
+                        reorder_info[GET_TID(desc_stat.package_info)].reorder_len = 0;
+                        reorder_info[GET_TID(desc_stat.package_info)].hostid = 0;
+                        count = 0;
                     }
                 }
-                if (count == reorder_info[GET_TID(desc_stat.package_info)].reorder_len) {
-                    reorder_info[GET_TID(desc_stat.package_info)].reorder_len = 0;
-                    reorder_info[GET_TID(desc_stat.package_info)].hostid = 0;
-                    count = 0;
-                }
-            }
 
-            rx_skb_handle(&desc_stat, aml_hw, NULL);
+                rx_skb_handle(&desc_stat, aml_hw, NULL, temp_list->rxbuf + temp_list->first_len);
 
-            if ((reorder_hostid_start != 0) && (reorder_len != 0)) {
-                desc_stat.status = RX_STAT_FORWARD;
+                if ((reorder_hostid_start != 0) && (reorder_len != 0)) {
+                    desc_stat.status = RX_STAT_FORWARD;
 
-                for (i = 0; i < reorder_len; ++i) {
-                    list_for_each_entry_safe(rxdata, rxdata_tmp, &reorder_list, list) {
-                        if (rxdata->host_id == (EXCEPT_HOSTID(reorder_hostid_start + i))
-                            && GET_TID(desc_stat.package_info) == GET_TID(rxdata->package_info)) {
-                                rx_skb_handle(&desc_stat, aml_hw, rxdata);
+                    for (i = 0; i < reorder_len; ++i) {
+                        list_for_each_entry_safe(rxdata, rxdata_tmp, &reorder_list, list) {
+                            if (rxdata->host_id == (EXCEPT_HOSTID(reorder_hostid_start + i))
+                                && GET_TID(desc_stat.package_info) == GET_TID(rxdata->package_info)) {
+                                    rx_skb_handle(&desc_stat, aml_hw, rxdata, NULL);
+                            }
                         }
                     }
                 }
-            }
 
-    next_handle:
-            if ((aml_hw->rx_buf_end - *next_fw_pkt) < RX_DESC_SIZE) {
-                *next_fw_pkt = RXBUF_START_ADDR;
-            }
-
-            if (*next_fw_pkt > aml_hw->last_fw_pos) {
-                spin_lock(&aml_hw->buf_start_lock);
-                aml_hw->host_buf_start += (*next_fw_pkt - aml_hw->last_fw_pos);
-                spin_unlock(&aml_hw->buf_start_lock);
-            } else {
-                spin_lock(&aml_hw->buf_start_lock);
-                aml_hw->host_buf_start = aml_hw->host_buf + (*next_fw_pkt - RXBUF_START_ADDR);
-                spin_unlock(&aml_hw->buf_start_lock);
-
-                spin_lock(&aml_hw->buf_end_lock);
-                if (aml_hw->host_buf + aml_hw->rx_buf_len - aml_hw->host_buf_end < RX_DESC_SIZE) {
-                    aml_hw->host_buf_end = aml_hw->host_buf;
-                    if (aml_hw->rx_buf_state & BUFFER_END_NEED_WRAP) {
-                        aml_hw->rx_buf_state |= BUFFER_END_WRAP;
-                        printk("%s:%d BUFFER_END_WRAP!\n", __func__, __LINE__);
-                    }
+        next_handle:
+                if ((temp_list->rx_buf_end - *next_fw_pkt) < RX_DESC_SIZE) {
+                    *next_fw_pkt = RXBUF_START_ADDR;
                 }
-                spin_unlock(&aml_hw->buf_end_lock);
+
+                if (*next_fw_pkt > aml_hw->last_fw_pos) {
+                    spin_lock(&aml_hw->buf_start_lock);
+                    aml_hw->host_buf_start += (*next_fw_pkt - aml_hw->last_fw_pos);
+                    spin_unlock(&aml_hw->buf_start_lock);
+                } else {
+                    spin_lock(&aml_hw->buf_start_lock);
+                    aml_hw->host_buf_start = temp_list->rxbuf + temp_list->first_len + (*next_fw_pkt - RXBUF_START_ADDR);
+                    spin_unlock(&aml_hw->buf_start_lock);
+                }
+                aml_hw->last_fw_pos = *next_fw_pkt;
             }
 
-            has_data = 0;//host_buf_start not equal host_buf_end now
-            aml_hw->last_fw_pos = *next_fw_pkt;
+            spin_lock(&aml_hw->free_list_lock);
+            list_add_tail(&temp_list->list, &aml_hw->rxbuf_free_list);
+            spin_unlock(&aml_hw->free_list_lock);
         }
     }
-    complete_and_exit(&aml_hw->aml_rx_completion, 0);
+    if (aml_hw->aml_rx_completion_init) {
+        aml_hw->aml_rx_completion_init = 0;
+        complete_and_exit(&aml_hw->aml_rx_completion, 0);
+    }
 
     return 0;
 }
@@ -2186,6 +2198,156 @@ void record_proc_rx_buf(u16 status, u32 dma_addr, u32 host_id, struct aml_hw *am
 }
 #endif
 
+extern unsigned int g_snr_enable;
+extern unsigned int g_snr_mcs_ration;
+struct aml_rx_rate_stats gst_rx_rate;
+
+static unsigned long last_time = 0;
+
+void idx_to_rate_cfg_for_dyn_snr(int idx, union aml_rate_ctrl_info *r_cfg, int *ru_size)
+{
+    r_cfg->value = 0;
+    if (idx < N_CCK)
+    {
+        r_cfg->formatModTx = FORMATMOD_NON_HT;
+        r_cfg->giAndPreTypeTx = (idx & 1) << 1;
+        r_cfg->mcsIndexTx = idx / 2;
+    }
+    else if (idx < (N_CCK + N_OFDM))
+    {
+        r_cfg->formatModTx = FORMATMOD_NON_HT;
+        r_cfg->mcsIndexTx =  idx - N_CCK + 4;
+    }
+    else if (idx < (N_CCK + N_OFDM + N_HT))
+    {
+        union aml_mcs_index *r = (union aml_mcs_index *)r_cfg;
+
+        idx -= (N_CCK + N_OFDM);
+        r_cfg->formatModTx = FORMATMOD_HT_MF;
+        r->ht.nss = idx / (8*2*2);
+        r->ht.mcs = (idx % (8*2*2)) / (2*2);
+        r_cfg->bwTx = ((idx % (8*2*2)) % (2*2)) / 2;
+        r_cfg->giAndPreTypeTx = idx & 1;
+    }
+    else if (idx < (N_CCK + N_OFDM + N_HT + N_VHT))
+    {
+        union aml_mcs_index *r = (union aml_mcs_index *)r_cfg;
+
+        idx -= (N_CCK + N_OFDM + N_HT);
+        r_cfg->formatModTx = FORMATMOD_VHT;
+        r->vht.nss = idx / (10*4*2);
+        r->vht.mcs = (idx % (10*4*2)) / (4*2);
+        r_cfg->bwTx = ((idx % (10*4*2)) % (4*2)) / 2;
+        r_cfg->giAndPreTypeTx = idx & 1;
+    }
+    else if (idx < (N_CCK + N_OFDM + N_HT + N_VHT + N_HE_SU))
+    {
+        union aml_mcs_index *r = (union aml_mcs_index *)r_cfg;
+
+        idx -= (N_CCK + N_OFDM + N_HT + N_VHT);
+        r_cfg->formatModTx = FORMATMOD_HE_SU;
+        r->vht.nss = idx / (12*4*3);
+        r->vht.mcs = (idx % (12*4*3)) / (4*3);
+        r_cfg->bwTx = ((idx % (12*4*3)) % (4*3)) / 3;
+        r_cfg->giAndPreTypeTx = idx % 3;
+    }
+    else if (idx < (N_CCK + N_OFDM + N_HT + N_VHT + N_HE_SU + N_HE_MU))
+    {
+        union aml_mcs_index *r = (union aml_mcs_index *)r_cfg;
+
+        BUG_ON(ru_size == NULL);
+
+        idx -= (N_CCK + N_OFDM + N_HT + N_VHT + N_HE_SU);
+        r_cfg->formatModTx = FORMATMOD_HE_MU;
+        r->vht.nss = idx / (12*6*3);
+        r->vht.mcs = (idx % (12*6*3)) / (6*3);
+        *ru_size = ((idx % (12*6*3)) % (6*3)) / 3;
+        r_cfg->giAndPreTypeTx = idx % 3;
+        r_cfg->bwTx = 0;
+    }
+    else
+    {
+        union aml_mcs_index *r = (union aml_mcs_index *)r_cfg;
+
+        idx -= (N_CCK + N_OFDM + N_HT + N_VHT + N_HE_SU + N_HE_MU);
+        r_cfg->formatModTx = FORMATMOD_HE_ER;
+        r_cfg->bwTx = idx / 9;
+        if (ru_size)
+            *ru_size = idx / 9;
+        r_cfg->giAndPreTypeTx = idx % 3;
+        r->vht.mcs = (idx % 9) / 3;
+        r->vht.nss = 0;
+    }
+}
+
+int aml_last_rx_info(struct aml_hw *priv, struct aml_sta *sta)
+{
+    struct aml_rx_rate_stats *rate_stats;
+    int i;
+    int cpt;
+    u64 high_rate_percent = 0;
+
+    if (!g_snr_enable)
+        return 0;
+
+    if (aml_recy != NULL && aml_recy_flags_chk(AML_RECY_STATE_ONGOING))
+        return 0;
+
+    if (jiffies < last_time + 2 * HZ)
+        return 0;
+
+    last_time = jiffies;
+    rate_stats = &sta->stats.rx_rate;
+    if (rate_stats->table == NULL || gst_rx_rate.table == NULL)
+        return 0;
+
+    cpt = rate_stats->cpt - gst_rx_rate.cpt;
+    for (i = 0 ; i < rate_stats->size ; i++ ) {
+        if (rate_stats->table[i]) {
+            union aml_rate_ctrl_info rate_config;
+            union aml_mcs_index *r;
+
+            u64 percent = div_u64((rate_stats->table[i] - gst_rx_rate.table[i]) * 1000, cpt);
+            int ru_size;
+            u32 rem;
+
+            r = (union aml_mcs_index *)&rate_config;
+
+            if (percent < 10) //1%
+                continue;
+            idx_to_rate_cfg_for_dyn_snr(i, &rate_config, &ru_size);
+            // just for mimo mode
+            if ((rate_config.formatModTx < FORMATMOD_HT_MF) || (rate_config.formatModTx == FORMATMOD_HE_ER))
+                continue;
+            else if (rate_config.formatModTx == FORMATMOD_HT_MF) {
+                if ((r->ht.nss < 1) && (r->ht.mcs < 7))
+                    continue;
+                high_rate_percent += percent;
+            } else {
+                if ((r->vht.nss < 1) && (r->vht.mcs < 9)) // VHT/HE_SU/HE_MU
+                    continue;
+                high_rate_percent += percent;
+            }
+        }
+    }
+    if (high_rate_percent > 0) {
+        u32 snr_cfg = AML_REG_READ(priv->plat, AML_ADDR_SYSTEM, 0xc00828);
+        u32 change = ((snr_cfg & BIT(29)) ^ BIT(29));
+
+        snr_cfg &= ~BIT(29);
+        snr_cfg |= change;
+        if ((high_rate_percent < g_snr_mcs_ration * 10)) {
+            printk("need change, per %d, snr_cfg 0x%x \n", high_rate_percent, snr_cfg);
+            AML_REG_WRITE(snr_cfg, priv->plat, AML_ADDR_SYSTEM, 0xc00828);
+        }
+    }
+    spin_lock_bh(&priv->tx_lock);
+    memcpy(gst_rx_rate.table, sta->stats.rx_rate.table, sta->stats.rx_rate.size * sizeof(sta->stats.rx_rate.table[0]));
+    gst_rx_rate.cpt = sta->stats.rx_rate.cpt;
+    gst_rx_rate.rate_cnt = sta->stats.rx_rate.rate_cnt;
+    spin_unlock_bh(&priv->tx_lock);
+    return 0;
+}
 /**
  * aml_rxdataind - Process rx buffer
  *
@@ -2196,6 +2358,7 @@ void record_proc_rx_buf(u16 status, u32 dma_addr, u32 host_id, struct aml_hw *am
  * This function is called for each buffer received by the fw
  *
  */
+ extern bool g_pcie_suspend;
 u8 aml_pci_rxdataind(void *pthis, void *arg)
 {
     struct aml_hw *aml_hw = pthis;
@@ -2235,6 +2398,9 @@ u8 aml_pci_rxdataind(void *pthis, void *arg)
 
     ipc_buf = aml_ipc_rxbuf_from_hostid(aml_hw, rxdesc->host_id);
     if (!ipc_buf) {
+        #ifdef CONFIG_AML_USE_TASK
+        aml_spin_lock(&aml_hw->rxdesc->lock);
+        #endif
         goto check_alloc;
     }
     skb = ipc_buf->addr;
@@ -2245,6 +2411,9 @@ u8 aml_pci_rxdataind(void *pthis, void *arg)
         aml_ipc_buf_e2a_sync(aml_hw, ipc_buf, msdu_offset);
         nb_buff = aml_rx_amsdu_free(aml_hw, hw_rxhdr);
         aml_ipc_rxbuf_dealloc(aml_hw, ipc_buf);
+        #ifdef CONFIG_AML_USE_TASK
+        aml_spin_lock(&aml_hw->rxdesc->lock);
+        #endif
         goto check_alloc;
     }
 
@@ -2289,6 +2458,9 @@ u8 aml_pci_rxdataind(void *pthis, void *arg)
                     // not enough space in the buffer need to re-alloc it
                     if (pskb_expand_head(skb, rtap_len, 0, GFP_ATOMIC)) {
                         dev_kfree_skb(skb);
+                        #ifdef CONFIG_AML_USE_TASK
+                        aml_spin_lock(&aml_hw->rxdesc->lock);
+                        #endif
                         goto check_alloc;
                     }
                 } else {
@@ -2387,6 +2559,10 @@ check_len_update:
             sta = aml_hw->sta_table + hw_rxhdr->flags_sta_idx;
             /* coverity[remediation] -  hwvect won't cross the line*/
             aml_rx_statistic(aml_hw, hw_rxhdr, sta);
+            aml_vif = aml_rx_get_vif(aml_hw, sta->vif_idx);
+            if (aml_vif && aml_vif->is_sta_mode) {
+                aml_last_rx_info(aml_hw, sta);
+            }
         }
 
         if (hw_rxhdr->flags_is_80211_mpdu) {
@@ -2441,15 +2617,29 @@ check_alloc:
         }
 
         while (nb_buff--) {
-            aml_ipc_rxbuf_alloc(aml_hw);
+            if (g_pcie_suspend == 1) {
+                aml_hw->repush_rxbuff_cnt++;
+            } else {
+                aml_ipc_rxbuf_alloc(aml_hw);
+            }
         }
     }
 
 end:
     REG_SW_CLEAR_PROFILING(aml_hw, SW_PROF_AMLDATAIND);
 
-    /* Reset and repush descriptor to FW */
-    aml_ipc_rxdesc_repush(aml_hw, ipc_desc);
+    /*if suspend,repush when resume*/
+    if (g_pcie_suspend == 1) {
+        struct rxdesc_tag *rxdesc = ipc_desc->addr;
+        rxdesc->status = 0;
+        dma_sync_single_for_device(aml_hw->dev, ipc_desc->dma_addr,
+            sizeof(struct rxdesc_tag), DMA_BIDIRECTIONAL);
+        aml_hw->repush_rxdesc = 1;
+        AML_INFO("suspend state:rxdesc idx=%u\n",aml_hw->ipc_env->rxdesc_idx);
+    } else {
+        /* Reset and repush descriptor to FW */
+        aml_ipc_rxdesc_repush(aml_hw, ipc_desc);
+    }
 
 #ifdef CONFIG_AML_USE_TASK
     aml_spin_unlock(&aml_hw->rxdesc->lock);
@@ -2524,3 +2714,92 @@ void aml_rx_deferred(struct work_struct *ws)
         dev_kfree_skb(skb);
     }
 }
+
+#ifndef CONFIG_AML_DEBUGFS
+void aml_alloc_global_rx_rate(struct aml_hw *aml_hw, struct aml_wq *aml_wq)
+{
+    uint8_t *sta_idx = (uint8_t *)aml_wq->data;
+    struct aml_sta *sta = aml_hw->sta_table + (*sta_idx);
+    struct aml_rx_rate_stats *rate_stats = &sta->stats.rx_rate;
+    struct aml_vif * vif;
+    int nb_rx_rate = N_CCK + N_OFDM;
+    AML_INFO("sta_idx:%d, sta_vif:%d", *sta_idx, sta->vif_idx);
+    if (aml_hw->mod_params->ht_on)
+        nb_rx_rate += N_HT;
+
+    if (aml_hw->mod_params->vht_on)
+        nb_rx_rate += N_VHT;
+
+    if (aml_hw->mod_params->he_on)
+        nb_rx_rate += N_HE_SU + N_HE_MU + N_HE_ER;
+    rate_stats->table = kzalloc(nb_rx_rate * sizeof(rate_stats->table[0]),
+                                GFP_KERNEL);
+    if (!rate_stats->table)
+        goto error_after_dir;
+
+    vif = aml_rx_get_vif(aml_hw, sta->vif_idx);
+    if ((gst_rx_rate.table == NULL) && vif && (vif->is_sta_mode)) {
+        gst_rx_rate.table = kzalloc(nb_rx_rate * sizeof(gst_rx_rate.table[0]),
+                                    GFP_KERNEL);
+        if (!gst_rx_rate.table)
+            goto error_after_dir;
+        gst_rx_rate.size = nb_rx_rate;
+        gst_rx_rate.cpt = 0;
+        gst_rx_rate.rate_cnt = 0;
+    }
+
+    rate_stats->size = nb_rx_rate;
+    rate_stats->cpt = 0;
+    rate_stats->rate_cnt = 0;
+    AML_INFO("nb_rate:%d, gst_stable:%p, sta_rate_table:%p", nb_rx_rate, gst_rx_rate.table, rate_stats->table);
+    return;
+error_after_dir:
+    if (sta->stats.rx_rate.table) {
+        kfree(sta->stats.rx_rate.table);
+        sta->stats.rx_rate.table = NULL;
+    }
+    vif = aml_rx_get_vif(aml_hw, sta->vif_idx);
+    if (gst_rx_rate.table && vif && vif->is_sta_mode) {
+        kfree(gst_rx_rate.table);
+        gst_rx_rate.table = NULL;
+    }
+
+    return;
+}
+
+void aml_dealloc_global_rx_rate(struct aml_hw *aml_hw, struct aml_sta *sta)
+{
+    struct aml_vif * vif;
+
+    vif = aml_rx_get_vif(aml_hw, sta->vif_idx);
+
+    if (sta->stats.rx_rate.table) {
+        kfree(sta->stats.rx_rate.table);
+        sta->stats.rx_rate.table = NULL;
+    }
+
+    if (gst_rx_rate.table && vif && vif->is_sta_mode) {
+        kfree(gst_rx_rate.table);
+        gst_rx_rate.table = NULL;
+    }
+    return;
+}
+
+void aml_rx_rate_wq(uint8_t *sta_idx)
+{
+    if (aml_recy_flags_chk(AML_RECY_RX_RATE_ALLOC)) {
+        struct aml_wq *aml_wq;
+        enum aml_wq_type type = AML_WQ_ALLOC_RX_RATE;
+        AML_INFO("sta_idx:%d",*sta_idx);
+        aml_recy_flags_clr(AML_RECY_RX_RATE_ALLOC);
+        aml_wq = aml_wq_alloc(1);
+        if (!aml_wq) {
+            AML_INFO("alloc wq out of memory");
+            return;
+        }
+        aml_wq->id = AML_WQ_ALLOC_RX_RATE;
+        memcpy(aml_wq->data, sta_idx, sizeof(uint8_t));
+        aml_wq_add(aml_recy->aml_hw, aml_wq);
+    }
+}
+#endif

@@ -15,6 +15,7 @@
 #include "aml_iwpriv_cmds.h"
 #include "aml_msg_tx.h"
 #include "aml_wq.h"
+#include "reg_ipc_app.h"
 
 /******************************************************************************
  * Utils functions
@@ -286,16 +287,19 @@ void aml_txq_drop_skb(struct aml_txq *txq, struct sk_buff *skb, struct aml_hw *a
  */
 void aml_txq_flush(struct aml_hw *aml_hw, struct aml_txq *txq)
 {
-    int i, pushed = 0;
+    int i = 0, pushed = 0;
     struct sk_buff *txq_skb;
 
     while(!skb_queue_empty(&txq->sk_list)) {
         txq_skb = skb_peek(&txq->sk_list);
         if (txq_skb != NULL) {
-            AML_INFO("txq drop skb list");
+            i++;
             aml_txq_drop_skb(txq, txq_skb, aml_hw, txq->nb_retry);
         }
     }
+
+    if (i > 0)
+        AML_INFO("txq drop %d skb", i);
 
     for (i = 0; i < CONFIG_USER_MAX; i++) {
         pushed += txq->pkt_pushed[i];
@@ -1080,9 +1084,11 @@ void aml_txq_vif_for_each_sta(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
     case NL80211_IFTYPE_P2P_GO:
     {
         struct aml_sta *sta;
+        spin_lock_bh(&aml_vif->sta_lock);
         list_for_each_entry(sta, &aml_vif->ap.sta_list, list) {
             f(sta, reason, aml_hw);
         }
+        spin_unlock_bh(&aml_vif->sta_lock);
         break;
     }
     default:
@@ -1309,10 +1315,6 @@ int aml_txq_queue_skb(struct sk_buff *skb, struct aml_txq *txq,
 
 #ifdef CONFIG_AML_FULLMAC
         // to update for SOFTMAC
-        if (aml_bus_type == PCIE_MODE) {
-            aml_ipc_sta_buffer(aml_hw, txq->sta, txq->tid,
-                ((struct aml_txhdr *)skb->data)->sw_hdr->frame_len);
-        }
         aml_txq_start_cleanup_timer(aml_hw, txq->sta);
 #endif
     } else {
@@ -1743,8 +1745,18 @@ void aml_hwq_process(struct aml_hw *aml_hw, struct aml_hwq *hwq)
         while ((skb = __skb_dequeue(&sk_list_push)) != NULL) {
             txhdr = (struct aml_txhdr *)skb->data;
             aml_tx_push(aml_hw, txhdr, 0);
-            if (aml_bus_type == PCIE_MODE)
-                aml_check_tcpack_skb(aml_hw, skb, skb->len);
+            aml_check_tcpack_skb(aml_hw, skb, skb->len);
+        }
+        if ((aml_bus_type == PCIE_MODE) && (g_txdesc_trigger.txdesc_cnt > 0)) {
+            ipc_app2emb_trigger_setf(aml_hw, IPC_IRQ_A2E_TXDESC);
+            g_txdesc_trigger.txdesc_cnt = 0;
+            if (g_txdesc_trigger.dynamic_cnt == 0) {
+                if (g_txdesc_trigger.tx_pcie_ths > 0) {
+                    g_txdesc_trigger.tx_pcie_ths--;
+                }
+            } else {
+                g_txdesc_trigger.dynamic_cnt--;
+            }
         }
 
         if (txq_empty) {
@@ -1855,10 +1867,18 @@ void aml_hwq_init(struct aml_hw *aml_hw)
         struct aml_hwq *hwq = &aml_hw->hwq[i];
 
         for (j = 0 ; j < CONFIG_USER_MAX; j++) {
+#ifdef CONFIG_CREDIT124
             hwq->credits[j] = nx_txdesc_cnt_ext[i];
+#else
+            hwq->credits[j] = (aml_bus_type == PCIE_MODE) ? nx_txdesc_cnt[i] : nx_txdesc_cnt_ext[i];
+#endif
         }
         hwq->id = i;
+#ifdef CONFIG_CREDIT124
         hwq->size = nx_txdesc_cnt_ext[i];
+#else
+        hwq->size = (aml_bus_type == PCIE_MODE) ? nx_txdesc_cnt[i] : nx_txdesc_cnt_ext[i];
+#endif
         INIT_LIST_HEAD(&hwq->list);
 
 #ifdef CONFIG_AML_SOFTMAC

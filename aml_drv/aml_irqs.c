@@ -13,15 +13,17 @@
 #include "aml_prof.h"
 
 extern bool b_usb_suspend;
+extern bool usb_is_shutdown;
+
 int aml_irq_usb_hdlr(struct urb *urb)
 {
     struct aml_hw *aml_hw = (struct aml_hw *)(urb->context);
 
-    if (b_usb_suspend)
+    if (b_usb_suspend || usb_is_shutdown)
     {
         return IRQ_HANDLED;
     }
-
+    urb->status = 0;
     up(&aml_hw->aml_irq_sem);
     return IRQ_HANDLED;
 }
@@ -63,7 +65,10 @@ int aml_irq_task(void *data)
         if (aml_hw->aml_irq_task_quit) {
             break;
         }
-        while ((!aml_hw->aml_irq_task_quit) && (status = aml_hw->plat->ack_irq(aml_hw))) {
+        while (status = aml_hw->plat->ack_irq(aml_hw)) {
+            if (aml_hw->aml_irq_task_quit) {
+                break;
+            }
             ipc_host_irq(aml_hw->ipc_env, status);
         }
 
@@ -76,16 +81,24 @@ int aml_irq_task(void *data)
              enable_irq(aml_hw->irq);
 #endif
         } else if (aml_bus_type == USB_MODE) {
-            ret = usb_submit_urb(aml_hw->g_urb, GFP_ATOMIC);
+            usleep_range(20, 30);
+            USB_BEGIN_LOCK();
+            if ((b_usb_suspend == 0) && (usb_is_shutdown == 0)) {
+                ret = usb_submit_urb(aml_hw->g_urb, GFP_ATOMIC);
+            }
+            USB_END_LOCK();
             if (ret < 0) {
                 ERROR_DEBUG_OUT("usb_submit_urb failed %d\n", ret);
-                return ret;
+                up(&aml_hw->aml_irq_sem);
             }
         }
 
         REG_SW_CLEAR_PROFILING(aml_hw, SW_PROF_AML_IPC_IRQ_HDLR);
     }
-    complete_and_exit(&aml_hw->aml_irq_completion, 0);
+    if (aml_hw->aml_irq_completion_init) {
+        aml_hw->aml_irq_completion_init = 0;
+        complete_and_exit(&aml_hw->aml_irq_completion, 0);
+    }
 
     return 0;
 }

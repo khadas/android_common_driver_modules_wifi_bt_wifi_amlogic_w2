@@ -1,0 +1,6 @@
+#define AML_VERS_REV "12ce18dc (project_w2_release)"
+#define AML_VERS_MOD "v1.5.0_20230804-w2p driver:12ce18dc24746243c1445ed45a6ef0e76aba29b5"
+#define AML_VERS_BANNER "v1.5.0_20230804-w2p driver:12ce18dc24746243c1445ed45a6ef0e76aba29b5 - build: jiabin.chen Aug 04 2023 14:53:51 - 12ce18dc (project_w2_release)"
+#define AML_DRIVER_COMPILE_INFO "driver compile date: Aug 04 2023 14:53:51,driver hash: 12ce18dc24746243c1445ed45a6ef0e76aba29b5"
+#define FIRMWARE_INFO "fw compile date: 2023-08-04 14:53:42,fw hash: bad1594076287a7b840ad61399f97f897c3e5f2e,fw size: 1843020"
+#define COMMON_INFO "common: last commit: 2023/Jul/27 17:28:56  hash: bad1594076287a7b840ad61399f97f897c3e5f2e"

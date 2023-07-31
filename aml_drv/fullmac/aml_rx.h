@@ -16,6 +16,7 @@
 #include "ipc_shared.h"
 #include "wifi_debug.h"
 #include "wifi_w2_shared_mem_cfg.h"
+#include "aml_static_buf.h"
 
 #define FW_BUFFER_STATUS   (BIT(20) | BIT(21))
 #define FW_BUFFER_NARROW   BIT(20)
@@ -27,14 +28,12 @@
 #define BUFFER_UPDATE_FLAG      BIT(2)
 #define BUFFER_NOTIFY           BIT(3)
 #define BUFFER_WRAP             BIT(4)
-#define BUFFER_END_NEED_WRAP    BIT(5)
-#define BUFFER_END_WRAP         BIT(6)
-#define BUFFER_END_NO_NEED_WRAP BIT(7)
+#define BUFFER_EXPEND_FINSH     BIT(5)
 
 #define RXDESC_CNT_READ_ONCE 32
 
+#ifndef CONFIG_AML_RX_MINISIZE
 #define RX_DESC_SIZE                   (128)
-
 #define RX_HEADER_OFFSET               (48)
 #define RX_HEADER_TO_PD_LEN            (80)
 #define RX_PD_LEN                      (36)
@@ -53,7 +52,28 @@
 #define RX_VECT1_OFFSET 60
 #define RX_VECT2_OFFSET 76
 #define NEXT_PKT_OFFSET 120
+#else
+#define RX_DESC_SIZE                   (80)
+#define RX_HEADER_OFFSET               (28)
+#define RX_PD_LEN                      (20)
+#define RX_PAYLOAD_OFFSET              (RX_DESC_SIZE + RX_PD_LEN)
+#define AML_WRAP CO_BIT(31)
+#define RX_DATA_MAX_CNT 512
 
+#define RX_HOSTID_OFFSET               (36)
+#define RX_REORDER_LEN_OFFSET          (38)
+#define RX_STATUS_OFFSET               (32)
+#define RX_FRMLEN_OFFSET               (28)
+#define NEXT_PKT_OFFSET                (56)
+
+/*no use in current code*/
+#define RX_HEADER_TO_PD_LEN            (80)
+#define RX_HEADER_TO_PAYLOAD_LEN       (72)
+#define RX_HOSTID_TO_PAYLOAD_LEN       (144)
+#define RX_RPD_DATASTARTPTR            (RX_DESC_SIZE + 8)
+#define RX_VECT1_OFFSET 60
+#define RX_VECT2_OFFSET 76
+#endif
 struct drv_stat_desc{
     uint32_t reserved[9];
     struct rxdesc_tag rx_stat_val;
@@ -202,6 +222,12 @@ struct debug_proc_rxbuff_info {
     u16 idx;
 };
 
+struct debug_push_rxdesc_info {
+    u32 time;
+    u32 addr;
+    u16 idx;
+};
+
 struct debug_push_rxbuff_info {
     u32 time;
     u32 addr;
@@ -209,11 +235,23 @@ struct debug_push_rxbuff_info {
     u16 idx;
 };
 
+struct rxbuf_list{
+    struct list_head list;
+    unsigned char *rxbuf;
+    unsigned int first_len;
+    unsigned int second_len;
+    unsigned int rx_buf_end;
+    unsigned int rx_buf_len;
+};
+
 #define DEBUG_RX_BUF_CNT       300
 
 #define AML_WRAP CO_BIT(31)
 #define HW2CPU(ptr) ((void *)(((uint32_t)(ptr)) / CHAR_LEN))
 #define CO_ALIGN4_LO(val) ((val)&~3)
+
+#define RXBUF_SIZE (324 * 1024)
+#define RXBUF_NUM (WLAN_AML_HW_RX_SIZE / RXBUF_SIZE)
 
 u8 aml_unsup_rx_vec_ind(void *pthis, void *hostid);
 u8 aml_rxdataind(void *pthis, void *hostid);
@@ -224,4 +262,9 @@ void aml_rxdata_init(void);
 void aml_rxdata_deinit(void);
 void aml_scan_clear_scan_res(struct aml_hw *aml_hw);
 void aml_scan_rx(struct aml_hw *aml_hw, struct hw_rxhdr *hw_rxhdr, struct sk_buff *skb);
+void aml_rxbuf_list_init(struct aml_hw *aml_hw);
+
+#ifndef CONFIG_AML_DEBUGFS
+void aml_dealloc_global_rx_rate(struct aml_hw *aml_hw, struct aml_sta *sta);
+#endif
 #endif /* _AML_RX_H_ */

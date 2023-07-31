@@ -190,7 +190,6 @@ struct aml_plat {
 
     struct device *dev;
     struct aml_hif_sdio_ops *hif_sdio_ops;
-
     struct pci_dev *pci_dev;
 
     bool enabled;

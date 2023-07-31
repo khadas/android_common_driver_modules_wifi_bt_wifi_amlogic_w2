@@ -24,7 +24,11 @@
 #define AML_80211_CMD_TIMEOUT_MS    (10000)
 #else
 //sj #define AML_80211_CMD_TIMEOUT_MS    300
-#define AML_80211_CMD_TIMEOUT_MS    9000
+#ifdef CONFIG_PT_MODE
+    #define AML_80211_CMD_TIMEOUT_MS    1000
+#else
+    #define AML_80211_CMD_TIMEOUT_MS    9000
+#endif
 #endif
 
 #define AML_CMD_FLAG_NONBLOCK      BIT(0)

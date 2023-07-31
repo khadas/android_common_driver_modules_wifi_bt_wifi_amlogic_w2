@@ -22,6 +22,7 @@
 #include "aml_scc.h"
 #include "aml_recy.h"
 #include "aml_wq.h"
+#include "aml_sap.h"
 
 const struct mac_addr mac_addr_bcst = {{0xFFFF, 0xFFFF, 0xFFFF}};
 
@@ -394,7 +395,7 @@ static void aml_priv_msg_free(struct aml_hw *aml_hw, const void *msg_params)
 
     aml_msg_free(aml_hw, msg);
 }
-
+extern struct aml_bus_state_detect bus_state_detect;
 static int aml_send_msg(struct aml_hw *aml_hw, const void *msg_params,
                          int reqcfm, lmac_msg_id_t reqid, void *cfm)
 {
@@ -407,6 +408,12 @@ static int aml_send_msg(struct aml_hw *aml_hw, const void *msg_params,
     AML_DBG(AML_FN_ENTRY_STR);
 
     msg = container_of((void *)msg_params, struct lmac_msg, param);
+#ifdef CONFIG_AML_RECOVERY
+    if ((aml_bus_type != PCIE_MODE) && (bus_state_detect.bus_err)) {
+        kfree(msg);
+        return 0;
+    }
+#endif
     if ((aml_hw->state > WIFI_SUSPEND_STATE_NONE || g_pci_shutdown) && (*(msg->param) != MM_SUB_SET_SUSPEND_REQ)
         && (*(msg->param) != MM_SUB_SCANU_CANCEL_REQ)) {
         printk("driver in suspend, cmd not allow to send, id:%d,aml_hw->state:%d g_pci_shutdown:%d\n",
@@ -414,6 +421,14 @@ static int aml_send_msg(struct aml_hw *aml_hw, const void *msg_params,
         kfree(msg);
         return -EBUSY;
     }
+
+    if ((aml_recy != NULL) && (aml_recy_flags_chk(AML_RECY_IPC_ONGOING)))
+    {
+        printk("ipc recy ongoing, cmd not allow to send, id:%d\n", msg->id);
+        kfree(msg);
+        return -EBUSY;
+    }
+
     if (!test_bit(AML_DEV_STARTED, (void*)&aml_hw->flags) &&
         reqid != MM_RESET_CFM && reqid != MM_VERSION_CFM &&
         reqid != MM_START_CFM && reqid != MM_SET_IDLE_CFM &&
@@ -517,6 +532,11 @@ int aml_send_start(struct aml_hw *aml_hw)
 
     AML_DBG(AML_FN_ENTRY_STR);
 
+#ifdef CONFIG_AML_RECOVERY
+    if ((aml_bus_type != PCIE_MODE) && (bus_state_detect.bus_err)) {
+        return -EBUSY;
+    }
+#endif
     /* Build the START REQ message */
     start_req_param = aml_msg_zalloc(MM_START_REQ, TASK_MM, DRV_TASK_ID,
                                       sizeof(struct mm_start_req));
@@ -765,10 +785,16 @@ int aml_send_bcn_change(struct aml_hw *aml_hw, u8 vif_idx, u32 bcn_addr,
                      "have different value");
 #endif /* CONFIG_AML_SOFTMAC */
     if (csa_oft) {
+#ifdef CONIG_AML_CSA_MODE
+        req->csa_oft[0] = csa_oft[0] & 0xff;
+        req->csa_oft[1] = (csa_oft[0] >> 8) & 0xff;
+        AML_INFO("req->csa_oft[0]:%d, req->csa_oft[1]:%d", req->csa_oft[0], req->csa_oft[1]);
+#else
         int i;
         for (i = 0; i < BCN_MAX_CSA_CPT; i++) {
             req->csa_oft[i] = csa_oft[i];
         }
+#endif
     }
 
     /* Send the MM_BCN_CHANGE_REQ message to LMAC FW */
@@ -1799,11 +1825,11 @@ int aml_send_me_sta_add(struct aml_hw *aml_hw, struct station_parameters *params
     u8 *ht_mcs = (u8 *)&(P_LINK_STA_PARAMS(params, ht_capa->mcs));
     int i;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,19,0) || (defined CONFIG_KERNEL_AX_PATCH)
-    printk("sta params has ht=%d, vht=%d he=%d capabilities",
+    AML_INFO("sta params has ht=%d, vht=%d he=%d capabilities",
             P_LINK_STA_PARAMS(params, ht_capa) ? 1 : 0, P_LINK_STA_PARAMS(params, vht_capa) ? 1 : 0
             ,P_LINK_STA_PARAMS(params, he_capa) ? 1 : 0);
 #else
-    printk("sta params has ht=%d, vht=%d he capabilities",
+    AML_INFO("sta params has ht=%d, vht=%d he capabilities",
             P_LINK_STA_PARAMS(params, ht_capa) ? 1 : 0, P_LINK_STA_PARAMS(params, vht_capa) ? 1 : 0
             );
 #endif
@@ -1828,9 +1854,15 @@ int aml_send_me_sta_add(struct aml_hw *aml_hw, struct station_parameters *params
 
     if (P_LINK_STA_PARAMS(params, ht_capa)) {
         const struct ieee80211_ht_cap *ht_capa = P_LINK_STA_PARAMS(params, ht_capa);
-
         req->flags |= STA_HT_CAPA;
         req->ht_cap.ht_capa_info = cpu_to_le16(ht_capa->cap_info);
+        if (!memcmp(mac, aml_hw->rx_assoc_info.addr, ETH_ALEN)) {
+            req->ht_cap.ht_capa_info &= ~(IEEE80211_HT_CAP_SGI_20 | IEEE80211_HT_CAP_SGI_40);
+            req->ht_cap.ht_capa_info |= (aml_hw->mod_params->sgi
+                && (aml_hw->rx_assoc_info.htcap & IEEE80211_HT_CAP_SGI_20)) ? IEEE80211_HT_CAP_SGI_20 : 0;
+            req->ht_cap.ht_capa_info |= (aml_hw->mod_params->use_2040
+                && (aml_hw->rx_assoc_info.htcap & IEEE80211_HT_CAP_SGI_40)) ? IEEE80211_HT_CAP_SGI_40 : 0;
+        }
         req->ht_cap.a_mpdu_param = ht_capa->ampdu_params_info;
         for (i = 0; i < sizeof(ht_capa->mcs); i++)
             req->ht_cap.mcs_rate[i] = ht_mcs[i];
@@ -2185,8 +2217,10 @@ int aml_send_sm_disconnect_req(struct aml_hw *aml_hw,
     /* coverity[leaked_storage] - req will be freed later */
     ret = aml_send_msg(aml_hw, req, 1, SM_DISCONNECT_CFM, NULL);
 #ifdef CONFIG_AML_RECOVERY
-    if (!ret) {
-        aml_recy_flags_clr(AML_RECY_ASSOC_INFO_SAVED);
+    if ((!ret)  && (!aml_recy_flags_chk(AML_RECY_STATE_ONGOING)) && (aml_recy->reconnect_rest == 0)) {
+       if ((aml_recy != NULL) && (aml_vif->vif_index == aml_recy->assoc_info.vif_idx)) {
+            aml_recy_flags_clr(AML_RECY_ASSOC_INFO_SAVED);
+       }
     }
 #endif
     return ret;
@@ -2239,6 +2273,7 @@ int aml_send_apm_start_req(struct aml_hw *aml_hw, struct aml_vif *vif,
     u8 *bcn_buf;
     u32 flags = 0;
     const u8 *rate_ie;
+    const u8 *ht_cap_ie;
     u8 rate_len = 0;
     int var_offset = offsetof(struct ieee80211_mgmt, u.beacon.variable);
     const u8 *var_pos;
@@ -2257,16 +2292,15 @@ int aml_send_apm_start_req(struct aml_hw *aml_hw, struct aml_vif *vif,
     // Build the beacon
     bcn->dtim = (u8)settings->dtim_period;
 #ifdef CONFIG_AML_RECOVERY
-    if (aml_recy_flags_chk(AML_RECY_BCN_INFO_SAVED)
-            && aml_recy_flags_chk(AML_RECY_STATE_ONGOING)) {
-        bcn->len = aml_recy->ap_info.bcn_len;
+    if (aml_recy_flags_chk(AML_RECY_STATE_ONGOING) &&
+        aml_recy_flags_chk(AML_RECY_AP_INFO_SAVED)) {
         bcn_buf = kmalloc(bcn->len, GFP_KERNEL);
         if (!bcn_buf) {
             aml_msg_free(aml_hw, req);
             /* coverity[leaked_storage] - req have already freed */
             return -ENOMEM;
         }
-        memcpy(bcn_buf, aml_recy->ap_info.bcn, bcn->len);
+        memcpy(bcn_buf, bcn_save, bcn->len);
         band = aml_recy->ap_info.band;
     } else
 #endif
@@ -2277,15 +2311,10 @@ int aml_send_apm_start_req(struct aml_hw *aml_hw, struct aml_vif *vif,
             /* coverity[leaked_storage] - req have already freed */
             return -ENOMEM;
         }
-#ifdef CONFIG_AML_RECOVERY
-        aml_recy_save_bcn_info(bcn_buf, bcn->len);
-#endif
+        aml_save_bcn_buf(bcn_buf, bcn->len);
         band = settings->chandef.chan->band;
     }
-#ifdef SCC_STA_SOFTAP
-    aml_scc_save_bcn_buf(bcn_buf, bcn->len);
-    aml_scc_save_init_band(band);
-#endif
+
     // Retrieve the basic rate set from the beacon buffer
     len = bcn->len - var_offset;
     var_pos = bcn_buf + var_offset;
@@ -2312,6 +2341,18 @@ int aml_send_apm_start_req(struct aml_hw *aml_hw, struct aml_vif *vif,
     req->basic_rates.length = rate_len;
 #undef IS_BASIC_RATE
 
+    ht_cap_ie = cfg80211_find_ie(WLAN_EID_HT_CAPABILITY, var_pos, len);
+    if (ht_cap_ie) {
+        struct ieee80211_ht_cap *ht_cap = ht_cap_ie + 2;
+        ht_cap->cap_info &= ~(IEEE80211_HT_CAP_SGI_20 | IEEE80211_HT_CAP_SGI_40);
+        ht_cap->cap_info |= aml_hw->mod_params->sgi ? IEEE80211_HT_CAP_SGI_20 : 0;
+        ht_cap->cap_info |= aml_hw->mod_params->use_2040 ? IEEE80211_HT_CAP_SGI_40 : 0;
+    }
+
+#ifdef SCC_STA_SOFTAP
+    aml_scc_save_init_band(band);
+#endif
+
     // Sync buffer for FW
     if (aml_bus_type == PCIE_MODE) {
         if ((error = aml_ipc_buf_a2e_init(aml_hw, &buf, bcn_buf, bcn->len))) {
@@ -2324,9 +2365,11 @@ int aml_send_apm_start_req(struct aml_hw *aml_hw, struct aml_vif *vif,
     } else if (aml_bus_type == USB_MODE) {
         addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
         aml_hw->plat->hif_ops->hi_write_sram((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len, USB_EP4);
+        kfree(bcn_buf);
     } else if (aml_bus_type == SDIO_MODE) {
         addr = TXL_BCN_POOL  + (vif->vif_index * (BCN_TXLBUF_TAG_LEN + NX_BCNFRAME_LEN)) + BCN_TXLBUF_TAG_LEN;
         aml_hw->plat->hif_sdio_ops->hi_random_ram_write((unsigned char *)bcn_buf, (unsigned char *)(unsigned long)addr, bcn->len);
+        kfree(bcn_buf);
     }
 
     /* Set parameters for the APM_START_REQ message */
@@ -3443,15 +3486,20 @@ int aml_get_sched_scan_req(struct aml_vif *aml_vif, struct cfg80211_sched_scan_r
     int i;
     uint8_t chan_flags = 0;
 
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,12,0)
     sched_start_req->reqid = request->reqid;
+#endif
     sched_start_req->min_rssi_thold = request->match_sets->rssi_thold;
 
      /* Set parameters */
     req->vif_idx = aml_vif->vif_index;
     req->chan_cnt = (u8)min_t(int, SCAN_CHANNEL_MAX, request->n_channels);
     req->ssid_cnt = (u8)min_t(int, SCAN_SSID_MAX, request->n_ssids);
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,12,0)
     memcpy(&req->bssid, request->match_sets->bssid, 6);
-
+#else
+    req->bssid = mac_addr_bcst;
+#endif
     if (req->ssid_cnt == 0)
         chan_flags |= CHAN_NO_IR;
     for (i = 0; i < req->ssid_cnt; i++) {
@@ -3495,7 +3543,9 @@ int aml_get_sched_scan_req(struct aml_vif *aml_vif, struct cfg80211_sched_scan_r
      for (i = 0; i < sched_start_req->match_count; i++) {
         sched_start_req->match_sets[i].rssiThreshold = request->match_sets[i].rssi_thold;
 
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,12,0)
         memcpy(&sched_start_req->match_sets[i].bssid.array[0], request->match_sets[i].bssid, ETH_ALEN);
+#endif
 
         sched_start_req->match_sets[i].ssId.length = request->match_sets[i].ssid.ssid_len;
         memcpy(&sched_start_req->match_sets[i].ssId.array[0],
@@ -4083,3 +4133,45 @@ int aml_txq_unexpection(struct net_device *dev)
     return aml_priv_send_msg(aml_hw, show_tx_msg_req, 0, 0, NULL);
 }
 
+int aml_send_set_buf_state_req(struct aml_hw *aml_hw, int buf_state)
+{
+    int *fw_buf_state = NULL;
+
+    fw_buf_state = aml_priv_msg_zalloc(MM_SUB_SET_DYNAMIC_BUF_STATE, sizeof(int));
+    if (!fw_buf_state)
+        return -ENOMEM;
+
+    *fw_buf_state = buf_state;
+
+    return aml_priv_send_msg(aml_hw, fw_buf_state, 0, 0, NULL);
+}
+
+int _aml_set_la_capture(struct aml_vif *aml_vif, u32 bus1, u32 bus2)
+{
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
+    struct set_la_capture_req *req = NULL;
+
+    req = aml_priv_msg_zalloc(MM_SUB_SET_LA_CAPTURE, sizeof(struct set_la_capture_req));
+    if (!req)
+        return -ENOMEM;
+
+    memset((void *)req, 0,sizeof(struct set_la_capture_req));
+    req->bus1 = bus1;
+    req->bus2 = bus2;
+
+    /* coverity[leaked_storage] - req will be freed later */
+    return aml_priv_send_msg(aml_hw, req, 0, 0, NULL);
+}
+
+int _aml_set_la_enable(struct aml_hw *aml_hw, int value)
+{
+    int *la_status = NULL;
+
+    la_status = aml_priv_msg_zalloc(MM_SUB_SET_LA_STATE, sizeof(int));
+    if (!la_status)
+        return -ENOMEM;
+
+    *la_status = value;
+
+    return aml_priv_send_msg(aml_hw, la_status, 0, 0, NULL);
+}

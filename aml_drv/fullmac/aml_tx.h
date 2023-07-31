@@ -208,6 +208,7 @@ enum {
     AML_SP_FRAME = BIT(0),
     AML_P2P_ACTION_FRAME = BIT(1),
     AML_DPP_ACTION_FRAME = BIT(2),
+    AML_CSA_ACTION_FRAME = BIT(3),
 };
 
 /**

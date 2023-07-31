@@ -238,5 +238,7 @@ int aml_sync_trace_deinit(struct aml_hw *aml_hw);
 int aml_set_limit_power(struct aml_hw *aml_hw, int limit_power_switch);
 int aml_txq_unexpection(struct net_device *dev);
 void cfg80211_to_aml_chan(const struct cfg80211_chan_def *chandef, struct mac_chan_op *chan);
+int aml_send_set_buf_state_req(struct aml_hw *aml_hw, int buf_state);
+int _aml_set_la_capture(struct aml_vif *aml_vif, u32 bus1, u32 bus2);
 
 #endif /* _AML_MSG_TX_H_ */

@@ -37,6 +37,7 @@
 #define NX_TXDESC_CNT4      0
 #endif
 
+#define IPC_HOSTID_CNT ((CONFIG_USER_MAX * (128 + 128 + 128 + 128 + 8)))
 #define IPC_TXCFM_CNT ((CONFIG_USER_MAX * (NX_TXDESC_CNT0 + NX_TXDESC_CNT1 + \
                                            NX_TXDESC_CNT2 + NX_TXDESC_CNT3)) \
                        + NX_TXDESC_CNT4)

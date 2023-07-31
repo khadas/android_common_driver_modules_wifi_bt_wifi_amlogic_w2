@@ -2183,6 +2183,8 @@ void aml_dbgfs_trigger_fw_dump(struct aml_hw *aml_hw, char *reason)
 }
 
 #ifdef CONFIG_AML_FULLMAC
+extern struct aml_rx_rate_stats gst_rx_rate;
+extern struct aml_vif *aml_rx_get_vif(struct aml_hw *aml_hw, int vif_idx);
 static void _aml_dbgfs_register_sta(struct aml_debugfs *aml_debugfs, struct aml_sta *sta)
 {
     struct aml_hw *aml_hw = container_of(aml_debugfs, struct aml_hw, debugfs);
@@ -2193,6 +2195,7 @@ static void _aml_dbgfs_register_sta(struct aml_debugfs *aml_debugfs, struct aml_
     struct aml_rx_rate_stats *rate_stats = &sta->stats.rx_rate;
     int nb_rx_rate = N_CCK + N_OFDM;
     struct aml_rc_config_save *rc_cfg, *next;
+    struct aml_vif * vif;
 
     if (sta->sta_idx >= NX_REMOTE_STA_MAX) {
         scnprintf(sta_name, sizeof(sta_name), "bc_mc");
@@ -2237,6 +2240,16 @@ static void _aml_dbgfs_register_sta(struct aml_debugfs *aml_debugfs, struct aml_
                                 GFP_KERNEL);
     if (!rate_stats->table)
         goto error_after_dir;
+    vif = aml_rx_get_vif(aml_hw, sta->vif_idx);
+    if (gst_rx_rate.table == NULL && vif && (vif->is_sta_mode)) {
+        gst_rx_rate.table = kzalloc(nb_rx_rate * sizeof(rate_stats->table[0]),
+                                    GFP_KERNEL);
+        if (!gst_rx_rate.table)
+            goto error_after_dir;
+        gst_rx_rate.size = nb_rx_rate;
+        gst_rx_rate.cpt = 0;
+        gst_rx_rate.rate_cnt = 0;
+    }
 
     rate_stats->size = nb_rx_rate;
     rate_stats->cpt = 0;
@@ -2295,6 +2308,17 @@ error_after_dir:
     aml_debugfs->dir_sta[sta->sta_idx] = NULL;
     aml_debugfs->dir_rc_sta[sta->sta_idx] = NULL;
     aml_debugfs->dir_twt_sta[sta->sta_idx] = NULL;
+
+    if (sta->stats.rx_rate.table) {
+        kfree(sta->stats.rx_rate.table);
+        sta->stats.rx_rate.table = NULL;
+    }
+    vif = aml_rx_get_vif(aml_hw, sta->vif_idx);
+    if (gst_rx_rate.table && vif && vif->is_sta_mode) {
+        kfree(gst_rx_rate.table);
+        gst_rx_rate.table = NULL;
+    }
+
 error:
     dev_err(aml_hw->dev,
         "Error while registering debug entry for sta %d\n", sta->sta_idx);
@@ -2302,12 +2326,21 @@ error:
 
 static void _aml_dbgfs_unregister_sta(struct aml_debugfs *aml_debugfs, struct aml_sta *sta)
 {
+    struct aml_hw *aml_hw = container_of(aml_debugfs, struct aml_hw, debugfs);
+    struct aml_vif * vif;
+
     debugfs_remove_recursive(aml_debugfs->dir_sta[sta->sta_idx]);
     /* unregister the sta */
     if (sta->stats.rx_rate.table) {
         kfree(sta->stats.rx_rate.table);
         sta->stats.rx_rate.table = NULL;
     }
+    vif = aml_rx_get_vif(aml_hw, sta->vif_idx);
+    if (gst_rx_rate.table && vif && vif->is_sta_mode) {
+        kfree(gst_rx_rate.table);
+        gst_rx_rate.table = NULL;
+    }
+
     sta->stats.rx_rate.size = 0;
     sta->stats.rx_rate.cpt  = 0;
     sta->stats.rx_rate.rate_cnt = 0;

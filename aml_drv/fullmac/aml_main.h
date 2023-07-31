@@ -13,6 +13,7 @@
 
 #include "aml_defs.h"
 #include "aml_tx.h"
+#include "aml_sap.h"
 
 int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data);
 void aml_cfg80211_deinit(struct aml_hw *aml_hw);
@@ -26,5 +27,7 @@ int aml_cfg80211_start_ap(struct wiphy *wiphy,
         struct net_device *dev, struct cfg80211_ap_settings *settings);
 int aml_cfg80211_del_station(struct wiphy *wiphy,
         struct net_device *dev, struct station_del_parameters *params);
+int aml_config_cali_param(struct aml_hw *aml_hw);
+void aml_set_scan_hang(struct aml_vif *aml_vif, int scan_hang, u8* func, u32 line);
 
 #endif /* _AML_MAIN_H_ */

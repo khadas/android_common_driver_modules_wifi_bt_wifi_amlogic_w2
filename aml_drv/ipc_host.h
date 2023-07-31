@@ -134,6 +134,8 @@ struct ipc_host_env_tag
 
     // Table of element to store tx_hostid
     struct ipc_hostid tx_hostid[IPC_TXCFM_CNT];
+    // Table of element to store tx_hostid for sdio/usb mode
+    struct ipc_hostid tx_hostid_sdio_usb[IPC_HOSTID_CNT];
     // List of available tx_hostid
     struct list_head tx_hostid_available;
     // List of tx_hostid currently pushed to the firmware
@@ -168,6 +170,7 @@ struct ipc_host_env_tag
 
 extern const int nx_txdesc_cnt[];
 extern const int nx_txuser_cnt[];
+extern struct aml_txdesc_trigger g_txdesc_trigger;
 
 /**
  ******************************************************************************
@@ -412,4 +415,10 @@ struct debug_proc_msginfo {
     u8 idx;
 };
 
+struct aml_txdesc_trigger {
+    int txdesc_cnt;
+    u8 ths_enable;
+    u8 dynamic_cnt;
+    u8 tx_pcie_ths;
+};
 #endif // _IPC_HOST_H_

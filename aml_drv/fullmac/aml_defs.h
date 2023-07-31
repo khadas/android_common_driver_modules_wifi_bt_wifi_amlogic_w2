@@ -71,7 +71,7 @@
 
 // WIFI_CALI_VERSION must be consistent with the version field in "/vendor/firmware/"
 // After updating the parameters, it must be modified at the same time.
-#define WIFI_CALI_VERSION   (5)
+#define WIFI_CALI_VERSION   (11)
 #define WIFI_CALI_FILENAME  "aml_wifi_rf.txt"
 
 #define STRUCT_BUFF_LEN   252
@@ -83,6 +83,7 @@
 #define AMSDU_PADDING(x) ((4 - ((x) & 0x3)) & 0x3)
 #define NORMAL_AMSDU_MAX_LEN    2304
 
+#define AML_NAPI_WEIGHT 48
 enum wifi_module_sn {
       MODULE_ITON = 0X1,
       MODULE_AMPAK,
@@ -307,6 +308,7 @@ struct aml_vif {
     u32 filter;
     u8 is_disconnect;
     spinlock_t ap_lock;
+    spinlock_t sta_lock; // for AP or GO interface
     union
     {
         struct
@@ -401,9 +403,9 @@ struct aml_sta_stats {
     u64 tx_bytes;
     unsigned long last_act;
     struct hw_vect last_rx;
-#ifdef CONFIG_AML_DEBUGFS
+//#ifdef CONFIG_AML_DEBUGFS
     struct aml_rx_rate_stats rx_rate;
-#endif
+//#endif
     u32_l bcn_interval;
     u8_l bw_max;
     u32_l dtim;
@@ -639,6 +641,11 @@ struct tx_amsdu_param {
     u8 amsdu_buf[AMSDU_BUF_MAX];
 };
 
+struct assoc_info {
+    u8 addr[ETH_ALEN];
+    u16 htcap;
+};
+
 /**
  * struct aml_hw - AML driver main data
  *
@@ -755,6 +762,10 @@ struct aml_hw {
 #endif
 
     // RX path
+    struct rxbuf_list rxbuf_list[RXBUF_NUM];
+    struct list_head rxbuf_free_list;
+    struct list_head rxbuf_used_list;
+
     struct aml_defer_rx defer_rx;
     uint32_t rx_buf_state;
     uint32_t rx_buf_end;
@@ -768,6 +779,10 @@ struct aml_hw {
     uint8_t *rx_host_switch_addr;
     spinlock_t buf_end_lock;
     spinlock_t buf_start_lock;
+    struct assoc_info rx_assoc_info;
+
+    spinlock_t free_list_lock;
+    spinlock_t used_list_lock;
 
 #ifdef CONFIG_AML_PREALLOC_BUF_SKB
     spinlock_t prealloc_rxbuf_lock;
@@ -829,7 +844,7 @@ struct aml_hw {
     uint8_t *scanres_payload_buf;
     uint32_t scanres_payload_buf_offset;
     struct list_head scan_res_list;
-    struct list_head scan_res_avilable_list;
+    struct list_head scan_res_available_list;
     spinlock_t scan_lock;
 
     u32 irq;
@@ -854,26 +869,31 @@ struct aml_hw {
     struct task_struct *aml_irq_task;
     struct semaphore aml_irq_sem;
     struct completion aml_irq_completion;
+    char aml_irq_completion_init;
     int aml_irq_task_quit;
 
     struct task_struct *aml_rx_task;
     struct semaphore aml_rx_sem;
     struct completion aml_rx_completion;
+    char aml_rx_completion_init;
     int aml_rx_task_quit;
 
     struct task_struct *aml_tx_task;
     struct semaphore aml_tx_sem;
     struct completion aml_tx_completion;
+    char aml_tx_completion_init;
     int aml_tx_task_quit;
 
     struct task_struct *aml_msg_task;
     struct semaphore aml_msg_sem;
     struct completion aml_msg_completion;
+    char aml_msg_completion_init;
     int aml_msg_task_quit;
 
     struct task_struct *aml_txcfm_task;
     struct semaphore aml_txcfm_sem;
     struct completion aml_txcfm_completion;
+    char aml_txcfm_completion_init;
     int aml_txcfm_task_quit;
 
 
@@ -881,6 +901,7 @@ struct aml_hw {
     struct usb_ctrlrequest *g_cr;
     unsigned char *g_buffer;
 
+    u8 la_enable;
     // Debug FS and stats
     struct aml_debugfs debugfs;
     struct aml_stats *stats;
@@ -894,8 +915,22 @@ struct aml_hw {
     int g_hr_lock_timer_valid;
     int tsq;
     u8 g_tx_to;
+    u8 repush_rxdesc;
+    u8 repush_rxbuff_cnt;
     /*management tcp session*/
     struct aml_tcp_sess_mgr ack_mgr;
+#ifdef CONFIG_AML_NAPI
+    /*napi struct for handling rx skb upload*/
+    struct napi_struct napi;
+    /*extract skb from the queue to send to network stack*/
+    struct sk_buff_head napi_rx_upload_queue;
+    /*enqueue skb from dma mem to pending queue,then appended to napi_rx_upload_queue*/
+    struct sk_buff_head napi_rx_pending_queue;
+    u8 napi_enable;
+    u8 gro_enable;
+    /*if the skb cnt of pending queue >= napi_pend_pkt_num,append to napi_rx_upload_queue*/
+    u8 napi_pend_pkt_num;
+#endif
 };
 
 u8 *aml_build_bcn(struct aml_bcn *bcn, struct cfg80211_beacon_data *new);

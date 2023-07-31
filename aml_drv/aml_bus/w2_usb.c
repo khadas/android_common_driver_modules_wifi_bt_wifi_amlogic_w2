@@ -277,7 +277,7 @@ unsigned int auc_read_reg_ep3(unsigned int addr, unsigned int len)
     }
 
     usb_free_urb(urb);
-    udelay(1000);
+    usleep_range(1000,1200);
 
     urb = usb_alloc_urb(1, GFP_ATOMIC);
 
@@ -370,8 +370,7 @@ void auc_write_sram_ep3(unsigned char *pdata, unsigned int addr, unsigned int le
     }
 
     usb_free_urb(urb);
-    udelay(1000);
-
+    usleep_range(1000,1200);
     urb = usb_alloc_urb(1, GFP_ATOMIC);
 
     if (!urb) {
@@ -461,7 +460,7 @@ void auc_read_sram_ep3(unsigned char *pdata, unsigned int addr, unsigned int len
     }
 
     usb_free_urb(urb);
-    udelay(1000);
+    usleep_range(1000,1200);
 
     urb = usb_alloc_urb(1, GFP_ATOMIC);
 
@@ -494,9 +493,9 @@ void auc_read_sram_ep3(unsigned char *pdata, unsigned int addr, unsigned int len
         return;
     }
 
-    udelay(1000);
+    usleep_range(1000,1200);
     memcpy(pdata, kmalloc_buf, /*urb->actual_length*/len);
-    udelay(1000);
+    usleep_range(1000,1200);
 
     FREE(kmalloc_buf, "usb_read_sram");
     usb_free_urb(urb);
@@ -633,7 +632,7 @@ void auc_read_sram_by_ep(unsigned char *pdata, unsigned int addr, unsigned int l
     }
 
     if (g_auc_kmalloc_buf) {
-        memset(g_auc_kmalloc_buf, 0, LEN_256K);
+        memset(g_auc_kmalloc_buf, 0, WLAN_AML_SDIO_SIZE);
         kmalloc_buf = g_auc_kmalloc_buf;
     } else {
         kmalloc_buf = (unsigned char *)ZMALLOC(len, "usb_read_sram", GFP_DMA|GFP_ATOMIC);
@@ -1079,7 +1078,7 @@ int w2_usb_send_frame(struct amlw_hif_scatter_req * pframe)
 void auc_w2_ops_init(void)
 {
     struct auc_hif_ops *ops = &g_auc_hif_ops;
-    g_auc_kmalloc_buf = (unsigned char *)aml_mem_prealloc(AML_PREALLOC_SDIO, LEN_256K);
+    g_auc_kmalloc_buf = (unsigned char *)aml_mem_prealloc(AML_PREALLOC_SDIO, WLAN_AML_SDIO_SIZE);
     if (!g_auc_kmalloc_buf) {
          printk(">>>usb kmalloc failed!");
     }
@@ -1181,8 +1180,8 @@ int wifi_dccm_download(unsigned char* addr, unsigned int len, unsigned int start
 #endif
 
     PRINT("dccm_downed, addr 0x%p, len %d \n", addr, len);
-    auc_build_cbw(g_cmd_buf, AML_XFER_TO_DEVICE, len, CMD_DOWNLOAD_WIFI, base_addr, 0, len);
     USB_BEGIN_LOCK();
+    auc_build_cbw(g_cmd_buf, AML_XFER_TO_DEVICE, len, CMD_DOWNLOAD_WIFI, base_addr, 0, len);
     /* cmd stage */
     ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, USB_EP1), (void*)g_cmd_buf,sizeof(*g_cmd_buf),&actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
     if (ret) {
@@ -1338,8 +1337,8 @@ int start_wifi(void)
     int actual_length = 0;
     struct usb_device *udev = g_udev;
 
-    auc_build_cbw(g_cmd_buf, AML_XFER_TO_DEVICE, 0, CMD_START_WIFI, 0, 0, 0);
     USB_BEGIN_LOCK();
+    auc_build_cbw(g_cmd_buf, AML_XFER_TO_DEVICE, 0, CMD_START_WIFI, 0, 0, 0);
     /* cmd stage */
     ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, USB_EP1),(void *) g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
     USB_END_LOCK();

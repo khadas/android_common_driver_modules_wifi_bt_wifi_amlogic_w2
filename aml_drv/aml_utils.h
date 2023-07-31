@@ -8,10 +8,14 @@
 #ifndef _AML_IPC_UTILS_H_
 #define _AML_IPC_UTILS_H_
 
-#include <uapi/linux/sched/types.h>
+
 #include <linux/dma-mapping.h>
 #include <linux/dmapool.h>
 #include <linux/skbuff.h>
+#include "ipc_host.h"
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4, 10, 0)
+#include <uapi/linux/sched/types.h>
+#endif
 #include "fi_w2_sdio.h"
 
 #include "lmac_msg.h"
@@ -277,7 +281,6 @@ void aml_ipc_txdesc_push(struct aml_hw *aml_hw, struct aml_sw_txhdr *sw_txhdr,
                           struct sk_buff *hostid, int hw_queue);
 struct sk_buff *aml_ipc_get_skb_from_cfm(struct aml_hw *aml_hw,
                                           struct aml_ipc_buf *buf);
-void aml_ipc_sta_buffer(struct aml_hw *aml_hw, struct aml_sta *sta, int tid, int size);
 void aml_ipc_tx_drain(struct aml_hw *aml_hw);
 bool aml_ipc_tx_pending(struct aml_hw *aml_hw);
 

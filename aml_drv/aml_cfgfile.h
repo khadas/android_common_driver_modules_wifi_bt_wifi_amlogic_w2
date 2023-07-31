@@ -26,6 +26,9 @@
 
 #define AML_CFGFILE_MACADDR_LOW    0x1
 #define AML_CFGFILE_MACADDR_HIGH   0x2
+#define AML_CFGFILE_MACADDR_LOW1    0x11
+#define AML_CFGFILE_MACADDR_HIGH1   0x12
+#define AML_CFGFILE_MACADDR_VLD   0x7
 
 enum aml_cfgfile_flag {
     AML_CFGFILE_ERROR,

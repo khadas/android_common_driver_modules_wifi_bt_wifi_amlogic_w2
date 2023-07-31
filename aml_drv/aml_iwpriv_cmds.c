@@ -23,11 +23,14 @@
 #define PRINT_BUF_SIZE 1024
 #define LA_BUF_SIZE 2048
 #define LA_MEMORY_BASE_ADDRESS 0x60830000
-static char *mactrace_path = "/data/la_dump/mactrace";
+static char *mactrace_path = "/vendor/lib/firmware/la_dump/mactrace";
 static char *reg_path = "/data/dumpinfo";
 #define REG_DUMP_SIZE 2048
 
 unsigned long long g_dbg_modules = 0;
+int g_ps_mode = 0;
+bool pt_mode = 0;
+static unsigned char offset_times = 0;
 
 //hx add
 typedef unsigned char   U8;
@@ -81,10 +84,27 @@ typedef unsigned char   U8;
 #define EFUSE_BASE_1C 0X1C
 #define EFUSE_BASE_1E 0X1E
 #define EFUSE_BASE_1F 0X1F
+#define EFUSE_BASE_04 0X04
 #define EFUSE_BASE_05 0X05
-#define EFUSE_BASE_01 0x1
-#define EFUSE_BASE_02 0x2
-#define EFUSE_BASE_03 0x3
+#define EFUSE_BASE_01 0x01
+#define EFUSE_BASE_02 0x02
+#define EFUSE_BASE_03 0x03
+#define EFUSE_BASE_09 0x09
+#define EFUSE_BASE_11 0x11
+#define EFUSE_BASE_12 0x12
+#define EFUSE_BASE_13 0x13
+#define EFUSE_BASE_18 0x18
+#define EFUSE_BASE_14 0x14
+#define EFUSE_BASE_15 0x15
+#define EFUSE_BASE_16 0x16
+#define EFUSE_BASE_17 0x17
+#define EFUSE_BASE_07 0x07
+#define BIT4 0x00000010
+#define BIT31 0x80000000
+#define BIT16 0x00010000
+#define BIT17 0x00020000
+
+
 
 
 /** To calculate the index:
@@ -228,7 +248,7 @@ static int aml_set_legacy_rate(struct net_device *dev, int legacy, int pre_type)
     return aml_set_fixed_rate(dev,fix_rate_idx);
 }
 
-static int aml_set_scan_hang(struct net_device *dev, int scan_hang)
+static int aml_iwpriv_set_scan_hang(struct net_device *dev, int scan_hang)
 {
     struct aml_vif *aml_vif = netdev_priv(dev);
 /*
@@ -631,6 +651,7 @@ static int aml_set_ps_mode(struct net_device *dev, int ps_mode)
         printk("param err, please reset\n");
         return -1;
     }
+    g_ps_mode = ps_mode;
     printk("set ps_mode:0x%x success\n", ps_mode);
     return aml_send_me_set_ps_mode(aml_hw, ps_mode);
 }
@@ -1346,6 +1367,26 @@ static int aml_get_buf_state(struct net_device *dev)
     return 0;
 }
 
+/*
+    buf_state: set sdio rx&tx Dynamic buf state
+    param buf_state:
+                                      0:disable force buf state
+    BUFFER_RX_FORCE_REDUCE   BIT(9)   512:force txbuf large
+    BUFFER_RX_FORCE_ENLARGE BIT(10)   1024:force rxbuf large
+*/
+static int aml_set_buf_state(struct net_device *dev, int buf_state)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
+
+    if (buf_state != 0 && buf_state != BUFFER_RX_FORCE_REDUCE && buf_state != BUFFER_RX_FORCE_ENLARGE)
+    {
+        AML_INFO("param error!\n")
+        return -1;
+    }
+    return aml_send_set_buf_state_req(aml_hw, buf_state);
+}
+
 static int aml_get_tcp_ack_info(struct net_device *dev)
 {
     struct aml_vif *aml_vif = netdev_priv(dev);
@@ -1439,6 +1480,60 @@ static int aml_set_max_timeout(struct net_device *dev, int time)
     return 0;
 }
 
+#ifdef CONFIG_AML_NAPI
+static int aml_set_napi_enable(struct net_device *dev, int enable)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw * aml_hw = aml_vif->aml_hw;
+    aml_hw->napi_enable = enable;
+    printk("set napi_enable=%u\n", aml_hw->napi_enable);
+    return 0;
+}
+
+static int aml_set_gro_enable(struct net_device *dev, int enable)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw * aml_hw = aml_vif->aml_hw;
+    aml_hw->gro_enable = enable;
+    printk("set gro_enable=%u\n", aml_hw->gro_enable);
+    return 0;
+}
+
+static int aml_set_napi_num(struct net_device *dev, int num)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw * aml_hw = aml_vif->aml_hw;
+    aml_hw->napi_pend_pkt_num = num;
+    printk("set aml_hw->napi_pend_pkt_num=%u\n", aml_hw->napi_pend_pkt_num);
+    return 0;
+}
+#endif
+
+static int aml_set_txdesc_trigger_ths(struct net_device *dev, int cnt)
+{
+    g_txdesc_trigger.ths_enable = cnt;
+    printk("g_txdesc_trigger.ths_enable=%u\n", g_txdesc_trigger.ths_enable);
+    return 0;
+}
+
+extern void extern_wifi_set_enable(int is_on);
+static int aml_set_bus_timeout_test(struct net_device *dev, int enable)
+{
+#ifndef CONFIG_PT_MODE
+    int reg = 0;
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
+    struct aml_plat *aml_plat = aml_hw->plat;
+    if (enable && (aml_bus_type == SDIO_MODE)) {
+    #ifndef CONFIG_LINUXPC_VERSION
+        extern_wifi_set_enable(0);
+    #endif
+        reg = AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, AGCCCCACAL0_ADDR_CT);
+        printk("%s: ++++++++++++++++enable bus timeout for recovery test !!!\n", __func__);
+    }
+#endif
+    return 0;
+}
 static int aml_send_twt_teardown(struct net_device *dev, int id)
 {
     struct twt_teardown_req twt_teardown;
@@ -1660,6 +1755,8 @@ int aml_set_pt_calibration(struct net_device *dev, int pt_cali_val)
     struct aml_vif *aml_vif = netdev_priv(dev);
 
     printk("set pt calibration, pt calibration conf:%x\n", pt_cali_val);
+    if (pt_cali_val & BIT(21))
+        pt_mode = 1;
 
     _aml_set_pt_calibration(aml_vif, pt_cali_val);
 
@@ -1688,46 +1785,82 @@ int aml_get_xosc_offset(struct net_device *dev,union iwreq_data *wrqu, char *ext
     U8 offset_power_wf1_5660 = 0;
     U8 offset_power_wf1_5780 = 0;
 
-    reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_05);
-    xosc_ctune = (reg_val & 0xFF000000) >> 24;
-    reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1A);
-    offset_power_wf0_2g_l = (reg_val & 0x1F0000) >> 16;
-    offset_power_wf0_2g_m = (reg_val & 0x1F000000) >> 24;
-    reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1B);
-    offset_power_wf0_2g_h = (reg_val & 0x1F);
-    offset_power_wf0_5200 = (reg_val & 0x1F00) >> 8;
-    offset_power_wf0_5300 = (reg_val & 0x1F0000) >> 16;
-    offset_power_wf0_5530 = (reg_val & 0x1F000000) >> 24;
-    reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1C);
-    offset_power_wf0_5660 = (reg_val & 0x1F);
-    offset_power_wf0_5780 = (reg_val & 0x1F00) >> 8;
-    reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1E);
-    offset_power_wf1_2g_l = (reg_val & 0x1F);
-    offset_power_wf1_2g_m = (reg_val & 0x1F00) >> 8;
-    offset_power_wf1_2g_h = (reg_val & 0x1F0000) >> 16;
-    offset_power_wf1_5200 = (reg_val & 0x1F000000) >> 24;
-    reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1F);
-    offset_power_wf1_5300 = (reg_val & 0x1F);
-    offset_power_wf1_5530 = (reg_val & 0x1F00) >> 8;
-    offset_power_wf1_5660 = (reg_val & 0x1F0000) >> 16;
-    offset_power_wf1_5780 = (reg_val & 0x1F000000) >> 24;
+    reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_07);
+    // xosc second times vld disable, read the value written for the first time
+    if ((reg_val & 0x80000000) == 0) {
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_05);
+        xosc_ctune = (reg_val & 0xFF000000) >> 24;
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1A);
+        offset_power_wf0_2g_l = (reg_val & 0x1F0000) >> 16;
+        offset_power_wf0_2g_m = (reg_val & 0x1F000000) >> 24;
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1B);
+        offset_power_wf0_2g_h = (reg_val & 0x1F);
+        offset_power_wf0_5200 = (reg_val & 0x1F00) >> 8;
+        offset_power_wf0_5300 = (reg_val & 0x1F0000) >> 16;
+        offset_power_wf0_5530 = (reg_val & 0x1F000000) >> 24;
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1C);
+        offset_power_wf0_5660 = (reg_val & 0x1F);
+        offset_power_wf0_5780 = (reg_val & 0x1F00) >> 8;
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1E);
+        offset_power_wf1_2g_l = (reg_val & 0x1F);
+        offset_power_wf1_2g_m = (reg_val & 0x1F00) >> 8;
+        offset_power_wf1_2g_h = (reg_val & 0x1F0000) >> 16;
+        offset_power_wf1_5200 = (reg_val & 0x1F000000) >> 24;
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1F);
+        offset_power_wf1_5300 = (reg_val & 0x1F);
+        offset_power_wf1_5530 = (reg_val & 0x1F00) >> 8;
+        offset_power_wf1_5660 = (reg_val & 0x1F0000) >> 16;
+        offset_power_wf1_5780 = (reg_val & 0x1F000000) >> 24;
 
-    printk("xosc_ctune=0x%02x\n", xosc_ctune);
-    printk("offset_power_wf0_2g_l=0x%02x,offset_power_wf0_2g_m=0x%02x,offset_power_wf0_2g_h=0x%02x\n",
-           offset_power_wf0_2g_l, offset_power_wf0_2g_m, offset_power_wf0_2g_h);
-    printk("offset_power_wf0_5200=0x%02x,offset_power_wf0_5300=0x%02x,offset_power_wf0_5530=0x%02x,offset_power_wf0_5660=0x%02x,offset_power_wf0_5780=0x%02x\n",
-           offset_power_wf0_5200, offset_power_wf0_5300, offset_power_wf0_5530,offset_power_wf0_5660, offset_power_wf0_5780);
-    printk("offset_power_wf1_2g_l=0x%02x,offset_power_wf1_2g_m=0x%02x,offset_power_wf1_2g_h=0x%02x\n",
-           offset_power_wf1_2g_l, offset_power_wf1_2g_m, offset_power_wf1_2g_h);
-    printk("offset_power_wf1_5200=0x%02x,offset_power_wf1_5300=0x%02x,offset_power_wf1_5530=0x%02x,offset_power_wf1_5660=0x%02x,offset_power_wf1_5780=0x%02x\n",
-           offset_power_wf1_5200, offset_power_wf1_5300, offset_power_wf1_5530,offset_power_wf1_5660, offset_power_wf1_5780);
+        printk("xosc_ctune=0x%02x\n", xosc_ctune);
+        printk("offset_power_wf0_2g_l=0x%02x,offset_power_wf0_2g_m=0x%02x,offset_power_wf0_2g_h=0x%02x\n",
+               offset_power_wf0_2g_l, offset_power_wf0_2g_m, offset_power_wf0_2g_h);
+        printk("offset_power_wf0_5200=0x%02x,offset_power_wf0_5300=0x%02x,offset_power_wf0_5530=0x%02x,offset_power_wf0_5660=0x%02x,offset_power_wf0_5780=0x%02x\n",
+               offset_power_wf0_5200, offset_power_wf0_5300, offset_power_wf0_5530,offset_power_wf0_5660, offset_power_wf0_5780);
+        printk("offset_power_wf1_2g_l=0x%02x,offset_power_wf1_2g_m=0x%02x,offset_power_wf1_2g_h=0x%02x\n",
+               offset_power_wf1_2g_l, offset_power_wf1_2g_m, offset_power_wf1_2g_h);
+        printk("offset_power_wf1_5200=0x%02x,offset_power_wf1_5300=0x%02x,offset_power_wf1_5530=0x%02x,offset_power_wf1_5660=0x%02x,offset_power_wf1_5780=0x%02x\n",
+               offset_power_wf1_5200, offset_power_wf1_5300, offset_power_wf1_5530,offset_power_wf1_5660, offset_power_wf1_5780);
+    } else {
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_05);
+        xosc_ctune = (reg_val & 0x00FF0000) >> 16;
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_14);
+        offset_power_wf0_2g_l = (reg_val & 0x0000001F);
+        offset_power_wf0_2g_m = (reg_val & 0x00001F00) >> 8;
+        offset_power_wf0_2g_h = (reg_val & 0x001F0000) >> 16;
+        offset_power_wf0_5200 = (reg_val & 0x1F000000) >> 24;
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_15);
+        offset_power_wf0_5300 = (reg_val & 0x0000001F);
+        offset_power_wf0_5530 = (reg_val & 0x00001F00) >> 8;
+        offset_power_wf0_5660 = (reg_val & 0x001F0000) >> 16;
+        offset_power_wf0_5780 = (reg_val & 0x1F000000) >> 24;
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_16);
+        offset_power_wf1_2g_l = (reg_val & 0x1F);
+        offset_power_wf1_2g_m = (reg_val & 0x1F00) >> 8;
+        offset_power_wf1_2g_h = (reg_val & 0x1F0000) >> 16;
+        offset_power_wf1_5200 = (reg_val & 0x1F000000) >> 24;
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_17);
+        offset_power_wf1_5300 = (reg_val & 0x1F);
+        offset_power_wf1_5530 = (reg_val & 0x1F00) >> 8;
+        offset_power_wf1_5660 = (reg_val & 0x1F0000) >> 16;
+        offset_power_wf1_5780 = (reg_val & 0x1F000000) >> 24;
 
+        printk("second xosc_ctune=0x%02x\n", xosc_ctune);
+        printk("offset_power_wf0_2g_l=0x%02x,offset_power_wf0_2g_m=0x%02x,offset_power_wf0_2g_h=0x%02x\n",
+               offset_power_wf0_2g_l, offset_power_wf0_2g_m, offset_power_wf0_2g_h);
+        printk("offset_power_wf0_5200=0x%02x,offset_power_wf0_5300=0x%02x,offset_power_wf0_5530=0x%02x,offset_power_wf0_5660=0x%02x,offset_power_wf0_5780=0x%02x\n",
+               offset_power_wf0_5200, offset_power_wf0_5300, offset_power_wf0_5530,offset_power_wf0_5660, offset_power_wf0_5780);
+        printk("offset_power_wf1_2g_l=0x%02x,offset_power_wf1_2g_m=0x%02x,offset_power_wf1_2g_h=0x%02x\n",
+               offset_power_wf1_2g_l, offset_power_wf1_2g_m, offset_power_wf1_2g_h);
+        printk("offset_power_wf1_5200=0x%02x,offset_power_wf1_5300=0x%02x,offset_power_wf1_5530=0x%02x,offset_power_wf1_5660=0x%02x,offset_power_wf1_5780=0x%02x\n",
+               offset_power_wf1_5200, offset_power_wf1_5300, offset_power_wf1_5530,offset_power_wf1_5660, offset_power_wf1_5780);
+    }
     wrqu->data.length = scnprintf(extra, IW_PRIV_SIZE_MASK, "&xosc_ctune=0x%02x\n\
         offset_power_wf0_2g_l=0x%02x,offset_power_wf0_2g_m=0x%02x,offset_power_wf0_2g_h=0x%02x\n\
         offset_power_wf0_5200=0x%02x,offset_power_wf0_5300=0x%02x,offset_power_wf0_5530=0x%02x,offset_power_wf0_5660=0x%02x,offset_power_wf0_5780=0x%02x\n\
         offset_power_wf1_2g_l=0x%02x,offset_power_wf1_2g_m=0x%02x,offset_power_wf1_2g_h=0x%02x\n\
         offset_power_wf1_5200=0x%02x,offset_power_wf1_5300=0x%02x,offset_power_wf1_5530=0x%02x,offset_power_wf1_5660=0x%02x,offset_power_wf1_5780=0x%02x\n",
-        xosc_ctune,offset_power_wf0_2g_l, offset_power_wf0_2g_m, offset_power_wf0_2g_h,
+        xosc_ctune, offset_power_wf0_2g_l, offset_power_wf0_2g_m, offset_power_wf0_2g_h,
         offset_power_wf0_5200, offset_power_wf0_5300, offset_power_wf0_5530,offset_power_wf0_5660, offset_power_wf0_5780,
         offset_power_wf1_2g_l, offset_power_wf1_2g_m, offset_power_wf1_2g_h,
         offset_power_wf1_5200, offset_power_wf1_5300, offset_power_wf1_5530,offset_power_wf1_5660, offset_power_wf1_5780);
@@ -1758,51 +1891,66 @@ int aml_set_rx_end(struct net_device *dev,union iwreq_data *wrqu, char *extra)
 
     wrqu->data.length = scnprintf(extra, IW_PRIV_SIZE_MASK, "fcs_ok=%d, fcs_err=%d, fcs_rx_end=%d, rx_err=%d\n", fcs_ok, fcs_err, fcs_rx_end, rx_err);
     wrqu->data.length++;
+    aml_set_reg(dev, 0x60c0b500, 0x00041000);
     return 0;
 }
 
 int aml_set_rx(struct net_device *dev, int antenna, int channel)
 {
     printk("set antenna :%x\n", antenna);
+    aml_set_reg(dev, 0x00a0b1b8, 0xc0003000);
+    aml_set_reg(dev, 0x00f00078, 0x2000c1e0);  //wifi clock enable
+    aml_set_reg(dev, 0x00f0007c, 0x2000d110);  //bt clock enable
     switch (antenna) {
-        case 1:
+        case 1: //wf0 siso
+            aml_set_reg(dev, 0x60c0b004, 0x00000001);
             if (channel <= 14) {
-                aml_rf_reg_write(dev, 0x80000008, 0x01393917);
-                aml_rf_reg_write(dev, 0x80001008, 0x01393914);
-                aml_set_reg(dev, 0x60c0b500, 0x00041000);
+                aml_rf_reg_write(dev, 0x80000008, 0x01393917); //2G rx
+                aml_rf_reg_write(dev, 0x80001008, 0x01393914); //2g sleep
+                aml_set_reg(dev, 0x60c0b500, 0x00041000); //11b wf0 mode
+                aml_set_reg(dev, 0x60c0b390, 0x00010003);
             } else {
-                aml_rf_reg_write(dev, 0x80000008, 0x00393913);
-                aml_rf_reg_write(dev, 0x80001008, 0x00393911);
+                aml_rf_reg_write(dev, 0x80000008, 0x00393913); //5g rx
+                aml_rf_reg_write(dev, 0x80001008, 0x00393911); //5G sx
+                aml_set_reg(dev, 0x60c0b390, 0x00010103);
             }
             break;
-        case 2:
+        case 2: //wf1 siso
+            aml_set_reg(dev, 0x60c0b004, 0x00000002);
             if (channel <= 14) {
-                aml_rf_reg_write(dev, 0x80000008, 0x01393915);
-                aml_rf_reg_write(dev, 0x80001008, 0x01393917);
-                aml_set_reg(dev, 0x60c0b500, 0x00041030);
+                aml_rf_reg_write(dev, 0x80000008, 0x01393915); //2g sx
+                aml_rf_reg_write(dev, 0x80001008, 0x01393917); //2G rx
+                aml_set_reg(dev, 0x60c0b500, 0x00041030); //11b wf1 mode
+                aml_set_reg(dev, 0x60c0b390, 0x00010003);
             } else {
-                aml_rf_reg_write(dev, 0x80000008, 0x00393910);
-                aml_rf_reg_write(dev, 0x80001008, 0x00393913);
+                aml_rf_reg_write(dev, 0x80000008, 0x00393910); //5g sleep
+                aml_rf_reg_write(dev, 0x80001008, 0x00393913); //5g rx
+                aml_set_reg(dev, 0x60c0b390, 0x00010103);
             }
             break;
-        case 3:
+        case 3: //mimo
             if (channel <= 14) {
-                aml_rf_reg_write(dev, 0x80000008, 0x01393900);
-                aml_rf_reg_write(dev, 0x80001008, 0x01393900);
-                aml_set_reg(dev, 0x60c0b500, 0x00041000);
+                aml_rf_reg_write(dev, 0x80000008, 0x01393900); //2g auto
+                aml_rf_reg_write(dev, 0x80001008, 0x01393900); //2g auto
+                aml_set_reg(dev, 0x60c0b500, 0x00041000);  //11b wf0 mode
+                aml_set_reg(dev, 0x60c0b390, 0x00010003);
             } else {
-                aml_rf_reg_write(dev, 0x80000008, 0x00393900);
-                aml_rf_reg_write(dev, 0x80001008, 0x00393900);
+                aml_rf_reg_write(dev, 0x80000008, 0x00393900); //5g auto
+                aml_rf_reg_write(dev, 0x80001008, 0x00393900); //5g auto
+                aml_set_reg(dev, 0x60c0b390, 0x00010103);
             }
             break;
         default:
             printk("set antenna error :%x\n", antenna);
             break;
     }
+    aml_set_reg(dev, 0x00f00078, 0x0000c1e0);   //wifi clock auto
+    aml_set_reg(dev, 0x00f0007c, 0x7800d110);  //bt clock disable
     return 0;
 }
 
 static unsigned int tx_path = 0;
+static unsigned int tx_channel = 0;
 static unsigned int tx_mode = 0;
 static unsigned int tx_bw = 0;
 static unsigned int tx_len = 0;
@@ -1845,16 +1993,16 @@ int aml_11b_siso_wf0_tx(struct net_device *dev, U8 rate, U8 tx_pwr, U8 length, U
     aml_set_reg(dev, 0x00a0b00c, 0x00000001);
     aml_set_reg(dev, 0x60c0b390, 0x00010101);
     aml_set_reg(dev, 0x00a0b1b8, 0xc0003100);
-    aml_set_reg(dev, 0x60c00800, 0x00000000);
+    aml_set_reg(dev, 0x60c00800, 0x00000110);
     aml_set_reg(dev, 0x60c0b100, 0x00303030);
     aml_set_reg(dev, 0x60c06000, 0x00000000);
     aml_set_reg(dev, 0x60c06004, 0x00020000);
     aml_set_reg(dev, 0x60c06008, 0x00000012);
     aml_set_reg(dev, 0x60c0600c, 0x00000001);
-    aml_set_reg(dev, 0x60c06048, 0x00000780);
+    aml_set_reg(dev, 0x60c06048, 0x00010000);
     aml_set_reg(dev, 0x60c06200, 0x00000080);
     aml_set_reg(dev, 0x60c06204, 0x00000001);
-    aml_set_reg(dev, 0x60c06208, 0x00000000 | tx_pwr);
+    aml_set_reg(dev, 0x60c06208, 0x00000000 | (tx_pwr + 9));
     aml_set_reg(dev, 0x60c0620c, 0x00000000);
     aml_set_reg(dev, 0x60c06210, 0x00000000 | length1);
     aml_set_reg(dev, 0x60c06214, 0x00000000 | (rate << 4) | (length & 0x0f));
@@ -1906,16 +2054,16 @@ int aml_11b_siso_wf1_tx(struct net_device *dev, U8 rate, U8 tx_pwr, U8 length, U
     aml_set_reg(dev, 0x00a0b00c, 0x00000002);
     aml_set_reg(dev, 0x60c0b390, 0x00010102);
     aml_set_reg(dev, 0x00a0b1b8, 0xc0003100);
-    aml_set_reg(dev, 0x60c00800, 0x00000000);
+    aml_set_reg(dev, 0x60c00800, 0x00000110);
     aml_set_reg(dev, 0x60c0b100, 0x00303030);
     aml_set_reg(dev, 0x60c06000, 0x00000000);
     aml_set_reg(dev, 0x60c06004, 0x00020000);
     aml_set_reg(dev, 0x60c06008, 0x00000012);
     aml_set_reg(dev, 0x60c0600c, 0x00000001);
-    aml_set_reg(dev, 0x60c06048, 0x00000780);
+    aml_set_reg(dev, 0x60c06048, 0x00010000);
     aml_set_reg(dev, 0x60c06200, 0x00000080);
     aml_set_reg(dev, 0x60c06204, 0x00000001);
-    aml_set_reg(dev, 0x60c06208, 0x00000000 | tx_pwr);
+    aml_set_reg(dev, 0x60c06208, 0x00000000 | (tx_pwr + 9));
     aml_set_reg(dev, 0x60c0620c, 0x00000000);
     aml_set_reg(dev, 0x60c06210, 0x00000000 | length1);
     aml_set_reg(dev, 0x60c06214, 0x00000000 | (rate << 4) | (length & 0x0f));
@@ -1975,14 +2123,14 @@ int aml_11ag_siso_wf0_tx(struct net_device *dev, U8 rate, U8 tx_pwr, U8 length, 
     aml_set_reg(dev, 0x00a0b00c, 0x00000001);
     aml_set_reg(dev, 0x60c0b390, 0x00010101);
     aml_set_reg(dev, 0x00a0b1b8, 0xc0003100);
-    aml_set_reg(dev, 0x60c00800, 0x00000000);
+    aml_set_reg(dev, 0x60c00800, 0x00000110);
     aml_set_reg(dev, 0x60c0088c, 0x00005050);
     aml_set_reg(dev, 0x60c0b100, 0x00303030);
     aml_set_reg(dev, 0x60c06000, 0x00000000);
     aml_set_reg(dev, 0x60c06004, 0x00020000);
     aml_set_reg(dev, 0x60c06008, 0x00000012);
     aml_set_reg(dev, 0x60c0600c, 0x00000001);
-    aml_set_reg(dev, 0x60c06048, 0x00000780);
+    aml_set_reg(dev, 0x60c06048, 0x00010000);
     aml_set_reg(dev, 0x60c06200, 0x00000080);
     aml_set_reg(dev, 0x60c06204, 0x00000001);
     aml_set_reg(dev, 0x60c06208, 0x00000000 | tx_pwr);
@@ -2045,14 +2193,14 @@ int aml_11ag_siso_wf1_tx(struct net_device *dev, U8 rate, U8 tx_pwr, U8 length, 
     aml_set_reg(dev, 0x00a0b00c, 0x00000002);
     aml_set_reg(dev, 0x60c0b390, 0x00010102);
     aml_set_reg(dev, 0x00a0b1b8, 0xc0003100);
-    aml_set_reg(dev, 0x60c00800, 0x00000000);
+    aml_set_reg(dev, 0x60c00800, 0x00000110);
     aml_set_reg(dev, 0x60c0088c, 0x00005050);
     aml_set_reg(dev, 0x60c0b100, 0x00303030);
     aml_set_reg(dev, 0x60c06000, 0x00000000);
     aml_set_reg(dev, 0x60c06004, 0x00020000);
     aml_set_reg(dev, 0x60c06008, 0x00000012);
     aml_set_reg(dev, 0x60c0600c, 0x00000001);
-    aml_set_reg(dev, 0x60c06048, 0x00000780);
+    aml_set_reg(dev, 0x60c06048, 0x00010000);
     aml_set_reg(dev, 0x60c06200, 0x00000080);
     aml_set_reg(dev, 0x60c06204, 0x00000001);
     aml_set_reg(dev, 0x60c06208, 0x00000000 | tx_pwr);
@@ -2092,9 +2240,9 @@ int aml_ht_siso_wf0_tx(struct net_device *dev, U8 bw, U8 rate, U8 tx_pwr, U8 len
     aml_set_reg(dev, 0x60c0b390, 0x00010101);
     aml_set_reg(dev, 0x00a0b1b8, 0xc0003100);
     if (bw == 0x0) {
-        aml_set_reg(dev, 0x60c00800, 0x00000000);
+        aml_set_reg(dev, 0x60c00800, 0x00000110);
     } else if (bw == 0x1) {
-        aml_set_reg(dev, 0x60c00800, 0x00000001);
+        aml_set_reg(dev, 0x60c00800, 0x00000111);
     }
     aml_set_reg(dev, 0x60c0088c, 0x00005050);
     aml_set_reg(dev, 0x60c0b100, 0x00303030);
@@ -2102,7 +2250,7 @@ int aml_ht_siso_wf0_tx(struct net_device *dev, U8 bw, U8 rate, U8 tx_pwr, U8 len
     aml_set_reg(dev, 0x60c06004, 0x00020000);
     aml_set_reg(dev, 0x60c06008, 0x00000012);
     aml_set_reg(dev, 0x60c0600c, 0x00000001);
-    aml_set_reg(dev, 0x60c06048, 0x00000780);
+    aml_set_reg(dev, 0x60c06048, 0x00010000);
     if (bw == 0x0) {
         aml_set_reg(dev, 0x60c06200, 0x00000002);
     } else if (bw == 0x1) {
@@ -2151,9 +2299,9 @@ int aml_ht_mimo_tx(struct net_device *dev, U8 bw, U8 rate, U8 tx_pwr, U8 length,
     aml_set_reg(dev, 0x60c0b390, 0x00010103);
     aml_set_reg(dev, 0x00a0b1b8, 0xc0003000);
     if (bw == 0x0) {
-        aml_set_reg(dev, 0x60c00800, 0x00000000);
+        aml_set_reg(dev, 0x60c00800, 0x00000110);
     } else if (bw == 0x1) {
-        aml_set_reg(dev, 0x60c00800, 0x00000001);
+        aml_set_reg(dev, 0x60c00800, 0x00000111);
     }
     aml_set_reg(dev, 0x60c0088c, 0x00005050);
     aml_set_reg(dev, 0x60c0b100, 0x00484848);
@@ -2162,7 +2310,7 @@ int aml_ht_mimo_tx(struct net_device *dev, U8 bw, U8 rate, U8 tx_pwr, U8 length,
     aml_set_reg(dev, 0x60c06004, 0x00020000);
     aml_set_reg(dev, 0x60c06008, 0x00000012);
     aml_set_reg(dev, 0x60c0600c, 0x00000001);
-    aml_set_reg(dev, 0x60c06048, 0x00000780);
+    aml_set_reg(dev, 0x60c06048, 0x00010000);
     if (bw == 0x0) {
         aml_set_reg(dev, 0x60c06200, 0x00000002);
     } else if (bw == 0x1) {
@@ -2206,9 +2354,9 @@ int aml_ht_siso_wf1_tx(struct net_device *dev, U8 bw, U8 rate, U8 tx_pwr, U8 len
     aml_set_reg(dev, 0x60c0b390, 0x00010102);
     aml_set_reg(dev, 0x00a0b1b8, 0xc0003100);
     if (bw == 0x0) {
-        aml_set_reg(dev, 0x60c00800, 0x00000000);
+        aml_set_reg(dev, 0x60c00800, 0x00000110);
     } else if(bw == 0x1) {
-        aml_set_reg(dev, 0x60c00800, 0x00000001);
+        aml_set_reg(dev, 0x60c00800, 0x00000111);
     }
     aml_set_reg(dev, 0x60c0088c, 0x00005050);
     aml_set_reg(dev, 0x60c0b100, 0x00303030);
@@ -2216,7 +2364,7 @@ int aml_ht_siso_wf1_tx(struct net_device *dev, U8 bw, U8 rate, U8 tx_pwr, U8 len
     aml_set_reg(dev, 0x60c06004, 0x00020000);
     aml_set_reg(dev, 0x60c06008, 0x00000012);
     aml_set_reg(dev, 0x60c0600c, 0x00000001);
-    aml_set_reg(dev, 0x60c06048, 0x00000780);
+    aml_set_reg(dev, 0x60c06048, 0x00010000);
     if (bw == 0x0) {
         aml_set_reg(dev, 0x60c06200, 0x00000002);
     } else if (bw == 0x1) {
@@ -2266,18 +2414,18 @@ int aml_vht_siso_wf0_tx(struct net_device *dev, U8 bw, U8 rate, U8 tx_pwr, U8 le
     aml_set_reg(dev, 0x60c0b390, 0x00010101);
     aml_set_reg(dev, 0x00a0b1b8, 0xc0003100);
     if (bw == 0x0) {
-        aml_set_reg(dev, 0x60c00800, 0x00000000);
+        aml_set_reg(dev, 0x60c00800, 0x00000110);
     } else if (bw == 0x1) {
-        aml_set_reg(dev, 0x60c00800, 0x00000001);
+        aml_set_reg(dev, 0x60c00800, 0x00000111);
     } else if (bw == 0x2) {
-        aml_set_reg(dev, 0x60c00800, 0x00000002);
+        aml_set_reg(dev, 0x60c00800, 0x00000112);
     }
     aml_set_reg(dev, 0x60c0b100, 0x00303030);
     aml_set_reg(dev, 0x60c06000, 0x00000000);
     aml_set_reg(dev, 0x60c06004, 0x00020000);
     aml_set_reg(dev, 0x60c06008, 0x00000012);
     aml_set_reg(dev, 0x60c0600c, 0x00000001);
-    aml_set_reg(dev, 0x60c06048, 0x00000780);
+    aml_set_reg(dev, 0x60c06048, 0x00010000);
     if (bw == 0x0) {
         aml_set_reg(dev, 0x60c06200, 0x00000004);
     } else if (bw == 0x1) {
@@ -2325,11 +2473,11 @@ int aml_vht_mimo_tx(struct net_device *dev, U8 bw, U8 rate, U8 tx_pwr, U8 length
     aml_set_reg(dev, 0x60c0b390, 0x00010103);
     aml_set_reg(dev, 0x00a0b1b8, 0xc0003000);
     if (bw == 0x0) {
-        aml_set_reg(dev, 0x60c00800, 0x00000000);
+        aml_set_reg(dev, 0x60c00800, 0x00000110);
     } else if (bw == 0x1) {
-        aml_set_reg(dev, 0x60c00800, 0x00000001);
+        aml_set_reg(dev, 0x60c00800, 0x00000111);
     } else if (bw == 0x2) {
-        aml_set_reg(dev, 0x60c00800, 0x00000002);
+        aml_set_reg(dev, 0x60c00800, 0x00000112);
     }
     aml_set_reg(dev, 0x60c0b100, 0x00484848);
     aml_set_reg(dev, 0x60c0b104, 0x00484848);
@@ -2385,11 +2533,11 @@ int aml_vht_siso_wf1_tx(struct net_device *dev, U8 bw, U8 rate, U8 tx_pwr, U8 le
     aml_set_reg(dev, 0x60c0b390, 0x00010102);
     aml_set_reg(dev, 0x00a0b1b8, 0xc0003100);
     if (bw == 0x0) {
-        aml_set_reg(dev, 0x60c00800, 0x00000000);
+        aml_set_reg(dev, 0x60c00800, 0x00000110);
     } else if (bw == 0x1) {
-        aml_set_reg(dev, 0x60c00800, 0x00000001);
+        aml_set_reg(dev, 0x60c00800, 0x00000111);
     } else if (bw == 0x2) {
-        aml_set_reg(dev, 0x60c00800, 0x00000002);
+        aml_set_reg(dev, 0x60c00800, 0x00000112);
     }
     aml_set_reg(dev, 0x60c0b100, 0x00303030);
     aml_set_reg(dev, 0x60c06000, 0x00000000);
@@ -2444,14 +2592,15 @@ int aml_hesu_siso_wf0_tx(struct net_device *dev, U8 bw, U8 rate, U8 tx_pwr, U8 l
     aml_set_reg(dev, 0x60c0b390, 0x00010101);
     aml_set_reg(dev, 0x00a0b1b8, 0xc0003100);
     if (bw == 0x0) {
-        aml_set_reg(dev, 0x60c00800, 0x00000000);
+        aml_set_reg(dev, 0x60c00800, 0x00000110);
     } else if (bw == 0x1) {
-        aml_set_reg(dev, 0x60c00800, 0x00000001);
+        aml_set_reg(dev, 0x60c00800, 0x00000111);
     } else if (bw == 0x2) {
-        aml_set_reg(dev, 0x60c00800, 0x00000002);
+        aml_set_reg(dev, 0x60c00800, 0x00000112);
     }
     aml_set_reg(dev, 0x60c0088c, 0x00005050);
     aml_set_reg(dev, 0x60c0b100, 0x00303030);
+
     aml_set_reg(dev, 0x60c06000, 0x00000000);
     if (bw == 0x0 || bw == 0x1) {
         aml_set_reg(dev, 0x60c06004, 0x00020000);
@@ -2460,7 +2609,7 @@ int aml_hesu_siso_wf0_tx(struct net_device *dev, U8 bw, U8 rate, U8 tx_pwr, U8 l
     }
     aml_set_reg(dev, 0x60c06008, 0x00000012);
     aml_set_reg(dev, 0x60c0600c, 0x00000001);
-    aml_set_reg(dev, 0x60c06048, 0x00000780);
+    aml_set_reg(dev, 0x60c06048, 0x00010000);
     if (bw == 0x0) {
         aml_set_reg(dev, 0x60c06200, 0x00000005);
         aml_set_reg(dev, 0x60c06204, 0x00000001);
@@ -2519,11 +2668,11 @@ int aml_hesu_mimo_tx(struct net_device *dev, U8 bw, U8 rate, U8 tx_pwr, U8 lengt
     aml_set_reg(dev, 0x60c0b390, 0x00010103);
     aml_set_reg(dev, 0x00a0b1b8, 0xc0003000);
     if (bw == 0x0) {
-        aml_set_reg(dev, 0x60c00800, 0x00000000);
+        aml_set_reg(dev, 0x60c00800, 0x00000110);
     } else if (bw == 0x1) {
-        aml_set_reg(dev, 0x60c00800, 0x00000001);
+        aml_set_reg(dev, 0x60c00800, 0x00000111);
     } else if (bw == 0x2) {
-        aml_set_reg(dev, 0x60c00800, 0x00000002);
+        aml_set_reg(dev, 0x60c00800, 0x00000112);
     }
     aml_set_reg(dev, 0x60c0088c, 0x00005050);
     aml_set_reg(dev, 0x60c0b100, 0x00484848);
@@ -2536,7 +2685,7 @@ int aml_hesu_mimo_tx(struct net_device *dev, U8 bw, U8 rate, U8 tx_pwr, U8 lengt
     }
     aml_set_reg(dev, 0x60c06008, 0x00000012);
     aml_set_reg(dev, 0x60c0600c, 0x00000001);
-    aml_set_reg(dev, 0x60c06048, 0x00000780);
+    aml_set_reg(dev, 0x60c06048, 0x00010000);
     if (bw == 0x0) {
         aml_set_reg(dev, 0x60c06200, 0x00000005);
         aml_set_reg(dev, 0x60c06204, 0x00000003);
@@ -2595,11 +2744,11 @@ int aml_hesu_siso_wf1_tx(struct net_device *dev, U8 bw, U8 rate, U8 tx_pwr, U8 l
     aml_set_reg(dev, 0x60c0b390, 0x00010102);
     aml_set_reg(dev, 0x00a0b1b8, 0xc0003100);
     if (bw == 0x0) {
-        aml_set_reg(dev, 0x60c00800, 0x00000000);
+        aml_set_reg(dev, 0x60c00800, 0x00000110);
     } else if (bw == 0x1) {
-        aml_set_reg(dev, 0x60c00800, 0x00000001);
+        aml_set_reg(dev, 0x60c00800, 0x00000111);
     } else if (bw == 0x2) {
-        aml_set_reg(dev, 0x60c00800, 0x00000002);
+        aml_set_reg(dev, 0x60c00800, 0x00000112);
     }
     aml_set_reg(dev, 0x60c0088c, 0x00005050);
     aml_set_reg(dev, 0x60c0b100, 0x00303030);
@@ -2611,7 +2760,7 @@ int aml_hesu_siso_wf1_tx(struct net_device *dev, U8 bw, U8 rate, U8 tx_pwr, U8 l
     }
     aml_set_reg(dev, 0x60c06008, 0x00000012);
     aml_set_reg(dev, 0x60c0600c, 0x00000001);
-    aml_set_reg(dev, 0x60c06048, 0x00000780);
+    aml_set_reg(dev, 0x60c06048, 0x00010000);
     if (bw == 0x0) {
         aml_set_reg(dev, 0x60c06200, 0x00000005);
         aml_set_reg(dev, 0x60c06204, 0x00000001);
@@ -2662,6 +2811,7 @@ int aml_set_tx_prot(struct net_device *dev, int tx_pam, int tx_pam1)
     U8 length = (tx_pam1 & 0x00ff0000) >> 16;
     U8 length1 = (tx_pam1 & 0x0000ff00) >> 8;
     U8 tx_pwr = tx_pam1 & 0x000000ff;
+    U8 channel = (tx_pam & 0xff000000) >>24;
 
     if (prot == 0x0 && model == 0x1) {
         aml_11b_siso_wf0_tx(dev, rate, tx_pwr, length, length1, length2);
@@ -2692,14 +2842,45 @@ int aml_set_tx_prot(struct net_device *dev, int tx_pam, int tx_pam1)
     } else {
         printk("tx param error\n");
     }
+    if (channel > 14)
+    {
+        if (model == 3)
+        {
+            aml_set_reg(dev,0x60c0b100, 0x00505050);
+            aml_set_reg(dev,0x60c0b104, 0x00505050);
+        }
+        else
+        {
+            aml_set_reg(dev,0x60c0b100, 0x00383838);
+            aml_set_reg(dev,0x60c0b104, 0x00383838);
+        }
+    }
+    else
+    {
+        if (model == 3)
+        {
+            aml_set_reg(dev,0x60c0b100, 0x00404040);
+            aml_set_reg(dev,0x60c0b104, 0x00404040);
+        }
+        else
+        {
+            aml_set_reg(dev,0x60c0b100, 0x002e2e2e);
+            aml_set_reg(dev,0x60c0b104, 0x002e2e2e);
+        }
+    }
     return 0;
 }
 
 int aml_set_tx_end(struct net_device *dev)
 {
-    aml_set_reg(dev, 0x60c06000, 0x00000000);
     tx_start = 0;
     printk("set_tx_end\n");
+    //aml_set_reg(dev, 0x60c06000, 0x00000000);  //tx end
+    aml_set_reg(dev, 0x60805018, 0x00000001);  //phy reset
+    aml_set_reg(dev, 0x60805018, 0x00000000);
+
+    aml_set_reg(dev, 0x60c0b390, 0x00011103);
+
     return 0;
 }
 
@@ -2708,6 +2889,37 @@ int aml_set_tx_start(struct net_device *dev)
     tx_start = 1;
     aml_set_tx_prot(dev, tx_param, tx_param1);
     printk("set_tx_start\n");
+    return 0;
+}
+
+int aml_set_offset_power_vld(struct net_device *dev)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    unsigned int reg_val = 0;
+    unsigned int reg_val_second = 0;
+    unsigned int xosc_vld = 0;
+    unsigned int xosc_vld_second = 0;
+
+    xosc_vld = _aml_get_efuse(aml_vif, EFUSE_BASE_04);
+    xosc_vld = xosc_vld & BIT4; //0x1:xosc first times enable, 0x0 xosc first times disable
+    xosc_vld_second = _aml_get_efuse(aml_vif, EFUSE_BASE_07);
+    xosc_vld_second = xosc_vld_second & BIT31; //0x1:xosc second times enable, 0x0 xosc second times disable
+    reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_09);
+    reg_val_second = _aml_get_efuse(aml_vif, EFUSE_BASE_18);
+    //xosc first times enable,offset power first times vld disable
+    if (((reg_val & 0x06180000) == 0x0) && (xosc_vld == BIT4) && (xosc_vld_second == 0x0)) {
+        offset_times = 1;
+        reg_val = reg_val | 0x06180000;
+        _aml_set_efuse(aml_vif, EFUSE_BASE_09, reg_val);
+    } else if (((reg_val & 0x06180000) != 0x0) && ((reg_val_second & 0xc0000000) == 0x0) && (xosc_vld_second == BIT31)) {
+        //xosc second times enable,offset power first times vld enable,offset power second times vld disable
+        offset_times = 2;
+        reg_val_second = reg_val_second | 0xc0000000;
+        _aml_set_efuse(aml_vif, EFUSE_BASE_18, reg_val_second);
+    } else {
+        offset_times = 3;
+        printk("efuse vld set fail, vld has been written\n");
+    }
     return 0;
 }
 
@@ -2754,48 +2966,106 @@ int aml_recy_ctrl(struct net_device *dev, int recy_id)
 
 int aml_set_tx_path(struct net_device *dev, int path, int channel)
 {
+    unsigned int reg_val = 0;
+
     tx_path = path;//mode:wf0 0x1 wf1 0x2 mimo 0x3
 
     if (tx_path > 0x3) {
         printk("set_tx_path error:%d\n",tx_path);
         return -1;
     }
+    tx_channel = (channel & 0x000000ff) << 24;
     tx_path = (tx_path & 0x0000000f) << 20;
-    tx_param = tx_param & 0xff0fffff;
-    tx_param = tx_param | tx_path;
+    tx_param = tx_param & 0x000fffff;
+    tx_param = tx_param | tx_path | tx_channel;
     printk("aml_set_tx_path:%d\n", path);
+    if ((channel <= 14) && (path == 3))
+    {
+        aml_set_reg(dev, 0x60c0b500, 0x00041000);
+    }
+
     switch (path) {
         case 1:
             if (channel <= 14) {
-                aml_rf_reg_write(dev, 0x80000008, 0x01393916);
-                aml_rf_reg_write(dev, 0x80001008, 0x01393914);
+                reg_val = aml_rf_reg_read(dev, 0x80001818);
+                aml_rf_reg_write(dev, 0x80001818, reg_val & 0xFE3FFFFF);
+                reg_val = aml_rf_reg_read(dev, 0x80001818);
+                aml_rf_reg_write(dev, 0x80001818, reg_val | 0x80000000);
             } else {
-                aml_rf_reg_write(dev, 0x80000008, 0x00393912);
-                aml_rf_reg_write(dev, 0x80001008, 0x00393911);
+                reg_val = aml_rf_reg_read(dev, 0x80001808);
+                aml_rf_reg_write(dev, 0x80001808, reg_val & 0xFFE3FFFF);
+                reg_val = aml_rf_reg_read(dev, 0x80001808);
+                aml_rf_reg_write(dev, 0x80001808, reg_val | 0x02000000);
             }
             break;
         case 2:
             if (channel <= 14) {
-                aml_rf_reg_write(dev, 0x80000008, 0x01393915);
-                aml_rf_reg_write(dev, 0x80001008, 0x01393916);
+                reg_val = aml_rf_reg_read(dev, 0x80000818);
+                aml_rf_reg_write(dev, 0x80000818, reg_val & 0xFE3FFFFF);
+                reg_val = aml_rf_reg_read(dev, 0x80000818);
+                aml_rf_reg_write(dev, 0x80000818, reg_val | 0x80000000);
             } else {
-                aml_rf_reg_write(dev, 0x80000008, 0x00393910);
-                aml_rf_reg_write(dev, 0x80001008, 0x00393912);
+                reg_val = aml_rf_reg_read(dev, 0x80000808);
+                aml_rf_reg_write(dev, 0x80000808, reg_val & 0xFFE3FFFF);
+                reg_val = aml_rf_reg_read(dev, 0x80000808);
+                aml_rf_reg_write(dev, 0x80000808, reg_val | 0x02000000);
             }
             break;
-        case 3:
-            if (channel <= 14) {
-                aml_rf_reg_write(dev, 0x80000008, 0x01393900);
-                aml_rf_reg_write(dev, 0x80001008, 0x01393900);
-                aml_set_reg(dev, 0x60c0b500, 0x00041000);
-            } else {
-                aml_rf_reg_write(dev, 0x80000008, 0x00393900);
-                aml_rf_reg_write(dev, 0x80001008, 0x00393900);
-            }
-            break;
+
         default:
             printk("set antenna error :%x\n", path);
             break;
+    }
+
+    return 0;
+}
+
+int aml_emb_la_capture(struct net_device *dev, int bus1, int bus2)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+
+    printk("bus1: 0x%x bus2:0x%x\n", bus1, bus2);
+
+    _aml_set_la_capture(aml_vif, bus1, bus2);
+
+    return 0;
+
+}
+
+int aml_emb_la_enable(struct net_device *dev)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
+    int enable  = 1;
+
+    _aml_set_la_enable(aml_hw,enable);
+
+    aml_hw->la_enable = 1;
+
+    return 0;
+}
+
+unsigned int g_snr_enable = 1;
+unsigned int g_snr_mcs_ration = 60;
+
+static int aml_dyn_snr_cfg(struct net_device *dev, int enable, int mcs_ration)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
+    u32 snr_cfg = 0;
+
+    if (enable)
+    {
+        g_snr_enable = enable;
+        g_snr_mcs_ration = mcs_ration;
+    }
+    else
+    {
+        g_snr_enable = enable;
+
+        snr_cfg = AML_REG_READ(aml_hw->plat, AML_ADDR_SYSTEM, 0xc00828);
+        snr_cfg &= ~ BIT(29);
+        AML_REG_WRITE(snr_cfg, aml_hw->plat, AML_ADDR_SYSTEM, 0xc00828);
     }
     return 0;
 }
@@ -2902,9 +3172,9 @@ int aml_set_power_offset(struct net_device *dev,union iwreq_data *wrqu, char *ex
     }
 
     if (offset > 0xf) {
-        reference_pw = (offset - 32) * 16 + 1024;
+        reference_pw = (offset - 32) * 32 + 1024;
     } else {
-        reference_pw = offset * 16;
+        reference_pw = offset * 32;
     }
 
     if ((pwr_offset & 0x1000) == 0) {//wf0
@@ -2935,90 +3205,229 @@ int aml_set_ram_efuse(struct net_device *dev , unsigned int ram_efuse)
     }
 
     ram_efuse = ram_efuse & 0xf000001f;
-
-    if (ram_efuse >> 28 == 0x0) {
-        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1A);
-        reg_val = reg_val & 0xffe0ffff;
-        reg_val = reg_val | ((ram_efuse & 0x0000001f) << 16);
-        _aml_set_efuse(aml_vif, EFUSE_BASE_1A, reg_val);
-    } else if (ram_efuse >> 28 == 0x1) {
-        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1A);
-        reg_val = reg_val & 0xe0ffffff;
-        reg_val = reg_val | ((ram_efuse & 0x0000001f) << 24);
-        _aml_set_efuse(aml_vif, EFUSE_BASE_1A, reg_val);
-    } else if (ram_efuse >> 28 == 0x2) {
-        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1B);
-        reg_val = reg_val & 0xffffffe0;
-        reg_val = reg_val | (ram_efuse & 0x0000001f);
-        _aml_set_efuse(aml_vif, EFUSE_BASE_1B, reg_val);
-    } else if (ram_efuse >> 28 == 0x3) {
-        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1B);
-        reg_val = reg_val & 0xffffe0ff;
-        reg_val = reg_val | ((ram_efuse & 0x0000001f) << 8);
-        _aml_set_efuse(aml_vif, EFUSE_BASE_1B, reg_val);
-    } else if (ram_efuse >> 28 == 0x4) {
-        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1B);
-        reg_val = reg_val & 0xffe0ffff;
-        reg_val = reg_val | ((ram_efuse & 0x0000001f) << 16);
-        _aml_set_efuse(aml_vif, EFUSE_BASE_1B, reg_val);
-    } else if (ram_efuse >> 28 == 0x5) {
-        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1B);
-        reg_val = reg_val & 0xe0ffffff;
-        reg_val = reg_val | ((ram_efuse & 0x0000001f) << 24);
-        _aml_set_efuse(aml_vif, EFUSE_BASE_1B, reg_val);
-    } else if (ram_efuse >> 28 == 0x6) {
-        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1C);
-        reg_val = reg_val & 0xffffffe0;
-        reg_val = reg_val | (ram_efuse & 0x0000001f);
-        _aml_set_efuse(aml_vif, EFUSE_BASE_1C, reg_val);
-    } else if (ram_efuse >> 28 == 0x7) {
-        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1C);
-        reg_val = reg_val & 0xffffe0ff;
-        reg_val = reg_val | ((ram_efuse & 0x0000001f) << 8);
-        _aml_set_efuse(aml_vif, EFUSE_BASE_1C, reg_val);
-    } else if (ram_efuse >> 28 == 0x8) {
-        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1E);
-        reg_val = reg_val & 0xffffffe0;
-        reg_val = reg_val | (ram_efuse & 0x0000001f);
-        _aml_set_efuse(aml_vif, EFUSE_BASE_1E, reg_val);
-    } else if (ram_efuse >> 28 == 0x9) {
-        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1E);
-        reg_val = reg_val & 0xffffe0ff;
-        reg_val = reg_val | ((ram_efuse & 0x0000001f) << 8);
-        _aml_set_efuse(aml_vif, EFUSE_BASE_1E, reg_val);
-    } else if (ram_efuse >> 28 == 0xa) {
-        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1E);
-        reg_val = reg_val & 0xffe0ffff;
-        reg_val = reg_val | ((ram_efuse & 0x0000001f) << 16);
-        _aml_set_efuse(aml_vif, EFUSE_BASE_1E, reg_val);
-    } else if (ram_efuse >> 28 == 0xb) {
-        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1E);
-        reg_val = reg_val & 0xe0ffffff;
-        reg_val = reg_val | ((ram_efuse & 0x0000001f) << 24);
-        _aml_set_efuse(aml_vif, EFUSE_BASE_1E, reg_val);
-    } else if (ram_efuse >> 28 == 0xc) {
-        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1F);
-        reg_val = reg_val & 0xffffffe0;
-        reg_val = reg_val | (ram_efuse & 0x0000001f);
-        _aml_set_efuse(aml_vif, EFUSE_BASE_1F, reg_val);
-    }  else if (ram_efuse >> 28 == 0xd) {
-        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1F);
-        reg_val = reg_val & 0xffffe0ff;
-        reg_val = reg_val | ((ram_efuse & 0x0000001f) << 8);
-        _aml_set_efuse(aml_vif, EFUSE_BASE_1F, reg_val);
-    } else if ((ram_efuse >> 28) == 0xe) {
-        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1F);
-        reg_val = reg_val & 0xffe0ffff;
-        reg_val = reg_val | ((ram_efuse & 0x0000001f) << 16);
-        _aml_set_efuse(aml_vif, EFUSE_BASE_1F, reg_val);
-    } else if (ram_efuse >> 28 == 0xf) {
-        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1F);
-        reg_val = reg_val & 0xe0ffffff;
-        reg_val = reg_val | ((ram_efuse & 0x0000001f) << 24);
-        _aml_set_efuse(aml_vif, EFUSE_BASE_1F, reg_val);
+    // first write
+    if (offset_times == 1) {
+        if (ram_efuse >> 28 == 0x0) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1A);
+            reg_val = reg_val & 0xffe0ffff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 16);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_1A, reg_val);
+        } else if (ram_efuse >> 28 == 0x1) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1A);
+            reg_val = reg_val & 0xe0ffffff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 24);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_1A, reg_val);
+        } else if (ram_efuse >> 28 == 0x2) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1B);
+            reg_val = reg_val & 0xffffffe0;
+            reg_val = reg_val | (ram_efuse & 0x0000001f);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_1B, reg_val);
+        } else if (ram_efuse >> 28 == 0x3) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1B);
+            reg_val = reg_val & 0xffffe0ff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 8);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_1B, reg_val);
+        } else if (ram_efuse >> 28 == 0x4) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1B);
+            reg_val = reg_val & 0xffe0ffff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 16);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_1B, reg_val);
+        } else if (ram_efuse >> 28 == 0x5) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1B);
+            reg_val = reg_val & 0xe0ffffff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 24);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_1B, reg_val);
+        } else if (ram_efuse >> 28 == 0x6) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1C);
+            reg_val = reg_val & 0xffffffe0;
+            reg_val = reg_val | (ram_efuse & 0x0000001f);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_1C, reg_val);
+        } else if (ram_efuse >> 28 == 0x7) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1C);
+            reg_val = reg_val & 0xffffe0ff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 8);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_1C, reg_val);
+        } else if (ram_efuse >> 28 == 0x8) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1E);
+            reg_val = reg_val & 0xffffffe0;
+            reg_val = reg_val | (ram_efuse & 0x0000001f);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_1E, reg_val);
+        } else if (ram_efuse >> 28 == 0x9) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1E);
+            reg_val = reg_val & 0xffffe0ff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 8);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_1E, reg_val);
+        } else if (ram_efuse >> 28 == 0xa) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1E);
+            reg_val = reg_val & 0xffe0ffff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 16);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_1E, reg_val);
+        } else if (ram_efuse >> 28 == 0xb) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1E);
+            reg_val = reg_val & 0xe0ffffff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 24);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_1E, reg_val);
+        } else if (ram_efuse >> 28 == 0xc) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1F);
+            reg_val = reg_val & 0xffffffe0;
+            reg_val = reg_val | (ram_efuse & 0x0000001f);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_1F, reg_val);
+        }  else if (ram_efuse >> 28 == 0xd) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1F);
+            reg_val = reg_val & 0xffffe0ff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 8);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_1F, reg_val);
+        } else if ((ram_efuse >> 28) == 0xe) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1F);
+            reg_val = reg_val & 0xffe0ffff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 16);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_1F, reg_val);
+        } else if (ram_efuse >> 28 == 0xf) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1F);
+            reg_val = reg_val & 0xe0ffffff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 24);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_1F, reg_val);
+        }
+    } else if (offset_times == 2) {
+        if (ram_efuse >> 28 == 0x0) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_14);
+            reg_val = reg_val & 0xffffffe0;
+            reg_val = reg_val | (ram_efuse & 0x0000001f);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_14, reg_val);
+        } else if (ram_efuse >> 28 == 0x1) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_14);
+            reg_val = reg_val & 0xffffe0ff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 8);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_14, reg_val);
+        } else if (ram_efuse >> 28 == 0x2) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_14);
+            reg_val = reg_val & 0xffe0ffff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 16);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_14, reg_val);
+        } else if (ram_efuse >> 28 == 0x3) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_14);
+            reg_val = reg_val & 0xe0ffffff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 24);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_14, reg_val);
+        } else if (ram_efuse >> 28 == 0x4) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_15);
+            reg_val = reg_val & 0xffffffe0;
+            reg_val = reg_val | (ram_efuse & 0x0000001f);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_15, reg_val);
+        } else if (ram_efuse >> 28 == 0x5) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_15);
+            reg_val = reg_val & 0xffffe0ff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 8);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_15, reg_val);
+        } else if (ram_efuse >> 28 == 0x6) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_15);
+            reg_val = reg_val & 0xffe0ffff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 16);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_15, reg_val);
+        } else if (ram_efuse >> 28 == 0x7) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_15);
+            reg_val = reg_val & 0xe0ffffff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 24);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_15, reg_val);
+        } else if (ram_efuse >> 28 == 0x8) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_16);
+            reg_val = reg_val & 0xffffffe0;
+            reg_val = reg_val | (ram_efuse & 0x0000001f);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_16, reg_val);
+        } else if (ram_efuse >> 28 == 0x9) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_16);
+            reg_val = reg_val & 0xffffe0ff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 8);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_16, reg_val);
+        } else if (ram_efuse >> 28 == 0xa) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_16);
+            reg_val = reg_val & 0xffe0ffff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 16);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_16, reg_val);
+        } else if (ram_efuse >> 28 == 0xb) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_16);
+            reg_val = reg_val & 0xe0ffffff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 24);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_16, reg_val);
+        } else if (ram_efuse >> 28 == 0xc) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_17);
+            reg_val = reg_val & 0xffffffe0;
+            reg_val = reg_val | (ram_efuse & 0x0000001f);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_17, reg_val);
+        }  else if (ram_efuse >> 28 == 0xd) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_17);
+            reg_val = reg_val & 0xffffe0ff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 8);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_17, reg_val);
+        } else if ((ram_efuse >> 28) == 0xe) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_17);
+            reg_val = reg_val & 0xffe0ffff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 16);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_17, reg_val);
+        } else if (ram_efuse >> 28 == 0xf) {
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_17);
+            reg_val = reg_val & 0xe0ffffff;
+            reg_val = reg_val | ((ram_efuse & 0x0000001f) << 24);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_17, reg_val);
+        }
+    } else {
+        printk(" efuse has been written\n");
     }
 
     return 0;
+}
+
+int aml_get_xosc_efuse_times(struct net_device *dev , union iwreq_data *wrqu, char *extra)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    unsigned int reg_val = 0;
+    unsigned int reg_val_second = 0;
+    unsigned int times = 0;
+
+    reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_04);
+    reg_val_second = _aml_get_efuse(aml_vif, EFUSE_BASE_07);
+    //xosc first times vld disable
+    if ((reg_val & BIT4) == 0) {
+        times = 2;
+    } else if (((reg_val & BIT4) != 0) && ((reg_val_second & BIT31) == 0)) {
+    //xosc first times vld enable, second times vld disable
+        times = 1;
+    } else {
+        times = 0;
+    }
+
+    wrqu->data.length = scnprintf(extra, IW_PRIV_SIZE_MASK, "&0x%08x", times);
+    wrqu->data.length++;
+
+    return 0;
+}
+
+int aml_get_mac_efuse_times(struct net_device *dev , union iwreq_data *wrqu, char *extra)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    unsigned int mac_val = 0;
+    unsigned int mac_val_second = 0;
+    unsigned int times = 0;
+
+    mac_val = _aml_get_efuse(aml_vif, EFUSE_BASE_01);
+    mac_val_second = _aml_get_efuse(aml_vif, EFUSE_BASE_11);
+    if (mac_val == 0) {
+        times = 2;
+    } else if ((mac_val != 0) && (mac_val_second == 0)) {
+        times = 1;
+    } else {
+        times = 0;
+    }
+
+    wrqu->data.length = scnprintf(extra, IW_PRIV_SIZE_MASK, "&0x%08x", times);
+    wrqu->data.length++;
+    return 0;
+}
+
+
+int aml_set_tx_frame_delay(struct net_device *dev, int frame_delay)
+{
+    aml_set_reg(dev, 0x60c06048, frame_delay);
 }
 
 int aml_set_xosc_efuse(struct net_device *dev , int xosc_efuse)
@@ -3031,11 +3440,30 @@ int aml_set_xosc_efuse(struct net_device *dev , int xosc_efuse)
         return -1;
     }
 
-    reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_05);
-    reg_val = reg_val & 0x00ffffff;
-    reg_val = reg_val | (xosc_efuse<<24);
-    _aml_set_efuse(aml_vif, EFUSE_BASE_05, reg_val);
-    printk("aml_set_xosc_efuse=0x%x\n", xosc_efuse);
+    reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_04);
+    //xosc first times vld disable
+    if ((reg_val & BIT4) == 0) {
+        reg_val = reg_val | BIT4;
+        _aml_set_efuse(aml_vif, EFUSE_BASE_04, reg_val);
+
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_05);
+        reg_val = reg_val | (xosc_efuse << 24);
+        _aml_set_efuse(aml_vif, EFUSE_BASE_05, reg_val);
+        printk("aml_set_xosc_efuse=0x%x\n", xosc_efuse);
+    } else {
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_07);
+        //xosc second times vld disable
+        if ((reg_val & BIT31) == 0) {
+            reg_val = reg_val | BIT31;
+            _aml_set_efuse(aml_vif, EFUSE_BASE_07, reg_val);
+
+            reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_05);
+            reg_val = reg_val | (xosc_efuse << 16);
+            _aml_set_efuse(aml_vif, EFUSE_BASE_05, reg_val);
+            printk("second aml_set_xosc_efuse=0x%x\n", xosc_efuse);
+        }
+    }
+
     return 0;
 }
 
@@ -3084,11 +3512,13 @@ int aml_set_fwlog_cmd(struct net_device *dev, int mode, int size)
                 return -1;
         }
 
+#ifdef CONFIG_AML_DEBUGFS
         ret = aml_log_file_info_init(mode, size);
         if (ret < 0) {
             printk("aml_log_file_info_init fail\n");
             return -1;
         }
+#endif
 
         aml_send_fwlog_cmd(aml_vif, mode);
     }
@@ -3133,41 +3563,110 @@ char **aml_cmd_char_phrase(char sep, const char *str, int *size)
     return ret;
 }
 
+int aml_is_valid_mac_addr(const char* mac)
+{
+    int i = 0;
+    char sep = ':';
+
+    if (strlen(mac) != strlen("00:00:00:00:00:00")) {
+        printk("%s %d mac size error!\n", __func__, __LINE__);
+        return -1;
+    }
+
+    for (i = 0; i < strlen(mac); i++) {
+        if ((i % 3) == 2) {
+            if (mac[i] != sep) {
+                printk("%s %d mac format error!\n", __func__,__LINE__);
+                return -1;
+            }
+        } else {
+            if ((('0' <= mac[i]) && (mac[i] <= '9')) || (('a' <= mac[i]) && (mac[i] <= 'f'))) {
+                ;
+            } else {
+                printk("%s %d mac invalid!\n", __func__, __LINE__);
+                return -1;
+            }
+        }
+    }
+    return 0;
+}
 void aml_set_wifi_mac_addr(struct net_device *dev, char* arg_iw)
 {
     char **mac_cmd;
     int cmd_arg;
     char sep = ':';
+    unsigned int mac_val = 0;
+    unsigned int mac_val_second = 0;
     unsigned int efuse_data_l = 0;
     unsigned int efuse_data_h = 0;
     struct aml_vif *aml_vif = netdev_priv(dev);
 
-    mac_cmd = aml_cmd_char_phrase(sep, arg_iw, &cmd_arg);
-    if (mac_cmd) {
-        efuse_data_l = (simple_strtoul(mac_cmd[2], NULL,16) << 24) | (simple_strtoul(mac_cmd[3], NULL,16) << 16)
-                       | (simple_strtoul(mac_cmd[4], NULL,16) << 8) | simple_strtoul(mac_cmd[5], NULL,16);
-        efuse_data_h = (simple_strtoul(mac_cmd[0], NULL,16) << 8) | (simple_strtoul(mac_cmd[1], NULL,16));
+    mac_val = _aml_get_efuse(aml_vif, EFUSE_BASE_01);
+    mac_val_second = _aml_get_efuse(aml_vif, EFUSE_BASE_11);
 
-        _aml_set_efuse(aml_vif, EFUSE_BASE_01, efuse_data_l);
-        efuse_data_h = (efuse_data_h & 0xffff);
-        _aml_set_efuse(aml_vif, EFUSE_BASE_02, efuse_data_h);
+    if (mac_val == 0) {
+        if (!aml_is_valid_mac_addr(arg_iw)) {
+            mac_cmd = aml_cmd_char_phrase(sep, arg_iw, &cmd_arg);
+            if (mac_cmd) {
+                efuse_data_l = (simple_strtoul(mac_cmd[2], NULL,16) << 24) | (simple_strtoul(mac_cmd[3], NULL,16) << 16)
+                               | (simple_strtoul(mac_cmd[4], NULL,16) << 8) | simple_strtoul(mac_cmd[5], NULL,16);
+                efuse_data_h = (simple_strtoul(mac_cmd[0], NULL,16) << 8) | (simple_strtoul(mac_cmd[1], NULL,16));
 
-        printk("iwpriv write WIFI MAC addr is:  %02x:%02x:%02x:%02x:%02x:%02x\n",
-                (efuse_data_h & 0xff00) >> 8, efuse_data_h & 0x00ff, (efuse_data_l & 0xff000000) >> 24,
-                (efuse_data_l & 0x00ff0000) >> 16, (efuse_data_l & 0xff00) >> 8, efuse_data_l & 0xff);
+                _aml_set_efuse(aml_vif, EFUSE_BASE_01, efuse_data_l);
+                efuse_data_h = (efuse_data_h & 0xffff);
+                _aml_set_efuse(aml_vif, EFUSE_BASE_02, efuse_data_h);
+
+                printk("iwpriv write WIFI MAC addr is:  %02x:%02x:%02x:%02x:%02x:%02x\n",
+                    (efuse_data_h & 0xff00) >> 8, efuse_data_h & 0x00ff, (efuse_data_l & 0xff000000) >> 24,
+                    (efuse_data_l & 0x00ff0000) >> 16, (efuse_data_l & 0xff00) >> 8, efuse_data_l & 0xff);
+            }
+            kfree(mac_cmd);
+        }
+    } else if ((mac_val != 0) && (mac_val_second == 0)) {
+        if (!aml_is_valid_mac_addr(arg_iw)) {
+            mac_cmd = aml_cmd_char_phrase(sep, arg_iw, &cmd_arg);
+            if (mac_cmd) {
+                mac_val = _aml_get_efuse(aml_vif, EFUSE_BASE_07);
+                mac_val = mac_val | BIT17;
+                _aml_set_efuse(aml_vif, EFUSE_BASE_07, mac_val);
+
+                efuse_data_l = (simple_strtoul(mac_cmd[2], NULL,16) << 24) | (simple_strtoul(mac_cmd[3], NULL,16) << 16)
+                               | (simple_strtoul(mac_cmd[4], NULL,16) << 8) | simple_strtoul(mac_cmd[5], NULL,16);
+                efuse_data_h = (simple_strtoul(mac_cmd[0], NULL,16) << 8) | (simple_strtoul(mac_cmd[1], NULL,16));
+
+                _aml_set_efuse(aml_vif, EFUSE_BASE_11, efuse_data_l);
+                efuse_data_h = (efuse_data_h & 0xffff);
+                _aml_set_efuse(aml_vif, EFUSE_BASE_12, efuse_data_h);
+
+                printk("iwpriv write second WIFI MAC addr is:  %02x:%02x:%02x:%02x:%02x:%02x\n",
+                    (efuse_data_h & 0xff00) >> 8, efuse_data_h & 0x00ff, (efuse_data_l & 0xff000000) >> 24,
+                    (efuse_data_l & 0x00ff0000) >> 16, (efuse_data_l & 0xff00) >> 8, efuse_data_l & 0xff);
+            }
+            kfree(mac_cmd);
+        }
+
+    } else {
+        printk("Wifi mac has been written\n");
     }
-    kfree(mac_cmd);
 }
 
 int aml_get_mac_addr(struct net_device *dev,union iwreq_data *wrqu, char *extra)
 {
     unsigned int efuse_data_l = 0;
     unsigned int efuse_data_h = 0;
+    unsigned int efuse_data = 0;
     struct aml_vif *aml_vif = netdev_priv(dev);
 
-    efuse_data_l = _aml_get_efuse(aml_vif, EFUSE_BASE_01);
-    efuse_data_h = _aml_get_efuse(aml_vif, EFUSE_BASE_02);
-    if (efuse_data_l != 0 && efuse_data_h != 0) {
+    efuse_data = _aml_get_efuse(aml_vif, EFUSE_BASE_07);
+
+    if (efuse_data & BIT17) {
+        efuse_data_l = _aml_get_efuse(aml_vif, EFUSE_BASE_11);
+        efuse_data_h = _aml_get_efuse(aml_vif, EFUSE_BASE_12);
+    } else {
+        efuse_data_l = _aml_get_efuse(aml_vif, EFUSE_BASE_01);
+        efuse_data_h = _aml_get_efuse(aml_vif, EFUSE_BASE_02);
+    }
+    if (efuse_data_l != 0 || efuse_data_h != 0) {
         printk("efuse addr:%08x,%08x, MAC addr is: %02x:%02x:%02x:%02x:%02x:%02x\n", EFUSE_BASE_01, EFUSE_BASE_02,
             (efuse_data_h & 0xff00) >> 8,efuse_data_h & 0x00ff, (efuse_data_l & 0xff000000) >> 24,
             (efuse_data_l & 0x00ff0000) >> 16,(efuse_data_l & 0xff00) >> 8,efuse_data_l & 0xff);
@@ -3187,26 +3686,60 @@ void aml_set_bt_mac_addr(struct net_device *dev, char* arg_iw)
     char **mac_cmd;
     int cmd_arg;
     char sep = ':';
+    unsigned int mac_val = 0;
+    unsigned int mac_val_second = 0;
     unsigned int efuse_data_l = 0;
     unsigned int efuse_data_h = 0;
     struct aml_vif *aml_vif = netdev_priv(dev);
 
-    mac_cmd = aml_cmd_char_phrase(sep, arg_iw, &cmd_arg);
-    if (mac_cmd) {
-        efuse_data_h = (simple_strtoul(mac_cmd[0], NULL,16) << 24) | (simple_strtoul(mac_cmd[1], NULL,16) << 16)
-                       | (simple_strtoul(mac_cmd[2], NULL,16) << 8) | simple_strtoul(mac_cmd[3], NULL,16);
-        efuse_data_l = (simple_strtoul(mac_cmd[4], NULL,16) << 24) | (simple_strtoul(mac_cmd[5], NULL,16) << 16);
+    mac_val = _aml_get_efuse(aml_vif, EFUSE_BASE_01);
+    mac_val_second = _aml_get_efuse(aml_vif, EFUSE_BASE_11);
 
-        _aml_set_efuse(aml_vif, EFUSE_BASE_03, efuse_data_h);
-        efuse_data_l = (efuse_data_l & 0xffff0000);
-        _aml_set_efuse(aml_vif, EFUSE_BASE_02, efuse_data_l);
+    if (mac_val == 0) {
+        if (!aml_is_valid_mac_addr(arg_iw)) {
+            mac_cmd = aml_cmd_char_phrase(sep, arg_iw, &cmd_arg);
+            if (mac_cmd) {
+                efuse_data_h = (simple_strtoul(mac_cmd[0], NULL,16) << 24) | (simple_strtoul(mac_cmd[1], NULL,16) << 16)
+                               | (simple_strtoul(mac_cmd[2], NULL,16) << 8) | simple_strtoul(mac_cmd[3], NULL,16);
+                efuse_data_l = (simple_strtoul(mac_cmd[4], NULL,16) << 24) | (simple_strtoul(mac_cmd[5], NULL,16) << 16);
 
-        printk("iwpriv write BT MAC addr is:  %02x:%02x:%02x:%02x:%02x:%02x\n",
-            (efuse_data_h & 0xff000000) >> 24,(efuse_data_h & 0x00ff0000) >> 16,
-            (efuse_data_h & 0xff00) >> 8, efuse_data_h & 0xff,
-            (efuse_data_l & 0xff000000) >> 24, (efuse_data_l & 0x00ff0000) >> 16);
+                _aml_set_efuse(aml_vif, EFUSE_BASE_03, efuse_data_h);
+                efuse_data_l = (efuse_data_l & 0xffff0000);
+                _aml_set_efuse(aml_vif, EFUSE_BASE_02, efuse_data_l);
+
+                printk("iwpriv write BT MAC addr is:  %02x:%02x:%02x:%02x:%02x:%02x\n",
+                    (efuse_data_h & 0xff000000) >> 24,(efuse_data_h & 0x00ff0000) >> 16,
+                    (efuse_data_h & 0xff00) >> 8, efuse_data_h & 0xff,
+                    (efuse_data_l & 0xff000000) >> 24, (efuse_data_l & 0x00ff0000) >> 16);
+            }
+            kfree(mac_cmd);
+        }
+    } else if ((mac_val != 0) && (mac_val_second == 0)) {
+        if (!aml_is_valid_mac_addr(arg_iw)) {
+            mac_cmd = aml_cmd_char_phrase(sep, arg_iw, &cmd_arg);
+            if (mac_cmd) {
+                mac_val = _aml_get_efuse(aml_vif, EFUSE_BASE_07);
+                mac_val = mac_val | BIT16;
+                _aml_set_efuse(aml_vif, EFUSE_BASE_07, mac_val);
+
+                efuse_data_h = (simple_strtoul(mac_cmd[0], NULL,16) << 24) | (simple_strtoul(mac_cmd[1], NULL,16) << 16)
+                               | (simple_strtoul(mac_cmd[2], NULL,16) << 8) | simple_strtoul(mac_cmd[3], NULL,16);
+                efuse_data_l = (simple_strtoul(mac_cmd[4], NULL,16) << 24) | (simple_strtoul(mac_cmd[5], NULL,16) << 16);
+
+                _aml_set_efuse(aml_vif, EFUSE_BASE_13, efuse_data_h);
+                efuse_data_l = (efuse_data_l & 0xffff0000);
+                _aml_set_efuse(aml_vif, EFUSE_BASE_12, efuse_data_l);
+
+                printk("iwpriv write second BT MAC addr is:  %02x:%02x:%02x:%02x:%02x:%02x\n",
+                    (efuse_data_h & 0xff000000) >> 24,(efuse_data_h & 0x00ff0000) >> 16,
+                    (efuse_data_h & 0xff00) >> 8, efuse_data_h & 0xff,
+                    (efuse_data_l & 0xff000000) >> 24, (efuse_data_l & 0x00ff0000) >> 16);
+            }
+            kfree(mac_cmd);
+        }
+    } else {
+        printk("BT mac has been written\n");
     }
-    kfree(mac_cmd);
 }
 
 int aml_get_bt_mac_addr(struct net_device *dev,union iwreq_data *wrqu, char *extra)
@@ -3214,10 +3747,17 @@ int aml_get_bt_mac_addr(struct net_device *dev,union iwreq_data *wrqu, char *ext
     unsigned int efuse_data_l = 0;
     unsigned int efuse_data_h = 0;
     struct aml_vif *aml_vif = netdev_priv(dev);
+    unsigned int efuse_data = 0;
 
-    efuse_data_l = _aml_get_efuse(aml_vif, EFUSE_BASE_02);
-    efuse_data_h = _aml_get_efuse(aml_vif, EFUSE_BASE_03);
-    if (efuse_data_l != 0 && efuse_data_h != 0) {
+    efuse_data = _aml_get_efuse(aml_vif, EFUSE_BASE_07);
+    if (efuse_data & BIT16) {
+        efuse_data_l = _aml_get_efuse(aml_vif, EFUSE_BASE_12);
+        efuse_data_h = _aml_get_efuse(aml_vif, EFUSE_BASE_13);
+    } else {
+        efuse_data_l = _aml_get_efuse(aml_vif, EFUSE_BASE_02);
+        efuse_data_h = _aml_get_efuse(aml_vif, EFUSE_BASE_03);
+    }
+    if (efuse_data_l != 0 || efuse_data_h != 0) {
         printk("BT MAC addr is: %02x:%02x:%02x:%02x:%02x:%02x\n",
             (efuse_data_h & 0xff000000) >> 24,(efuse_data_h & 0x00ff0000) >> 16,
             (efuse_data_h & 0xff00) >> 8, efuse_data_h & 0xff,
@@ -3377,7 +3917,7 @@ static int aml_iwpriv_send_para1(struct net_device *dev,
             aml_set_legacy_rate(dev, set1, 0);
             break;
         case AML_IWP_SET_SCAN_HANG:
-            aml_set_scan_hang(dev, set1);
+            aml_iwpriv_set_scan_hang(dev, set1);
             break;
         case AML_IWP_SET_SCAN_TIME:
             aml_set_scan_time(dev, set1);
@@ -3474,6 +4014,26 @@ static int aml_iwpriv_send_para1(struct net_device *dev,
         case AML_IWP_SET_MAX_TIMEOUT:
             aml_set_max_timeout(dev, set1);
             break;
+        case AML_IWP_SET_BUF_STATUS:
+            aml_set_buf_state(dev, set1);
+            break;
+#ifdef CONFIG_AML_NAPI
+        case AML_IWP_SET_NAPI:
+            aml_set_napi_enable(dev, set1);
+            break;
+        case AML_IWP_SET_GRO:
+            aml_set_gro_enable(dev, set1);
+             break;
+        case AML_IWP_SET_NAPI_NUM:
+            aml_set_napi_num(dev, set1);
+             break;
+#endif
+        case AML_IWP_SET_BUS_TIMEOUT_TEST:
+            aml_set_bus_timeout_test(dev, set1);
+            break;
+        case AML_IWP_SET_TX_THS:
+            aml_set_txdesc_trigger_ths(dev, set1);
+            break;
         default:
             printk("%s %d: param err\n", __func__, __LINE__);
             break;
@@ -3519,6 +4079,12 @@ static int aml_iwpriv_send_para2(struct net_device *dev,
             break;
         case AML_IWP_SET_TX_PATH:
             aml_set_tx_path(dev, set1, set2);
+            break;
+        case AML_IWP_START_CAP:
+            aml_emb_la_capture(dev, set1, set2);
+            break;
+        case AML_IWP_SNR_CFG:
+            aml_dyn_snr_cfg(dev, set1, set2);
             break;
         default:
             break;
@@ -3670,11 +4236,17 @@ static int aml_iwpriv_get(struct net_device *dev,
         case AML_IWP_SET_TX_START:
             aml_set_tx_start(dev);
             break;
+        case AML_IWP_SET_OFFSET_POWER_VLD:
+            aml_set_offset_power_vld(dev);
+            break;
         case AML_IWP_GET_BUF_STATE:
             aml_get_buf_state(dev);
             break;
         case AML_IWP_GET_TCP_DELAY_ACK_INFO:
             aml_get_tcp_ack_info(dev);
+            break;
+        case AML_IWP_LA_ENABLE:
+            aml_emb_la_enable(dev);
             break;
         default:
             printk("%s %d param err\n", __func__, __LINE__);
@@ -3718,6 +4290,7 @@ static int aml_iwpriv_get_char(struct net_device *dev,
             break;
         case AML_IWP_SET_WIFI_MAC_EFUSE:
             aml_set_wifi_mac_addr(dev, set);
+            break;
         case AML_IWP_SET_RX_END:
             aml_set_rx_end(dev,wrqu, extra);
             break;
@@ -3732,6 +4305,12 @@ static int aml_iwpriv_get_char(struct net_device *dev,
             break;
         case AML_IWP_GET_XOSC_OFFSET:
             aml_get_xosc_offset(dev,wrqu, extra);
+            break;
+        case AML_IWP_GET_XOSC_EFUSE_TIMES:
+            aml_get_xosc_efuse_times(dev, wrqu, extra);
+            break;
+        case AML_IWP_GET_MAC_TIMES:
+            aml_get_mac_efuse_times(dev, wrqu, extra);
             break;
         default:
             break;
@@ -3868,11 +4447,17 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
         AML_IWP_SET_TX_START,
         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "pt_tx_start"},
     {
+        AML_IWP_SET_OFFSET_POWER_VLD,
+        0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "offset_pow_vld"},
+    {
         AML_IWP_GET_BUF_STATE,
         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_buf_state"},
     {
         AML_IWP_GET_TCP_DELAY_ACK_INFO,
         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_tcp_info"},
+    {
+        AML_IWP_LA_ENABLE,
+        0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "la_enable"},
     {
         SIOCIWFIRSTPRIV + 1,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, ""},
@@ -3954,6 +4539,9 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
         AML_IWP_SET_XOSC_EFUSE,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_xosc_efuse"},
     {
+        AML_IWP_SET_TX_FRAME_DELAY,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_frame_delay"},
+    {
         AML_IWP_SET_TXPAGE_ONCE,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_txpage_once"},
     {
@@ -3974,6 +4562,26 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_IWP_SET_MAX_TIMEOUT,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_ack_to"},
+    {
+        AML_IWP_SET_BUF_STATUS,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_buf_state"},
+#ifdef CONFIG_AML_NAPI
+    {
+        AML_IWP_SET_NAPI,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_napi"},
+    {
+        AML_IWP_SET_GRO,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_gro"},
+    {
+        AML_IWP_SET_NAPI_NUM,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_napi_num"},
+#endif
+    {
+        AML_IWP_SET_BUS_TIMEOUT_TEST,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_bus_timeout"},
+    {
+        AML_IWP_SET_TX_THS,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_tx_ths"},
     {
         SIOCIWFIRSTPRIV + 2,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 2, 0, ""},
@@ -4004,6 +4612,12 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_IWP_SET_TX_PATH,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 2, 0, "set_tx_path"},
+    {
+        AML_IWP_START_CAP,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 2, 0, "la_capture"},
+    {
+        AML_IWP_SNR_CFG,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 2, 0, "dyn_snr_cfg"},
     {
         SIOCIWFIRSTPRIV + 3,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 3, 0, ""},
@@ -4046,6 +4660,12 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
         AML_IWP_GET_EFUSE,
         IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "get_efuse"},
     {
+        AML_IWP_SET_WIFI_MAC_EFUSE,
+        IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "set_wifi_mac"},
+    {
+        AML_IWP_GET_WIFI_MAC_FROM_EFUSE,
+        IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "get_wifi_mac"},
+    {
         AML_IWP_SET_BT_MAC_EFUSE,
         IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "set_bt_mac"},
     {
@@ -4057,6 +4677,12 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_IWP_GET_XOSC_OFFSET,
         IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "get_xosc_offset"},
+    {
+        AML_IWP_GET_XOSC_EFUSE_TIMES,
+        IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "get_xosc_times"},
+    {
+        AML_IWP_GET_MAC_TIMES,
+        IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "get_mac_times"},
     {
         SIOCIWFIRSTPRIV + 6,
         IW_PRIV_TYPE_INT | IW_PRIV_INT_SIZE_MASK, IW_PRIV_TYPE_BYTE | IW_PRIV_SIZE_MASK, ""},
@@ -4078,12 +4704,7 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_IWP_GET_CLK,
         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "clk_msr"},
-    {
-        AML_IWP_SET_WIFI_MAC_EFUSE,
-        IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "set_wifi_mac"},
-    {
-        AML_IWP_GET_WIFI_MAC_FROM_EFUSE,
-        IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "get_wifi_mac"},
+
 };
 #endif
 

@@ -57,13 +57,16 @@ u32 aml_get_p2p_ie_offset(const u8 *buf,u32 frame_len)
     }
     return 0;
 }
-void aml_change_p2p_chanlist(struct aml_vif *vif, u8 *buf, u32 frame_len,u32* frame_len_offset,u8 chan_no)
+
+void aml_change_p2p_chanlist(struct aml_vif *vif, u8 *buf, u32 frame_len, u32* frame_len_offset, struct cfg80211_chan_def chan_def)
 {
     u8* p_ie_len;
     u32 offset;
     u8 id;
     u16 len;
     s32 len_diff;
+    u32 chan_no = aml_ieee80211_freq_to_chan(chan_def.chan->center_freq, chan_def.chan->band);
+    u8 oper_class = aml_get_operation_class(chan_def);
 
     offset = aml_get_p2p_ie_offset(buf,frame_len);
     //idx pointer to wifi-direct ie
@@ -85,16 +88,9 @@ void aml_change_p2p_chanlist(struct aml_vif *vif, u8 *buf, u32 frame_len,u32* fr
             //no enough chan num,do not change
             return;
         }
-        if (chan_no <= 14) {
-            buf[offset + 6] = 81;
-            buf[offset + 7] = 1;
-            buf[offset + 8] = chan_no;
-        }
-        else {
-            buf[offset + 6] = 130;
-            buf[offset + 7] = 1;
-            buf[offset + 8] = chan_no;
-        }
+        buf[offset + 6] = oper_class;
+        buf[offset + 7] = 1;
+        buf[offset + 8] = chan_no;
         *frame_len_offset = len_diff;
         //change ie len
         buf[offset + 1] = 6;
@@ -102,6 +98,34 @@ void aml_change_p2p_chanlist(struct aml_vif *vif, u8 *buf, u32 frame_len,u32* fr
         //change p2p ie len
         *p_ie_len = *p_ie_len - len_diff;
         memcpy(&buf[offset + 9], &buf[offset + len + 3], frame_len - offset - len - 3);
+    }
+}
+
+void aml_change_p2p_operchan(struct aml_vif *vif, u8 *buf, u32 frame_len, struct cfg80211_chan_def chan_def)
+{
+    u8* p_ie_len;
+    u32 offset;
+    u8 id;
+    u16 len;
+    u32 chan_no = aml_ieee80211_freq_to_chan(chan_def.chan->center_freq, chan_def.chan->band);
+    u8 oper_class = aml_get_operation_class(chan_def);
+
+    offset = aml_get_p2p_ie_offset(buf,frame_len);
+    //idx pointer to wifi-direct ie
+    if (offset != 0) {
+        p_ie_len = &buf[offset + 1];
+        offset += 6;
+        while (offset < frame_len) {
+            id = buf[offset];
+            len = (buf[offset + 2] << 8) | (buf[offset + 1]);
+            if (id == P2P_ATTR_OPERATING_CHANNEL) {
+                break;
+            }
+            offset += len + 3;
+        }
+        //now offset pointer to oper channel ie
+        buf[offset + 6] = oper_class;
+        buf[offset + 7] = chan_no;
     }
 }
 
@@ -124,7 +148,7 @@ void aml_change_p2p_intent(struct aml_vif *vif, u8 *buf, u32 frame_len,u32* fram
             }
             offset += len + 3;
         }
-        buf[offset + 3] = GO_INTENT_L;
+        buf[offset + 3] = GO_INTENT_H << 1;
     }
 }
 

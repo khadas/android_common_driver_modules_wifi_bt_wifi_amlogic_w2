@@ -172,9 +172,20 @@ static void aml_cfgfile_store_randmac(struct aml_hw *aml_hw, struct file *fp)
     u64 rand_num = 0;
     unsigned int efuse_data_l = 0;
     unsigned int efuse_data_h = 0;
+    unsigned int mac_vld = 0;
 
-    efuse_data_l = aml_efuse_read(aml_hw, AML_CFGFILE_MACADDR_LOW);
-    efuse_data_h = aml_efuse_read(aml_hw, AML_CFGFILE_MACADDR_HIGH);
+    mac_vld = aml_efuse_read(aml_hw, AML_CFGFILE_MACADDR_VLD);
+    mac_vld = (mac_vld >> 17) & 0x1;
+    if (mac_vld == 1)
+    {
+        efuse_data_l = aml_efuse_read(aml_hw, AML_CFGFILE_MACADDR_LOW1);
+        efuse_data_h = aml_efuse_read(aml_hw, AML_CFGFILE_MACADDR_HIGH1);
+    }
+    else
+    {
+        efuse_data_l = aml_efuse_read(aml_hw, AML_CFGFILE_MACADDR_LOW);
+        efuse_data_h = aml_efuse_read(aml_hw, AML_CFGFILE_MACADDR_HIGH);
+    }
     if (efuse_data_l != 0 && efuse_data_h != 0) {
         AML_INFO("efuse WIFI MAC addr is: "MACFMT"\n",
             (efuse_data_h & 0xff00) >> 8, efuse_data_h & 0x00ff, (efuse_data_l & 0xff000000) >> 24,

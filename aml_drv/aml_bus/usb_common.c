@@ -6,7 +6,7 @@
 #include "w2_usb.h"
 #include "aml_interface.h"
 #include "fi_w2_sdio.h"
-
+#include "chip_intf_reg.h"
 
 struct auc_hif_ops g_auc_hif_ops;
 struct usb_device *g_udev = NULL;
@@ -17,8 +17,12 @@ unsigned char g_usb_after_probe;
 struct crg_msc_cbw *g_cmd_buf = NULL;
 struct mutex auc_usb_mutex;
 unsigned char *g_kmalloc_buf;
+bool usb_is_shutdown = false;
+extern unsigned char wifi_drv_rmmod_ongoing;
+extern struct aml_bus_state_detect bus_state_detect;
 
 extern void auc_w2_ops_init(void);
+extern void extern_wifi_set_enable(int is_on);
 
 static int auc_probe(struct usb_interface *interface, const struct usb_device_id *id)
 {
@@ -64,11 +68,13 @@ static void auc_disconnect(struct usb_interface *interface)
 #ifdef CONFIG_PM
 static int auc_reset_resume(struct usb_interface *interface)
 {
+    PRINT("--------aml_usb:reset done-------\n");
     return 0;
 }
 
 static int auc_suspend(struct usb_interface *interface,pm_message_t state)
 {
+    PRINT("---------aml_usb suspend-------\n");
     return 0;
 }
 
@@ -77,6 +83,13 @@ static int auc_resume(struct usb_interface *interface)
     return 0;
 }
 #endif
+
+void auc_shutdown(struct device *dev)
+{
+    usb_is_shutdown = true;
+    auc_write_word_by_ep_for_wifi(RG_AON_A55, auc_read_word_by_ep_for_wifi(RG_AON_A55, USB_EP4)|BIT(28) ,USB_EP4);
+    PRINT("---------aml_usb shutdown-------\n");
+}
 
 static const struct usb_device_id auc_devices[] =
 {
@@ -99,6 +112,7 @@ static struct usb_driver aml_usb_common_driver = {
     .suspend = auc_suspend,
     .resume = auc_resume,
 #endif
+    .drvwrap.driver.shutdown = auc_shutdown,
 };
 
 
@@ -122,9 +136,40 @@ void aml_usb_rmmod(void)
 {
     usb_deregister(&aml_usb_common_driver);
     auc_driver_insmoded = 0;
-    PRINT("%s(%d) aml common driver rmsmod\n",__func__, __LINE__);
-}
+    wifi_drv_rmmod_ongoing = 0;
+    g_auc_hif_ops.hi_cleanup_scat();
 
+#ifndef CONFIG_PT_MODE
+#ifndef CONFIG_LINUXPC_VERSION
+    extern_wifi_set_enable(0);
+    msleep(100);
+    extern_wifi_set_enable(1);
+#endif
+#endif
+
+   PRINT("%s(%d) aml common driver rmsmod\n",__func__, __LINE__);
+}
+void aml_usb_reset(void)
+{
+#ifndef CONFIG_PT_MODE
+    printk("%s: ******* usb reset begin *******\n", __func__);
+    g_usb_after_probe = 0;
+#ifndef CONFIG_LINUXPC_VERSION
+    extern_wifi_set_enable(0);
+    extern_wifi_set_enable(1);
+#endif
+
+    while (!g_usb_after_probe) {
+        msleep(5);
+    };
+    bus_state_detect.bus_reset_ongoing = 0;
+    bus_state_detect.bus_err = 0;
+    printk("%s: ******* usb reset end *******\n", __func__);
+
+    return;
+#endif
+}
+EXPORT_SYMBOL(aml_usb_reset);
 EXPORT_SYMBOL(aml_usb_insmod);
 EXPORT_SYMBOL(aml_usb_rmmod);
 EXPORT_SYMBOL(g_cmd_buf);
@@ -134,4 +179,5 @@ EXPORT_SYMBOL(auc_driver_insmoded);
 EXPORT_SYMBOL(auc_wifi_in_insmod);
 EXPORT_SYMBOL(auc_usb_mutex);
 EXPORT_SYMBOL(g_usb_after_probe);
+EXPORT_SYMBOL(usb_is_shutdown);
 

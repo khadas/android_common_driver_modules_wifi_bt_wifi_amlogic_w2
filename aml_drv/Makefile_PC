@@ -28,8 +28,11 @@ CONFIG_AML_FPGA_PCIE ?= n
 
 # PT MODE
 CONFIG_PT_MODE ?= y
+# Support to use tasks to process IRQ Handlers
+CONFIG_AML_USE_TASK ?= y
 
-#
+# Support recovery function
+CONFIG_AML_RECOVERY ?= y
 # } // WAITING FOR KCONFIG
 #
 
@@ -38,6 +41,8 @@ subdir-ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_AML_DEBUGFS
 subdir-ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_AML_UM_HELPER_DFLT=\"$(CONFIG_AML_UM_HELPER_DFLT)\"
 subdir-ccflags-$(CONFIG_AML_P2P_DEBUGFS) += -DCONFIG_AML_P2P_DEBUGFS
 subdir-ccflags-$(CONFIG_AML_FPGA_PCIE) += -DCONFIG_AML_FPGA_PCIE
+subdir-ccflags-$(CONFIG_AML_USE_TASK) += -DCONFIG_AML_USE_TASK
+subdir-ccflags-$(CONFIG_AML_RECOVERY) += -DCONFIG_AML_RECOVERY
 
 # FW VARS
 subdir-ccflags-y += -DNX_VIRT_DEV_MAX=4

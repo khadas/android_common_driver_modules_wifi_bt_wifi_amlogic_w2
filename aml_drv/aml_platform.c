@@ -39,14 +39,14 @@
 extern unsigned char auc_driver_insmoded;
 extern struct usb_device *g_udev;
 extern struct auc_hif_ops g_auc_hif_ops;
-
+extern struct aml_bus_state_detect bus_state_detect;
 extern struct aml_plat_pci *g_aml_plat_pci;
 extern unsigned char g_pci_driver_insmoded;
 extern unsigned char g_pci_after_probe;
 extern unsigned char g_pci_shutdown;
 extern unsigned char g_sdio_after_porbe;
 extern unsigned char g_usb_after_probe;
-
+extern unsigned char wifi_drv_rmmod_ongoing;
 
 #ifndef CONFIG_AML_FPGA_PCIE
 extern struct pcie_mem_map_struct pcie_ep_addr_range[PCIE_TABLE_NUM];
@@ -908,7 +908,7 @@ int aml_platform_reset(struct aml_plat *aml_plat)
     regval_status &= ~BIT(31);
     AML_REG_WRITE(regval_status, aml_plat, AML_ADDR_AON, RG_PMU_A16);
 
-    msleep(100);
+    mdelay(10);
 
     regval_aml = AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, SYSCTRL_MISC_CNTL_ADDR);
     regval_cpu = AML_REG_READ(aml_plat, AML_ADDR_AON, RG_PMU_A22);
@@ -923,7 +923,7 @@ int aml_platform_reset(struct aml_plat *aml_plat)
     AML_REG_WRITE(regval_aml & ~FPGA_B_RESET, aml_plat,
                    AML_ADDR_SYSTEM, SYSCTRL_MISC_CNTL_ADDR);
     printk("%s:%d\n", __func__, __LINE__);
-    msleep(100);
+    mdelay(10);
     return 0;
 }
 
@@ -1527,19 +1527,14 @@ void aml_tx_rx_buf_init(struct aml_hw *aml_hw)
     if (aml_bus_type != PCIE_MODE) {
         aml_hw->fw_buf_pos = RXBUF_START_ADDR;
         aml_hw->last_fw_pos = RXBUF_START_ADDR;
-        aml_hw->host_buf = (uint8_t *)(aml_hw->rxbufs);
-        aml_hw->host_buf_start = aml_hw->host_buf;
-        aml_hw->host_buf_end = aml_hw->host_buf;
         if (aml_bus_type == SDIO_MODE) {
             aml_hw->rx_buf_end = RXBUF_END_ADDR_LARGE;
             aml_hw->rx_buf_len = RX_BUFFER_LEN_LARGE;
-            aml_hw->rx_buf_state = FW_BUFFER_EXPAND;
         } else {
-            aml_hw->rx_buf_end = RXBUF_END_ADDR_SMALL;
-            aml_hw->rx_buf_len = RX_BUFFER_LEN_SMALL;
-            aml_hw->rx_buf_state = FW_BUFFER_NARROW;
+            aml_hw->rx_buf_end = USB_RXBUF_END_ADDR_LARGE;
+            aml_hw->rx_buf_len = USB_RX_BUFFER_LEN_LARGE;
         }
-        printk("%s host_buf:%08x\n", __func__, aml_hw->host_buf);
+        aml_hw->rx_buf_state = FW_BUFFER_EXPAND;
     } else {
         for (i = 0; i < 1024; i += 4) {
             AML_REG_WRITE(0, aml_plat, AML_ADDR_MAC_PHY, MAC_SRAM_BASE + i);
@@ -1570,7 +1565,9 @@ void usb_stor_control_msg(struct aml_hw *aml_hw, struct urb *urb)
         aml_hw);
 
     /*submit urb*/
+    USB_BEGIN_LOCK();
     ret = usb_submit_urb(urb, GFP_ATOMIC);
+    USB_END_LOCK();
     if (ret < 0) {
         ERROR_DEBUG_OUT("usb_submit_urb failed %d\n", ret);
     }
@@ -1581,15 +1578,16 @@ void usb_stor_control_msg(struct aml_hw *aml_hw, struct urb *urb)
 int aml_sdio_create_thread(struct aml_hw *aml_hw)
 {
     sema_init(&aml_hw->aml_irq_sem, 0);
+    aml_hw->aml_irq_task_quit = 0;
     aml_hw->aml_irq_task = kthread_run(aml_irq_task, aml_hw, "aml_irq_task");
     if (IS_ERR(aml_hw->aml_irq_task)) {
         aml_hw->aml_irq_task = NULL;
         ERROR_DEBUG_OUT("create aml_irq_task error!!!!\n");
         return -1;
     }
-    aml_hw->aml_irq_task_quit = 0;
 
-    sema_init(&aml_hw->aml_tx_sem, 0);
+    sema_init(&aml_hw->aml_rx_sem, 0);
+    aml_hw->aml_rx_task_quit = 0;
     aml_hw->aml_rx_task = kthread_run(aml_rx_task, aml_hw, "aml_rx_task");
     if (IS_ERR(aml_hw->aml_rx_task)) {
         kthread_stop(aml_hw->aml_irq_task);
@@ -1597,9 +1595,9 @@ int aml_sdio_create_thread(struct aml_hw *aml_hw)
         ERROR_DEBUG_OUT("create aml_rx_task error!!!!\n");
         return -1;
     }
-    aml_hw->aml_rx_task_quit = 0;
 
-    sema_init(&aml_hw->aml_rx_sem, 0);
+    sema_init(&aml_hw->aml_tx_sem, 0);
+    aml_hw->aml_tx_task_quit = 0;
     aml_hw->aml_tx_task = kthread_run(aml_tx_task, aml_hw, "aml_tx_task");
     if (IS_ERR(aml_hw->aml_tx_task)) {
         kthread_stop(aml_hw->aml_irq_task);
@@ -1608,9 +1606,9 @@ int aml_sdio_create_thread(struct aml_hw *aml_hw)
         ERROR_DEBUG_OUT("create aml_tx_task error!!!!\n");
         return -1;
     }
-    aml_hw->aml_tx_task_quit = 0;
 
     sema_init(&aml_hw->aml_msg_sem, 0);
+    aml_hw->aml_msg_task_quit = 0;
     aml_hw->aml_msg_task = kthread_run(aml_msg_task, aml_hw, "aml_msg_task");
     if (IS_ERR(aml_hw->aml_msg_task)) {
         kthread_stop(aml_hw->aml_irq_task);
@@ -1620,9 +1618,10 @@ int aml_sdio_create_thread(struct aml_hw *aml_hw)
         ERROR_DEBUG_OUT("create aml_msg_task error!!!!\n");
         return -1;
     }
-    aml_hw->aml_msg_task_quit = 0;
+
 
     sema_init(&aml_hw->aml_txcfm_sem, 0);
+    aml_hw->aml_txcfm_task_quit = 0;
     aml_hw->aml_txcfm_task = kthread_run(aml_tx_cfm_task, aml_hw, "aml_txcfm_task");
     if (IS_ERR(aml_hw->aml_txcfm_task)) {
         kthread_stop(aml_hw->aml_irq_task);
@@ -1633,48 +1632,62 @@ int aml_sdio_create_thread(struct aml_hw *aml_hw)
         ERROR_DEBUG_OUT("create aml_txcfm_task error!!!!\n");
         return -1;
     }
-    aml_hw->aml_txcfm_task_quit = 0;
+
 
     return 0;
 }
 void aml_sdio_destroy_thread(struct aml_hw *aml_hw)
 {
-    init_completion(&aml_hw->aml_irq_completion);
-    aml_hw->aml_irq_task_quit = 1;
-    up(&aml_hw->aml_irq_sem);
-    kthread_stop(aml_hw->aml_irq_task);
-    wait_for_completion(&aml_hw->aml_irq_completion);
-    aml_hw->aml_irq_task = NULL;
+    if (aml_hw->aml_irq_task) {
+        init_completion(&aml_hw->aml_irq_completion);
+        aml_hw->aml_irq_completion_init = 1;
+        aml_hw->aml_irq_task_quit = 1;
+        up(&aml_hw->aml_irq_sem);
+        kthread_stop(aml_hw->aml_irq_task);
+        wait_for_completion(&aml_hw->aml_irq_completion);
+        aml_hw->aml_irq_task = NULL;
+    }
 
-    init_completion(&aml_hw->aml_rx_completion);
-    aml_hw->aml_rx_task_quit = 1;
-    up(&aml_hw->aml_rx_sem);
-    kthread_stop(aml_hw->aml_rx_task);
-    wait_for_completion(&aml_hw->aml_rx_completion);
-    aml_hw->aml_rx_task = NULL;
+    if (aml_hw->aml_rx_task) {
+        init_completion(&aml_hw->aml_rx_completion);
+        aml_hw->aml_rx_completion_init = 1;
+        aml_hw->aml_rx_task_quit = 1;
+        up(&aml_hw->aml_rx_sem);
+        kthread_stop(aml_hw->aml_rx_task);
+        wait_for_completion(&aml_hw->aml_rx_completion);
+        aml_hw->aml_rx_task = NULL;
+    }
 
-    init_completion(&aml_hw->aml_tx_completion);
-    aml_hw->aml_tx_task_quit = 1;
-    up(&aml_hw->aml_tx_sem);
-    kthread_stop(aml_hw->aml_tx_task);
-    wait_for_completion(&aml_hw->aml_tx_completion);
-    aml_hw->aml_tx_task = NULL;
+    if (aml_hw->aml_tx_task) {
+        init_completion(&aml_hw->aml_tx_completion);
+        aml_hw->aml_tx_completion_init = 1;
+        aml_hw->aml_tx_task_quit = 1;
+        up(&aml_hw->aml_tx_sem);
+        kthread_stop(aml_hw->aml_tx_task);
+        wait_for_completion(&aml_hw->aml_tx_completion);
+        aml_hw->aml_tx_task = NULL;
+    }
 
-    init_completion(&aml_hw->aml_msg_completion);
-    aml_hw->aml_msg_task_quit = 1;
-    up(&aml_hw->aml_msg_sem);
-    kthread_stop(aml_hw->aml_msg_task);
-    wait_for_completion(&aml_hw->aml_msg_completion);
-    aml_hw->aml_msg_task = NULL;
+    if (aml_hw->aml_msg_task) {
+        init_completion(&aml_hw->aml_msg_completion);
+        aml_hw->aml_msg_completion_init = 1;
+        aml_hw->aml_msg_task_quit = 1;
+        up(&aml_hw->aml_msg_sem);
+        kthread_stop(aml_hw->aml_msg_task);
+        wait_for_completion(&aml_hw->aml_msg_completion);
+        aml_hw->aml_msg_task = NULL;
+    }
 
-    init_completion(&aml_hw->aml_txcfm_completion);
-    aml_hw->aml_txcfm_task_quit = 1;
-    up(&aml_hw->aml_txcfm_sem);
-    kthread_stop(aml_hw->aml_txcfm_task);
-    wait_for_completion(&aml_hw->aml_txcfm_completion);
-    aml_hw->aml_txcfm_task = NULL;
+    if (aml_hw->aml_txcfm_task) {
+        init_completion(&aml_hw->aml_txcfm_completion);
+        aml_hw->aml_txcfm_completion_init = 1;
+        aml_hw->aml_txcfm_task_quit = 1;
+        up(&aml_hw->aml_txcfm_sem);
+        kthread_stop(aml_hw->aml_txcfm_task);
+        wait_for_completion(&aml_hw->aml_txcfm_completion);
+        aml_hw->aml_txcfm_task = NULL;
+    }
 }
-
 
 int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
 {
@@ -1694,7 +1707,15 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
     /*bpll not init*/
     if (rg_dpll_a6.b.ro_bbpll_done != 1) {
         bbpll_init(aml_plat);
-        bbpll_start(aml_plat);
+        ret = bbpll_start(aml_plat);
+#ifdef CONFIG_PT_MODE
+    if (!ret) {
+        if (aml_bus_type == SDIO_MODE)
+            aml_bus_state_detect_deinit();
+
+        return -1;
+    }
+#endif
         printk("bbpll init ok!\n");
     } else {
         printk("bbpll already init,not need to init!\n");
@@ -1742,12 +1763,25 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
     //start firmware cpu
     AML_REG_WRITE(0x00070000, aml_plat, AML_ADDR_AON, RG_PMU_A22);
     AML_REG_WRITE(CPU_CLK_VALUE, aml_plat, AML_ADDR_MAC_PHY, CPU_CLK_REG_ADDR);
+    /* wait for chip ready */
+    while (!(AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, REG_OF_VENDOR_ID)
+            == W2s_VENDOR_AMLOGIC_EFUSE)) {
+        if (bus_state_detect.bus_err) {
+            if (aml_hw->plat->disable)
+                aml_hw->plat->disable(aml_hw);
+            aml_ipc_deinit(aml_hw);
+            return -1;
+        }
+            msleep(5);
+    };
 
     //printk("%s:%d, value %x", __func__, __LINE__, readl(aml_plat->get_address(aml_plat, AML_ADDR_MAC_PHY, 0x00a070b4)));
+#ifndef CONFIG_PT_MODE
 #ifdef CONFIG_AML_DEBUGFS
     aml_fw_trace_config_filters(aml_get_shared_trace_buf(aml_hw),
                                  aml_ipc_fw_trace_desc_get(aml_hw),
                                  aml_hw->mod_params->ftl);
+#endif
 #endif
 
 #ifndef CONFIG_AML_FHOST
@@ -1765,6 +1799,11 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
 
     aml_ipc_start(aml_hw);
 
+#ifdef CONFIG_AML_RECOVERY
+    if (aml_recy != NULL && aml_recy_flags_chk(AML_RECY_IPC_ONGOING)) {
+        aml_recy_flags_clr(AML_RECY_IPC_ONGOING);
+    }
+#endif
     if (aml_bus_type == USB_MODE) {
         aml_hw->g_buffer = ZMALLOC(2 * sizeof(int), "fw_stat",GFP_DMA | GFP_ATOMIC);
         if (!aml_hw->g_buffer) {
@@ -1794,6 +1833,10 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
             FREE(aml_hw->g_cr, "fw_stat");
             usb_free_urb(aml_hw->g_urb);
         }
+        aml_sdio_destroy_thread(aml_hw);
+        if (aml_hw->plat->disable)
+            aml_hw->plat->disable(aml_hw);
+        aml_ipc_deinit(aml_hw);
         return -ENOMEM;
     }
 
@@ -1806,30 +1849,37 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
 #else
     aml_hw->tsq = 0;
 #endif
-
-    aml_hw->g_tx_param.tx_page_once = SDIO_PAGE_MAX;
+    if (aml_bus_type == SDIO_MODE) {
+        aml_hw->g_tx_param.tx_page_once = SDIO_PAGE_MAX;
+    } else {
+        aml_hw->g_tx_param.tx_page_once = USB_PAGE_MAX;
+    }
     aml_hw->g_tx_param.txcfm_trigger_tx_thr = TXCFM_TRIGGER_TX_THR;
 
     if (aml_bus_type == SDIO_MODE) {
 #ifdef CONFIG_AML_LA
-         aml_hw->g_tx_param.tx_page_free_num = TX_PAGE_NUM_LARGE; /* for tx large */
+         aml_hw->g_tx_param.tx_page_free_num = SDIO_TX_PAGE_NUM_LARGE; /* for tx large */
         //aml_hw->g_tx_param.tx_page_free_num = 64; /* for rx large */
 #else
-         aml_hw->g_tx_param.tx_page_free_num = TX_PAGE_NUM_SMALL;
+         aml_hw->g_tx_param.tx_page_free_num = SDIO_TX_PAGE_NUM_SMALL;
 #endif
         aml_amsdu_buf_list_init(aml_hw);
         aml_sdio_scatter_reg_init(aml_hw);
         if ((ret = aml_plat->enable(aml_hw))) {
+            aml_plat->enabled = true;
+            aml_platform_off(aml_hw, NULL);
             return ret;
         }
     }
     if (aml_bus_type == USB_MODE) {
         aml_hw->plat->usb_dev = g_udev;
         usb_stor_control_msg(aml_hw, aml_hw->g_urb);
-        aml_hw->g_tx_param.tx_page_free_num = USB_TX_PAGE_NUM;
+        aml_hw->g_tx_param.tx_page_free_num = USB_TX_PAGE_NUM_SMALL;
     }
     aml_plat->enabled = true;
     aml_scatter_req_init(aml_hw);
+
+    aml_tcp_delay_ack_init(aml_hw);
 
     printk("%s %d end\n", __func__, __LINE__);
     return 0;
@@ -2004,7 +2054,7 @@ int aml_pci_platform_on(struct aml_hw *aml_hw, void *config)
     AML_REG_WRITE(BOOTROM_ENABLE, aml_plat,
                    AML_ADDR_SYSTEM, SYSCTRL_MISC_CNTL_ADDR);
 
-    //start firmware cpu
+    //start firmware cpu, Bit23 and Bit7 reset efuse
     AML_REG_WRITE(0x00070000, aml_plat, AML_ADDR_AON, RG_PMU_A22);
 
     //check W2 fw whether is ready
@@ -2082,6 +2132,9 @@ void aml_platform_off(struct aml_hw *aml_hw, void **config)
     }
 
     aml_ipc_stop(aml_hw);
+    if (aml_bus_type != PCIE_MODE) {
+         aml_sdio_destroy_thread(aml_hw);
+    }
 
     if (config)
         *config = aml_term_save_config(aml_hw->plat);
@@ -2099,9 +2152,6 @@ void aml_platform_off(struct aml_hw *aml_hw, void **config)
         aml_pci_destroy_thread(aml_hw);
     }
 #endif
-    if (aml_bus_type != PCIE_MODE) {
-         aml_sdio_destroy_thread(aml_hw);
-    }
 
 #ifdef CONFIG_AML_USE_TASK
     aml_task_deinit(aml_hw);
@@ -2195,11 +2245,14 @@ static u32 aml_pci_ack_irq(struct aml_hw *aml_hw)
 {
     unsigned int reg_val[2] = {0};
     unsigned int buf_state = 0;
-    unsigned int save_switch_addr = 0;
+    if ((aml_bus_type != PCIE_MODE) && bus_state_detect.bus_err) {
+        return 0;
+    }
 
     if (aml_bus_type == USB_MODE) {
-        aml_hw->plat->hif_ops->hi_read_sram((unsigned char *)(unsigned long)reg_val, (unsigned char *)(unsigned long)RG_WIFI_IF_FW2HST_IRQ_CFG, sizeof(reg_val), USB_EP4);
-
+        reg_val[0] = (aml_hw->g_buffer[3] << 24) | (aml_hw->g_buffer[2] << 16) | (aml_hw->g_buffer[1] << 8) | (aml_hw->g_buffer[0]);
+        reg_val[1] = (aml_hw->g_buffer[7] << 24) | (aml_hw->g_buffer[6] << 16) | (aml_hw->g_buffer[5] << 8) | (aml_hw->g_buffer[4]);
+        memset(aml_hw->g_buffer,0,2*sizeof(int));
     } else if (aml_bus_type == SDIO_MODE) {
         aml_hw->plat->hif_sdio_ops->hi_desc_read((unsigned char *)(unsigned long)reg_val, (unsigned char *)(unsigned long)RG_WIFI_IF_FW2HST_IRQ_CFG, sizeof(reg_val));
 
@@ -2210,36 +2263,22 @@ static u32 aml_pci_ack_irq(struct aml_hw *aml_hw)
     }
 
     if (aml_bus_type != PCIE_MODE) {
-        if (aml_bus_type == SDIO_MODE) {
-            buf_state = reg_val[0] & FW_BUFFER_STATUS;
-            if (buf_state && ((aml_hw->rx_buf_state & FW_BUFFER_STATUS) != (buf_state & FW_BUFFER_STATUS))) {
-                aml_hw->rx_buf_state &= ~FW_BUFFER_STATUS;
-                if (buf_state & FW_BUFFER_NARROW) {
-                    aml_hw->rx_buf_state |= buf_state | BUFFER_NARROW;
-                    save_switch_addr = 1;
-                } else {
-                    aml_hw->rx_buf_state |= buf_state | BUFFER_EXPAND;
-                }
+        buf_state = reg_val[0] & FW_BUFFER_STATUS;
+        if (buf_state && ((aml_hw->rx_buf_state & FW_BUFFER_STATUS) != (buf_state & FW_BUFFER_STATUS))) {
+            aml_hw->rx_buf_state &= ~FW_BUFFER_STATUS;
+            if (buf_state & FW_BUFFER_NARROW) {
+                aml_hw->rx_buf_state |= buf_state | BUFFER_NARROW;
+            } else {
+                aml_hw->rx_buf_state |= buf_state | BUFFER_EXPAND;
             }
-            reg_val[0] &= ~FW_BUFFER_STATUS;
-        } else {
-            aml_hw->rx_buf_state |= BUFFER_NARROW;
         }
+        reg_val[0] &= ~FW_BUFFER_STATUS;
 
         if (reg_val[0] & BIT(19)) {
             reg_val[0] |= BIT(31);
             reg_val[0] &= ~BIT(19);
         }
         aml_hw->fw_new_pos = (reg_val[0] + SHARED_MEM_BASE_ADDR);
-
-        if (save_switch_addr) {
-            aml_hw->rx_host_switch_addr = aml_hw->host_buf + (((reg_val[0] + SHARED_MEM_BASE_ADDR) & (~AML_WRAP)) - RXBUF_START_ADDR);
-            if (aml_hw->host_buf_end > aml_hw->rx_host_switch_addr) {
-                aml_hw->rx_buf_state |= BUFFER_END_NEED_WRAP;
-            } else {
-                aml_hw->rx_buf_state |= BUFFER_END_NO_NEED_WRAP;
-            }
-        }
     }
 
     return reg_val[1];
@@ -2254,7 +2293,8 @@ int aml_platform_register_usb_drv(void)
     if (!auc_driver_insmoded) {
         ret = aml_usb_insmod();
     }
-    if (!g_usb_after_probe) {
+    if ((!g_usb_after_probe) || wifi_drv_rmmod_ongoing) {
+         AML_INFO("***** please confirm wether the usb is probe or w2_comm.ko rmmod success last time\n");
          return -ENODEV;
     }
 
@@ -2273,6 +2313,7 @@ int aml_platform_register_usb_drv(void)
 
     aml_platform_init(aml_plat, &drv_data);
     dev_set_drvdata(&aml_plat->usb_dev->dev, drv_data);
+    bus_state_detect.is_drv_load_finished = 1;
 
     return ret;
 }
@@ -2290,7 +2331,8 @@ void aml_platform_unregister_usb_drv(void)
 
     aml_plat = aml_hw->plat;
     aml_platform_deinit(aml_hw);
-
+    wifi_drv_rmmod_ongoing = 1;
+    bus_state_detect.is_drv_load_finished = 0;
 err_drvdata:
     kfree(aml_plat);
     dev_set_drvdata(&g_udev->dev, NULL);
@@ -2337,11 +2379,20 @@ static int aml_pci_platform_enable(struct aml_hw *aml_hw)
 
 static int aml_pci_platform_disable(struct aml_hw *aml_hw)
 {
+#ifdef CONFIG_PT_MODE
+    struct sdio_func *func = aml_priv_to_func(SDIO_FUNC1);
+
+    sdio_claim_host(func);
+    sdio_release_irq(func);
+    sdio_release_host(func);
+#else
     if (aml_bus_type == SDIO_MODE) {
         free_irq(aml_hw->irq, aml_hw);
     } else if (aml_bus_type == PCIE_MODE) {
         free_irq(aml_hw->plat->pci_dev->irq, aml_hw);
     }
+#endif
+
     return 0;
 }
 
@@ -2355,7 +2406,8 @@ int aml_platform_register_sdio_drv(void)
     if (!g_sdio_driver_insmoded) {
         ret = aml_sdio_init();
     }
-    if (!g_sdio_after_porbe) {
+    if ((!g_sdio_after_porbe) || wifi_drv_rmmod_ongoing) {
+         AML_INFO("***** please confirm wether the sdio is probe or w2_comm.ko rmmod success last time\n");
          return -ENODEV;
     }
 
@@ -2369,16 +2421,29 @@ int aml_platform_register_sdio_drv(void)
 
     aml_plat->dev = &func->dev;
     aml_plat->hif_sdio_ops = &g_hif_sdio_ops;
+    bus_state_detect.insmod_drv = aml_platform_register_sdio_drv;
 
     ipc_basic_address = (u8 *)IPC_BASIC_ADDRESS;
     aml_plat->get_address = aml_get_address;
 
-    aml_platform_init(aml_plat, &drv_data);
+    ret = aml_platform_init(aml_plat, &drv_data);
+    if (ret) {
+       kfree(aml_plat);
+#ifdef CONFIG_PT_MODE
+       return ret;
+#endif
+       if (!bus_state_detect.is_load_by_timer && !bus_state_detect.bus_reset_ongoing) {
+           bus_state_detect.bus_err = 2;
+       }
+       AML_INFO("aml_platform_init error, ret: %d !!!\n", ret);
+       return 0;
+    }
     dev_set_drvdata(&func->dev, drv_data);
 
 #ifdef CONFIG_AML_RX_SG
     g_mmc_misc = kmalloc(sizeof(struct mmc_misc) * RXDESC_CNT_READ_ONCE, GFP_ATOMIC);
 #endif
+    bus_state_detect.is_drv_load_finished = 1;
 
     return ret;
 }
@@ -2396,11 +2461,9 @@ void aml_platform_unregister_sdio_drv(void)
         goto err_drvdata;
 
     aml_plat = aml_hw->plat;
-    aml_plat->hif_sdio_ops->hi_cleanup_scat(&g_hwif_sdio);
-    aml_plat->hif_sdio_ops->hi_cleanup_scat(&g_hwif_rx_sdio);
-
     aml_platform_deinit(aml_hw);
-
+    wifi_drv_rmmod_ongoing = 1;
+    bus_state_detect.is_drv_load_finished = 0;
 err_drvdata:
     kfree(aml_plat);
     dev_set_drvdata(&func->dev, NULL);

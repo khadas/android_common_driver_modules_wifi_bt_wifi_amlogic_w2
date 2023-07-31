@@ -5,7 +5,12 @@
 #define LA
 #undef TX_BUF_DYNA
 #endif
+
+/* original patch_rxdesc bigger than mini patch_rxdesc 136 byte */
+/* reference code patch_fwmain.c line 400 */
+#define TX_RX_MINISIZE_BUF_OFFSET        (6500 + 136)
 #define TX_RX_BUF_OFFSET                 (6500) /* 6500 Byte */
+#define SDIO_BUF_TAG4_OFFSET                 (7*1024) /* 0x1c00 Byte */
 
 #define SHARED_MEM_BASE_ADDR             (0x60000000)
 
@@ -22,41 +27,33 @@
 #define TXL_TBD_START                    (0x600130d4) /*size 0x2d00*/
 
 #define TXLBUF_TAG_SDIO_2                (0x600163e0) /* size 0x1964 */
-#define HW_RXBUF2_START_ADDR             (0x60017d44) /* size 0x2BC */
-#define HW_RXBUF1_START_ADDR             (0x60018000)
+#define HW_RXBUF2_START_ADDR             (0x60019944) /* size 0x2BC */
+#define HW_RXBUF1_START_ADDR             (0x60019C00)
 /*
 LA OFF: rx buffer large size 0x40000, small size: 0x20000;
 LA ON: rx buffer large size 0x30000, small size: 0x20000
 */
-#define RXBUF_START_ADDR                 (0x60018000)
 
-#ifdef LA
+#define TXLBUF_TAG_SDIO_4                (0x60017d44) /* size 0x1c00*/
+#define RXBUF_START_ADDR                 (0x60019C00)
 
-#if 1 /* for tx large */
-#define TXBUF_START_ADDR                 (0x60028400)
-#define RXBUF_END_ADDR_SMALL             (0x60028400)
-#define RXBUF_END_ADDR_LARGE             (0x60028400)
-#define TRACE_START_ADDR                 (0x60068000) /* trace size: 0x8000 */
-#define TRACE_END_ADDR                   (0x60070000)
-#else /* for rx large */
-#define TXBUF_START_ADDR                 (0x60058000)
-#define RXBUF_END_ADDR_SMALL             (0x60058000)
-#define RXBUF_END_ADDR_LARGE             (0x60058000)
-#define TRACE_START_ADDR                 (0x60068000) /* trace size: 0x8000 */
-#define TRACE_END_ADDR                   (0x60070000)
-#endif
 
-#else
-#define TXBUF_START_ADDR                 (0x60038000)
-#define RXBUF_END_ADDR_SMALL             (0x60038000)
-#define RXBUF_END_ADDR_LARGE             (0x60057C00)
-#define TXLBUF_TAG_SDIO_4                (0x60078000) /* size 0x1c00*/
-#define TRACE_START_ADDR                 (0x60079c00) /* trace size: 0x6400 */
+#define TXBUF_START_ADDR                 (0x60040000)
+#define RXBUF_END_ADDR_SMALL             (0x60040000)
+#define RXBUF_END_ADDR_LARGE             (0x60069800)
+
+#define USB_TXBUF_START_ADDR                 (0x60024000)
+#define USB_RXBUF_END_ADDR_SMALL             (0x60024000)
+#define USB_RXBUF_END_ADDR_LARGE             (0x60067788)
+#define TRACE_START_ADDR                 (0x60080000) /* trace size: 0x6400 */
 #define TRACE_END_ADDR                   (0x60080000)
-#endif
+
+
 
 #define RX_BUFFER_LEN_SMALL              (RXBUF_END_ADDR_SMALL - RXBUF_START_ADDR)
 #define RX_BUFFER_LEN_LARGE              (RXBUF_END_ADDR_LARGE - RXBUF_START_ADDR)
+#define USB_RX_BUFFER_LEN_SMALL              (USB_RXBUF_END_ADDR_SMALL - RXBUF_START_ADDR)
+#define USB_RX_BUFFER_LEN_LARGE              (USB_RXBUF_END_ADDR_LARGE - RXBUF_START_ADDR)
 
 
 struct sdio_buffer_control
@@ -72,14 +69,19 @@ struct sdio_buffer_control
 };
 extern struct sdio_buffer_control sdio_buffer_ctrl;
 
-#define BUFFER_TX_USED BIT(0)
-#define BUFFER_RX_USED BIT(1)
-#define BUFFER_TX_NEED_ENLARGE BIT(2)
-#define BUFFER_RX_NEED_ENLARGE BIT(3)
-#define BUFFER_RX_ENLARGED BIT(4)
-#define BUFFER_RX_REDUCED BIT(5)
-#define BUFFER_RX_HOST_NOTIFY BIT(6)
-#define BUFFER_RX_NO_UPDATE_HW_RD BIT(7)
+#define BUFFER_TX_USED             BIT(0)
+#define BUFFER_RX_USED             BIT(1)
+#define BUFFER_TX_NEED_ENLARGE     BIT(2)
+#define BUFFER_RX_NEED_ENLARGE     BIT(3)
+#define BUFFER_RX_ENLARGED         BIT(4)
+#define BUFFER_RX_REDUCED          BIT(5)
+#define BUFFER_RX_HOST_NOTIFY      BIT(6)
+#define BUFFER_RX_NO_UPDATE_HW_RD  BIT(7)
+#define BUFFER_RX_ENLARGE_FINSH    BIT(8)
+#define BUFFER_RX_FORCE_REDUCE     BIT(9)
+#define BUFFER_RX_FORCE_ENLARGE    BIT(10)
+#define BUFFER_RX_FORBID_REDUCE    BIT(11)
+#define BUFFER_RX_FORBID_ENLARGE   BIT(12)
 
 #define CHAN_SWITCH_IND_MSG_ADDR (0xa17fc0)
 #define SDIO_IRQ_E2A_CHAN_SWITCH_IND_MSG           CO_BIT(15)

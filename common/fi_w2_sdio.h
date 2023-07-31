@@ -13,7 +13,7 @@
 #define howmanypage(x,y) (((x - 12) + ((y - 12) -1) )/ (y - 12))
 
 #define SDIO_PAGE_MAX    60
-
+#define USB_PAGE_MAX    40
 #define SDIO_FRAME_TAIL_LEN    12
 #define SDIO_PAGE_LEN    1024
 #define USB_PAGE_LEN    1880
@@ -27,10 +27,13 @@
 #define USB_TXDESC_OFFSET    272 // 4 + 28 + 240
 #define USB_DATA_OFFSET (USB_TXDESC_OFFSET+72) //payload
 
-#define TX_PAGE_NUM_SMALL 128
-#define TX_PAGE_NUM_LARGE 255
-#define DYNA_PAGE_NUM  127
-#define USB_TX_PAGE_NUM 136   //250 * 1024 / 1880
+#define SDIO_TX_PAGE_NUM_SMALL 90
+#define SDIO_TX_PAGE_NUM_LARGE 255
+#define SDIO_DYNA_PAGE_NUM  165
+#define USB_TX_PAGE_NUM_SMALL 53   //250 * 1024 / 1880
+#define USB_TX_PAGE_NUM_LARGE 200
+#define USB_DYNA_PAGE_NUM 147
+#define SDIO_LA_PAGE_NUM  63
 
 #define USB_TX_ADDRESSTABLE_NUM  TX_PAGE_NUM_SMALL/2
 

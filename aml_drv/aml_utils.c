@@ -824,7 +824,7 @@ static int aml_elems_allocs(struct aml_hw *aml_hw)
 #endif /* CONFIG_AML_FULLMAC */
     }
 
-
+#ifndef CONFIG_PT_MODE
 #ifdef CONFIG_AML_PREALLOC_BUF_STATIC
         if (aml_ipc_buf_e2a_prealloc(aml_hw, &aml_hw->dbgdump.buf,
                                    sizeof(struct dbg_debug_dump_tag),
@@ -834,6 +834,7 @@ static int aml_elems_allocs(struct aml_hw *aml_hw)
                                    sizeof(struct dbg_debug_dump_tag)))
 #endif
             goto err_alloc;
+#endif
 
     if (aml_bus_type == PCIE_MODE) {
         ipc_host_dbginfo_push(aml_hw->ipc_env, &aml_hw->dbgdump.buf);
@@ -920,6 +921,9 @@ void aml_amsdu_buf_list_deinit(struct aml_hw *aml_hw)
     list_for_each_entry_safe(txamsdu, txamsdu_tmp, &aml_hw->tx_amsdu_buf_free_list, list) {
         kfree(txamsdu);
     }
+    list_for_each_entry_safe(txamsdu, txamsdu_tmp, &aml_hw->tx_amsdu_buf_used_list, list) {
+        kfree(txamsdu);
+    }
     spin_unlock_bh(&aml_hw->tx_buf_lock);
 }
 
@@ -968,6 +972,9 @@ void aml_txbuf_list_init(struct aml_hw *aml_hw)
     spin_lock_init(&aml_hw->buf_end_lock);
     spin_lock_init(&aml_hw->buf_start_lock);
 
+    spin_lock_init(&aml_hw->free_list_lock);
+    spin_lock_init(&aml_hw->used_list_lock);
+
     INIT_LIST_HEAD(&aml_hw->tx_buf_free_list);
     INIT_LIST_HEAD(&aml_hw->tx_buf_used_list);
     INIT_LIST_HEAD(&aml_hw->tx_desc_save);
@@ -999,13 +1006,12 @@ void aml_scan_results_list_init(struct aml_hw *aml_hw)
     memset(aml_hw->scan_results, 0, sizeof(struct scan_results) * SCAN_RESULTS_MAX_CNT);
     spin_lock_init(&aml_hw->scan_lock);
     INIT_LIST_HEAD(&aml_hw->scan_res_list);
-    INIT_LIST_HEAD(&aml_hw->scan_res_avilable_list);
+    INIT_LIST_HEAD(&aml_hw->scan_res_available_list);
 
-    aml_hw->scanres_payload_buf = kzalloc(SCAN_RESULTS_MAX_CNT*500, GFP_KERNEL);
     aml_hw->scanres_payload_buf_offset = 0;
     scan_results = aml_hw->scan_results;
     for (i = 0; i < SCAN_RESULTS_MAX_CNT; i++, scan_results++) {
-        list_add_tail(&scan_results->list, &aml_hw->scan_res_avilable_list);
+        list_add_tail(&scan_results->list, &aml_hw->scan_res_available_list);
     }
 }
 
@@ -1014,7 +1020,7 @@ struct scan_results *aml_scan_get_scan_res_node(struct aml_hw *aml_hw)
 {
     struct scan_results *scan_res;
     spin_lock_bh(&aml_hw->scan_lock);
-    scan_res = list_first_entry_or_null(&aml_hw->scan_res_avilable_list,
+    scan_res = list_first_entry_or_null(&aml_hw->scan_res_available_list,
                                          struct scan_results, list);
     if (!scan_res) {
         spin_unlock_bh(&aml_hw->scan_lock);
@@ -1078,6 +1084,9 @@ void aml_txbuf_list_deinit(struct aml_hw *aml_hw)
 
     spin_lock_bh(&aml_hw->tx_buf_lock);
     list_for_each_entry_safe(txbuf, txbuf_tmp, &aml_hw->tx_buf_free_list, list) {
+        kfree(txbuf);
+    }
+    list_for_each_entry_safe(txbuf, txbuf_tmp, &aml_hw->tx_buf_used_list, list) {
         kfree(txbuf);
     }
     spin_unlock_bh(&aml_hw->tx_buf_lock);
@@ -1146,8 +1155,13 @@ int aml_tx_task(void *data)
     struct tx_amsdu_param *txamsdu = NULL;
     unsigned int blk_size = 512;
 
-    if ((amsdu_dynabuf = vmalloc(sizeof(uint8_t *) * 256)) == NULL)
+    if ((amsdu_dynabuf = vmalloc(sizeof(uint8_t *) * 256)) == NULL) {
+        if (aml_hw->aml_tx_completion_init) {
+            aml_hw->aml_tx_completion_init = 0;
+            complete_and_exit(&aml_hw->aml_tx_completion, 0);
+        }
         return -1;
+    }
     memset(amsdu_dynabuf, 0, sizeof(uint8_t *) * 256);
 
     sch_param.sched_priority = 91;
@@ -1322,7 +1336,10 @@ int aml_tx_task(void *data)
         }
     }
     vfree(amsdu_dynabuf);
-    complete_and_exit(&aml_hw->aml_tx_completion, 0);
+    if (aml_hw->aml_tx_completion_init) {
+        aml_hw->aml_tx_completion_init = 0;
+        complete_and_exit(&aml_hw->aml_tx_completion, 0);
+    }
 
     return 0;
 }
@@ -1496,9 +1513,9 @@ void *aml_ipc_fw_trace_desc_get(struct aml_hw *aml_hw)
  * @tid: TID on which data has been added or removed
  * @size: Size of data to add (or remove if < 0) to STA buffer.
  */
+#if 0 //pcie1.0: reduce pcie access to improve throughput
 void aml_ipc_sta_buffer(struct aml_hw *aml_hw, struct aml_sta *sta, int tid, int size)
 {
-#if 0 //pcie1.0: reduce pcie access to improve throughput
     u32_l *buffered;
 
     if (!sta)
@@ -1519,8 +1536,8 @@ void aml_ipc_sta_buffer(struct aml_hw *aml_hw, struct aml_sta *sta, int tid, int
         // no test on overflow
         *buffered += size;
     }
-#endif
 }
+#endif
 
 void aml_get_noparammsg_info(struct aml_hw *aml_hw, struct ipc_e2a_msg *msg)
 {
@@ -1558,7 +1575,9 @@ static u8 aml_msg_process(struct aml_hw *aml_hw, struct ipc_e2a_msg *msg, struct
 
     if (aml_bus_type != PCIE_MODE) {
         /*get info for msg no param*/
+#ifndef CONFIG_PT_MODE
         aml_get_noparammsg_info(aml_hw, msg);
+#endif
     }
 
     if (aml_bus_type == PCIE_MODE) {
@@ -1673,9 +1692,7 @@ static u8 aml_msgackind(void *pthis, void *hostid)
 
     AML_INFO("msg ack hostid=0x%lx\n", hostid);
     aml_hw->cmd_mgr.llind(&aml_hw->cmd_mgr, (struct aml_cmd *)hostid);
-#ifdef CONFIG_LINUXPC_VERSION
-    msleep(70);
-#endif
+
     return -1;
 }
 
@@ -1690,12 +1707,14 @@ static u8 aml_radarind(void *pthis, void *arg)
 #ifdef CONFIG_AML_RADAR
     struct aml_hw *aml_hw = pthis;
     struct aml_ipc_buf *buf = arg;
-    struct radar_pulse_array_desc *pulses = buf->addr;
+    struct radar_pulse_array_desc *pulses = NULL;
     u8 ret = 0;
     int i;
     if (aml_bus_type != PCIE_MODE) {
         pulses = &aml_hw->g_pulses;
         aml_hw->radar_pulse_index = (aml_hw->radar_pulse_index + 1) % RADAR_EVENT_MAX;
+    } else {
+        pulses = buf->addr;
     }
 
     /* Look for pulse count meaning that this hostbuf contains RADAR pulses */
@@ -1711,6 +1730,10 @@ static u8 aml_radarind(void *pthis, void *arg)
         goto radar_no_push;
     }
 
+    if (pulses->idx >= AML_RADAR_LAST) {
+         AML_INFO("invalid idx: %d\n", pulses->idx);
+         return -1;
+    }
     if (aml_radar_detection_is_enable(&aml_hw->radar, pulses->idx)) {
         /* Save the received pulses only if radar detection is enabled */
         for (i = 0; i < pulses->cnt; i++) {
@@ -1844,11 +1867,18 @@ extern struct debug_push_rxbuff_info debug_push_rxbuff[DEBUG_RX_BUF_CNT];
 extern u16 debug_push_rxbuff_idx;
 extern struct debug_proc_rxbuff_info debug_proc_rxbuff[DEBUG_RX_BUF_CNT];
 extern u16 debug_rxbuff_idx;
-
+extern struct ipc_shared_rx_desc *g_host_rxdesc;
+extern struct debug_push_rxdesc_info debug_push_rxdesc[DEBUG_RX_BUF_CNT];
+extern u16 debug_push_rxdesc_idx;
 void aml_get_proc_rxbuff(struct net_device *dev)
 {
     struct aml_vif *aml_vif = netdev_priv(dev);
     struct aml_hw *aml_hw = aml_vif->aml_hw;
+    struct ipc_host_env_tag *env = aml_hw->ipc_env;
+    struct ipc_shared_env_tag *shared_env = env->shared;
+    struct ipc_shared_rx_desc *host_rxdesc;
+    struct aml_ipc_buf *ipc_desc;
+    struct rxdesc_tag *rxdesc;
     int32_t i = 0;
 
     printk("debug_rxbuff_idx=%u,rxdesc idx=%u,rxbuf_idx=%u,debug_push_idx=%u\n", debug_rxbuff_idx,aml_hw->ipc_env->rxdesc_idx,
@@ -1865,6 +1895,31 @@ void aml_get_proc_rxbuff(struct net_device *dev)
             debug_push_rxbuff[i].addr, debug_push_rxbuff[i].hostid, debug_push_rxbuff[i].time);
         i++;
     }
+
+    i = 0;
+    while (i < DEBUG_RX_BUF_CNT) {
+        printk("push rxdesc idx=%d,addr=0x%x,time=%u\n", debug_push_rxdesc[i].idx,
+            debug_push_rxdesc[i].addr, debug_push_rxdesc[i].time);
+        i++;
+    }
+
+    i= 0;
+    while (i < IPC_RXDESC_CNT) {
+        host_rxdesc = (struct ipc_shared_rx_desc *)&shared_env->host_rxdesc[i];
+        ipc_desc = env->rxdesc[i];
+        aml_ipc_buf_e2a_sync(aml_hw, ipc_desc, sizeof(struct rxdesc_tag));
+        rxdesc = ipc_desc->addr;
+        printk("rx desc idx=%d,dma addr=0x%x,status=%d,hostid=0x%x\n",i,host_rxdesc->dma_addr,rxdesc->status,rxdesc->host_id);
+        i++;
+    }
+    while (i < (IPC_RXDESC_CNT + IPC_RXDESC_CNT_EXT)) {
+        host_rxdesc = g_host_rxdesc + (i - IPC_RXDESC_CNT);
+        ipc_desc = env->rxdesc[i];
+        aml_ipc_buf_e2a_sync(aml_hw, ipc_desc, sizeof(struct rxdesc_tag));
+        rxdesc = ipc_desc->addr;
+        printk("rx desc idx=%d,dma addr=0x%x,status=%d,hostid=0x%x\n",i,host_rxdesc->dma_addr,rxdesc->status,rxdesc->host_id);
+        i++;
+    }
 }
 #endif
 
@@ -1877,13 +1932,14 @@ int aml_traceind(void *pthis, int mode)
     uint16_t *ptr_flag = NULL;
     int ret = 0;
 
+#ifdef CONFIG_AML_DEBUGFS
     mutex_lock(&trace_log_file_info.mutex);
     if (!trace_log_file_info.ptr)
         goto err;
 
     memset(trace_log_file_info.ptr, 0, 33*1024);
     ptr_flag = trace_log_file_info.ptr;
-
+#endif
     if (aml_bus_type == USB_MODE) {
         aml_hw->plat->hif_ops->hi_read_sram((unsigned char *)ptr_flag, (unsigned char *)(SYS_TYPE)TRACE_START_ADDR, TRACE_TOTAL_SIZE, USB_EP4);
         end = aml_hw->plat->hif_ops->hi_read_word((unsigned long)&(aml_hw->ipc_env->shared->trace_end), USB_EP4);
@@ -1910,7 +1966,7 @@ int aml_traceind(void *pthis, int mode)
             ptr_limit = ptr_flag + end;
         }
     }
-
+#ifdef CONFIG_AML_DEBUGFS
     ret = aml_trace_log_to_file(ptr_flag, ptr_limit);
     if (ret) {
         printk("aml_traceind  trace log to file fail\n");
@@ -1918,9 +1974,12 @@ int aml_traceind(void *pthis, int mode)
     }
 
     mutex_unlock(&trace_log_file_info.mutex);
+#endif
     return 0;
 err:
+#ifdef CONFIG_AML_DEBUGFS
     mutex_unlock(&trace_log_file_info.mutex);
+#endif
     return -1;
 }
 
@@ -2002,8 +2061,7 @@ int aml_ipc_init(struct aml_hw *aml_hw, u8 *shared_ram, u8 *shared_host_rxbuf, u
 void aml_ipc_deinit(struct aml_hw *aml_hw)
 {
     AML_DBG(AML_FN_ENTRY_STR);
-    if (aml_bus_type == PCIE_MODE)
-        aml_tcp_delay_ack_deinit(aml_hw);
+    aml_tcp_delay_ack_deinit(aml_hw);
     aml_ipc_tx_drain(aml_hw);
     aml_cmd_mgr_deinit(&aml_hw->cmd_mgr);
     aml_elems_deallocs(aml_hw);
@@ -2056,6 +2114,10 @@ void aml_ipc_tx_drain(struct aml_hw *aml_hw)
 
     while ((skb = ipc_host_tx_flush(aml_hw->ipc_env))) {
         struct aml_sw_txhdr *sw_txhdr = ((struct aml_txhdr *)skb->data)->sw_hdr;
+        struct aml_hwq *hwq = &aml_hw->hwq[sw_txhdr->hw_queue];
+        struct aml_txq *txq = sw_txhdr->txq;
+
+        aml_txq_confirm_any(aml_hw, txq, hwq, sw_txhdr);
 
 #ifdef CONFIG_AML_AMSDUS_TX
         if (sw_txhdr->desc.api.host.packet_cnt > 1) {

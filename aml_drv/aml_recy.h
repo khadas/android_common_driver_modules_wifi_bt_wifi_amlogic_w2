@@ -25,11 +25,22 @@
 /* AML_RECY flags bit*/
 #define AML_RECY_ASSOC_INFO_SAVED   BIT(0)
 #define AML_RECY_CHECK_SCC          BIT(1)
-#define AML_RECY_BCN_INFO_SAVED     BIT(2)
-#define AML_RECY_AP_INFO_SAVED      BIT(3)
-#define AML_RECY_STATE_ONGOING      BIT(4)
-#define AML_RECY_FW_ONGOING         BIT(5)
-#define AML_RECY_GO_ONGOING         BIT(6)
+#define AML_RECY_AP_INFO_SAVED      BIT(2)
+#define AML_RECY_STATE_ONGOING      BIT(3)
+#define AML_RECY_FW_ONGOING         BIT(4)
+#define AML_RECY_GO_ONGOING         BIT(5)
+#define AML_RECY_STOP_AP_PROC       BIT(6)
+#define AML_RECY_IPC_ONGOING        BIT(7)
+#define AML_RECY_DEL_STA_PROC       BIT(8)
+#define AML_RECY_OPEN_VIF_PROC      BIT(9)
+#define AML_RECY_CLOSE_VIF_PROC     BIT(10)
+#define AML_RECY_DROP_XMIT_PKT      BIT(11)
+#define AML_RECY_RX_RATE_ALLOC      BIT(12)
+
+
+
+
+#define AML_AGCCNTL_ADDR            0x00C0B390
 
 struct aml_recy_assoc_info {
     u8 bssid[ETH_ALEN];
@@ -43,14 +54,13 @@ struct aml_recy_assoc_info {
     u8 *key_buf;
     size_t ies_len;
     u8 *ies_buf;
+    u8 vif_idx;
 };
 
 struct aml_recy_ap_info {
     struct cfg80211_ap_settings *settings;
     struct mac_chan_op chan;
     enum nl80211_band band;
-    size_t bcn_len;
-    u8 *bcn;
 };
 
 struct aml_recy {
@@ -70,15 +80,15 @@ void aml_recy_disable(void);
 void aml_recy_flags_set(u32 flags);
 void aml_recy_flags_clr(u32 flags);
 bool aml_recy_flags_chk(u32 flags);
-void aml_recy_save_assoc_info(struct cfg80211_connect_params *sme);
+void aml_recy_save_assoc_info(struct cfg80211_connect_params *sme, u8 vif_index);
 void aml_recy_save_ap_info(struct cfg80211_ap_settings *settings);
 void aml_recy_save_bcn_info(u8 *bcn, size_t bcn_len);
 int aml_recy_doit(struct aml_hw *aml_hw);
 int aml_recy_init(struct aml_hw *aml_hw);
 int aml_recy_deinit(void);
-void aml_recy_check_scc(void);
 bool aml_recy_connect_retry(void);
 int aml_recy_sta_connect(struct aml_hw *aml_hw, uint8_t *status);
+bool aml_recy_check_aml_vif_exit(struct aml_hw *aml_hw, struct aml_vif *aml_vif);
 
 #define RECY_DBG(fmt, ...) do { \
     if (recy_dbg) { \
