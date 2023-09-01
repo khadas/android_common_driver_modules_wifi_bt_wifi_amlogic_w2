@@ -1524,10 +1524,14 @@ static int aml_set_bus_timeout_test(struct net_device *dev, int enable)
     struct aml_vif *aml_vif = netdev_priv(dev);
     struct aml_hw *aml_hw = aml_vif->aml_hw;
     struct aml_plat *aml_plat = aml_hw->plat;
-    if (enable && (aml_bus_type == SDIO_MODE)) {
-    #ifndef CONFIG_LINUXPC_VERSION
+
+    if (aml_bus_type == PCIE_MODE) {
+        return 0;
+     }
+    if (enable) {
+#ifndef CONFIG_LINUXPC_VERSION
         extern_wifi_set_enable(0);
-    #endif
+#endif
         reg = AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, AGCCCCACAL0_ADDR_CT);
         printk("%s: ++++++++++++++++enable bus timeout for recovery test !!!\n", __func__);
     }
@@ -1892,6 +1896,7 @@ int aml_set_rx_end(struct net_device *dev,union iwreq_data *wrqu, char *extra)
     wrqu->data.length = scnprintf(extra, IW_PRIV_SIZE_MASK, "fcs_ok=%d, fcs_err=%d, fcs_rx_end=%d, rx_err=%d\n", fcs_ok, fcs_err, fcs_rx_end, rx_err);
     wrqu->data.length++;
     aml_set_reg(dev, 0x60c0b500, 0x00041000);
+    aml_set_reg(dev, 0x00f0007c, 0x2000d110);  //bt clock enable
     return 0;
 }
 
@@ -1900,7 +1905,7 @@ int aml_set_rx(struct net_device *dev, int antenna, int channel)
     printk("set antenna :%x\n", antenna);
     aml_set_reg(dev, 0x00a0b1b8, 0xc0003000);
     aml_set_reg(dev, 0x00f00078, 0x2000c1e0);  //wifi clock enable
-    aml_set_reg(dev, 0x00f0007c, 0x2000d110);  //bt clock enable
+
     switch (antenna) {
         case 1: //wf0 siso
             aml_set_reg(dev, 0x60c0b004, 0x00000001);
@@ -2911,7 +2916,7 @@ int aml_set_offset_power_vld(struct net_device *dev)
         offset_times = 1;
         reg_val = reg_val | 0x06180000;
         _aml_set_efuse(aml_vif, EFUSE_BASE_09, reg_val);
-    } else if (((reg_val & 0x06180000) != 0x0) && ((reg_val_second & 0xc0000000) == 0x0) && (xosc_vld_second == BIT31)) {
+    } else if (((reg_val_second & 0xc0000000) == 0x0) && (xosc_vld_second == BIT31)) {
         //xosc second times enable,offset power first times vld enable,offset power second times vld disable
         offset_times = 2;
         reg_val_second = reg_val_second | 0xc0000000;
@@ -3045,9 +3050,7 @@ int aml_emb_la_enable(struct net_device *dev)
     return 0;
 }
 
-unsigned int g_snr_enable = 1;
-unsigned int g_snr_mcs_ration = 60;
-
+extern struct aml_dyn_snr_cfg g_dyn_snr;
 static int aml_dyn_snr_cfg(struct net_device *dev, int enable, int mcs_ration)
 {
     struct aml_vif *aml_vif = netdev_priv(dev);
@@ -3056,15 +3059,15 @@ static int aml_dyn_snr_cfg(struct net_device *dev, int enable, int mcs_ration)
 
     if (enable)
     {
-        g_snr_enable = enable;
-        g_snr_mcs_ration = mcs_ration;
+        g_dyn_snr.enable = enable;
+        g_dyn_snr.snr_mcs_ration = mcs_ration;
     }
     else
     {
-        g_snr_enable = enable;
+        g_dyn_snr.enable = enable;
 
         snr_cfg = AML_REG_READ(aml_hw->plat, AML_ADDR_SYSTEM, 0xc00828);
-        snr_cfg &= ~ BIT(29);
+        snr_cfg &= ~ (BIT(29)|BIT(30));
         AML_REG_WRITE(snr_cfg, aml_hw->plat, AML_ADDR_SYSTEM, 0xc00828);
     }
     return 0;
@@ -3676,7 +3679,16 @@ int aml_get_mac_addr(struct net_device *dev,union iwreq_data *wrqu, char *extra)
             (efuse_data_l & 0x00ff0000) >> 16,(efuse_data_l & 0xff00) >> 8,efuse_data_l & 0xff);
         wrqu->data.length++;
     } else {
-        printk("No mac address is written into efuse!");
+        aml_get_mac_addr_from_conftxt(&efuse_data_l, &efuse_data_h);
+
+        printk("No mac address is written into efuse! get_mac_addr_from_conftxt!\nMAC addr is: %02x:%02x:%02x:%02x:%02x:%02x\n",
+            (efuse_data_h & 0xff00) >> 8,efuse_data_h & 0x00ff, (efuse_data_l & 0xff000000) >> 24,
+            (efuse_data_l & 0x00ff0000) >> 16,(efuse_data_l & 0xff00) >> 8,efuse_data_l & 0xff);
+
+        wrqu->data.length = scnprintf(extra, IW_PRIV_SIZE_MASK, " %02x:%02x:%02x:%02x:%02x:%02x\n",
+            (efuse_data_h & 0xff00) >> 8,efuse_data_h & 0x00ff, (efuse_data_l & 0xff000000) >> 24,
+            (efuse_data_l & 0x00ff0000) >> 16,(efuse_data_l & 0xff00) >> 8,efuse_data_l & 0xff);
+        wrqu->data.length++;
     }
     return 0;
 }

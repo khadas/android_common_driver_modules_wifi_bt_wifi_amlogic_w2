@@ -33,10 +33,6 @@
 #include "aml_msg_rx.h"
 #include "aml_scc.h"
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 41) && defined (CONFIG_AMLOGIC_KERNEL_VERSION))
-#include <linux/upstream_version.h>
-#endif
-
 extern bool pt_mode;
 
 
@@ -416,7 +412,7 @@ static inline int aml_rx_p2p_vif_ps_change_ind(struct aml_hw *aml_hw,
     int ps_state = ((struct mm_p2p_vif_ps_change_ind *)msg->param)->ps_state;
     struct aml_vif *vif_entry;
 
-    AML_DBG(AML_FN_ENTRY_STR);
+    //AML_DBG(AML_FN_ENTRY_STR);
 
 #ifdef CONFIG_AML_SOFTMAC
     // Look for VIF entry
@@ -705,11 +701,7 @@ void aml_sta_notify_csa_ch_switch(struct aml_hw *aml_hw, struct ipc_e2a_msg *msg
         mutex_lock(&vif->wdev.mtx);
         __acquire(&vif->wdev.mtx);
         #ifdef CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT
-        #if ((defined (AML_KERNEL_VERSION) && AML_KERNEL_VERSION >= 15) || LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0))
-        cfg80211_ch_switch_notify(vif->ndev, &chandef, 0, 0);
-        #else
         cfg80211_ch_switch_notify(vif->ndev, &chandef, 0);
-        #endif
         #else
         cfg80211_ch_switch_notify(vif->ndev, &chandef);
         #endif
@@ -765,7 +757,7 @@ static inline int aml_rx_ps_change_ind(struct aml_hw *aml_hw,
     struct mm_ps_change_ind *ind = (struct mm_ps_change_ind *)msg->param;
     struct aml_sta *sta = aml_hw->sta_table + ind->sta_idx;
 
-    AML_DBG(AML_FN_ENTRY_STR);
+    //AML_DBG(AML_FN_ENTRY_STR);
 
     if (ind->sta_idx >= (NX_REMOTE_STA_MAX + NX_VIRT_DEV_MAX)) {
         wiphy_err(aml_hw->wiphy, "Invalid sta index reported by fw %d\n",
@@ -773,9 +765,11 @@ static inline int aml_rx_ps_change_ind(struct aml_hw *aml_hw,
         return 1;
     }
 
+    /*
     AML_INFO("Sta %d, valid:%d, change PS mode to %s,mac[%02x %02x %02x %02x %02x %02x]", sta->sta_idx, sta->valid,
                ind->ps_state ? "ON" : "OFF",
                sta->mac_addr[0],sta->mac_addr[1],sta->mac_addr[2],sta->mac_addr[3],sta->mac_addr[4],sta->mac_addr[5]);
+    */
 
     if (sta->valid) {
         aml_ps_bh_enable(aml_hw, sta, ind->ps_state);
@@ -839,6 +833,8 @@ static inline int aml_rx_scan_done_ind(struct aml_hw *aml_hw,
  * Messages from SCANU task
  **************************************************************************/
 #ifdef CONFIG_AML_FULLMAC
+extern struct aml_recy *aml_recy;
+
 static inline int aml_rx_scanu_start_cfm(struct aml_hw *aml_hw,
                                           struct aml_cmd *cmd,
                                           struct ipc_e2a_msg *msg)
@@ -860,6 +856,12 @@ static inline int aml_rx_scanu_start_cfm(struct aml_hw *aml_hw,
 
     aml_hw->scan_request = NULL;
 
+    if (aml_hw->sta_stats && (!aml_hw->scan_cnt)) {
+        aml_recy->recy_request = 1;
+        aml_hw->sta_stats = 0;
+        aml_hw->scan_cnt= 0;
+        AML_INFO("********* receive recovery request*********");
+    }
     return 0;
 }
 
@@ -966,6 +968,8 @@ static inline int aml_pcie_rx_scanu_result_ind(struct aml_hw *aml_hw,
     }
     */
     //AML_DBG(AML_FN_ENTRY_STR);
+    if (aml_hw->sta_stats)
+        aml_hw->scan_cnt++;
 
     chan = ieee80211_get_channel(aml_hw->wiphy, ind->center_freq);
 
@@ -1360,7 +1364,11 @@ static inline int aml_rx_sm_disconnect_ind(struct aml_hw *aml_hw,
         return 0;
 
     AML_INFO("vif_idx:%d, reason_code: %d, reassoc: %d", aml_vif->vif_index, ind->reason_code, ind->reassoc);
-
+    /* 40 for MAC_RS_LINK_LOSS_DISCONNECT */
+    if (ind->reason_code == 40) {
+        aml_hw->sta_stats = 1;
+        ind->reason_code = 1;
+    }
     dev = aml_vif->ndev;
 
     /* if vif is not up, aml_close has already been called */

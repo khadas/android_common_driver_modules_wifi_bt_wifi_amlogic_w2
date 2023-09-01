@@ -733,6 +733,7 @@ static void aml_tx_retry(struct aml_hw *aml_hw, struct sk_buff *skb,
         // On next push, firmware needs to re-use the same SN
         sw_txhdr->desc.api.host.flags |= TXU_CNTRL_REUSE_SN;
         sw_txhdr->desc.api.host.sn_for_retry = status.sn;
+        printk("%s %d, reuse sn = %d\n", __func__, __LINE__, status.sn);
     }
 
     txq->credits++;
@@ -1821,6 +1822,11 @@ int aml_start_mgmt_xmit(struct aml_vif *vif, struct aml_sta *sta,
         kmem_cache_free(aml_hw->sw_txhdr_cache, sw_txhdr);
         dev_kfree_skb(skb);
         spin_unlock_bh(&aml_hw->tx_lock);
+        if (sp_mgmt_ret & AML_P2P_ACTION_FRAME) {
+            AML_INFO("report p2p action tx status\n");
+            cfg80211_mgmt_tx_status(&(vif->wdev), *cookie, params->buf, params->len, 0, GFP_ATOMIC);
+            return 0;
+        }
         return -EBUSY;
     }
     if (aml_txq_queue_skb(skb, txq, aml_hw, false, NULL)) {
@@ -1833,7 +1839,7 @@ int aml_start_mgmt_xmit(struct aml_vif *vif, struct aml_sta *sta,
 
     return 0;
 }
-
+extern struct aml_bus_state_detect bus_state_detect;
 int aml_update_tx_cfm(void *pthis)
 {
     struct aml_hw *aml_hw = pthis;
@@ -1841,6 +1847,13 @@ int aml_update_tx_cfm(void *pthis)
     int actual_length  = 0;
     int ret = 0;
     read_cfm = aml_hw->read_cfm;
+
+#ifdef CONFIG_AML_RECOVERY
+    if (bus_state_detect.bus_err) {
+        AML_INFO("bus err(%d), return\n", bus_state_detect.bus_err);
+        return 0;
+    }
+#endif
     if (aml_bus_type == USB_MODE) {
 
         ret = usb_bulk_msg(aml_hw->plat->usb_dev, usb_rcvbulkpipe(aml_hw->plat->usb_dev, USB_EP5), (void *)read_cfm, sizeof(struct tx_sdio_usb_cfm_tag) * SRAM_TXCFM_CNT, &actual_length, 100);

@@ -14,7 +14,7 @@
 
 extern bool b_usb_suspend;
 extern bool usb_is_shutdown;
-
+extern struct aml_bus_state_detect bus_state_detect;
 int aml_irq_usb_hdlr(struct urb *urb)
 {
     struct aml_hw *aml_hw = (struct aml_hw *)(urb->context);
@@ -48,6 +48,7 @@ int aml_irq_task(void *data)
     u32 status;
     int ret = 0;
     struct sched_param sch_param;
+    int try_cnt = 0;
 
     sch_param.sched_priority = 93;
 #ifndef CONFIG_PT_MODE
@@ -80,7 +81,11 @@ int aml_irq_task(void *data)
 #ifndef CONFIG_PT_MODE
              enable_irq(aml_hw->irq);
 #endif
-        } else if (aml_bus_type == USB_MODE) {
+        } else if ((aml_bus_type == USB_MODE)
+#ifdef CONFIG_AML_RECOVERY
+        && !bus_state_detect.bus_err
+#endif
+        ) {
             usleep_range(20, 30);
             USB_BEGIN_LOCK();
             if ((b_usb_suspend == 0) && (usb_is_shutdown == 0)) {
@@ -88,8 +93,18 @@ int aml_irq_task(void *data)
             }
             USB_END_LOCK();
             if (ret < 0) {
+                try_cnt++;
                 ERROR_DEBUG_OUT("usb_submit_urb failed %d\n", ret);
-                up(&aml_hw->aml_irq_sem);
+                if (try_cnt < 5) {
+                    up(&aml_hw->aml_irq_sem);
+                } else {
+#ifdef CONFIG_AML_RECOVERY
+                    bus_state_detect.bus_err = 1;
+#endif
+                    ERROR_DEBUG_OUT("usb_submit_urb failed(%d), try cnt %d\n", ret, try_cnt);
+                }
+            } else {
+                try_cnt = 0;
             }
         }
 

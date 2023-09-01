@@ -34,7 +34,7 @@
 #define USB_TX_PAGE_NUM_LARGE 200
 #define USB_DYNA_PAGE_NUM 147
 #define SDIO_LA_PAGE_NUM  63
-
+#define USB_LA_PAGE_NUM  34
 #define USB_TX_ADDRESSTABLE_NUM  TX_PAGE_NUM_SMALL/2
 
 //When setting bit4 to 1, enable auto tx of func4, otherwise disable

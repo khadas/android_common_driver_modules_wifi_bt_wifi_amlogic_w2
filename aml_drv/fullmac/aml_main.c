@@ -50,10 +50,6 @@
 #include "aml_prof.h"
 #include "wifi_aon_addr.h"
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 41) && defined (CONFIG_AMLOGIC_KERNEL_VERSION))
-#include <linux/upstream_version.h>
-#endif
-
 #define RW_DRV_DESCRIPTION  "Amlogic 11nac driver for Linux cfg80211"
 #define RW_DRV_COPYRIGHT    "Copyright (C) Amlogic 2015-2021"
 #define RW_DRV_AUTHOR       "Amlogic S.A.S"
@@ -754,11 +750,7 @@ static void aml_csa_finish(struct work_struct *ws)
             aml_txq_vif_stop(vif, AML_TXQ_STOP_CHAN, aml_hw);
         spin_unlock_bh(&aml_hw->cb_lock);
 #ifdef CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT
-#if ((defined (AML_KERNEL_VERSION) && AML_KERNEL_VERSION >= 15) || LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0))
-        cfg80211_ch_switch_notify(vif->ndev, &csa->chandef, 0, 0);
-#else
         cfg80211_ch_switch_notify(vif->ndev, &csa->chandef, 0);
-#endif
 #else
         cfg80211_ch_switch_notify(vif->ndev, &csa->chandef);
 #endif
@@ -1055,7 +1047,9 @@ static int aml_open(struct net_device *dev)
     aml_hw->vif_table[add_if_cfm.inst_nbr] = aml_vif;
     aml_hw->show_switch_info = 0;
     spin_unlock_bh(&aml_hw->cb_lock);
-
+    if (aml_hw->vif_started > 1) {
+         atomic_set(&aml_hw->ack_mgr.enable, 0);
+    }
     if (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_MONITOR) {
         aml_hw->monitor_vif = aml_vif->vif_index;
         if (aml_vif->ch_index != AML_CH_NOT_SET) {
@@ -1172,6 +1166,9 @@ static int aml_close(struct net_device *dev)
         aml_hw->monitor_vif = AML_INVALID_VIF;
 
     aml_hw->vif_started--;
+    if (aml_hw->vif_started <= 1) {
+        atomic_set(&aml_hw->ack_mgr.enable, 1);
+    }
     aml_hw->show_switch_info = 0;
     if (aml_hw->vif_started == 0) {
         /* This also lets both ipc sides remain in sync before resetting */
@@ -1601,6 +1598,12 @@ int aml_cfg80211_change_iface(struct wiphy *wiphy,
     AML_DBG(AML_FN_ENTRY_STR);
 
     AML_INFO("interface type=%d\n", type);
+#ifdef CONFIG_AML_RECOVERY
+    if (aml_recy != NULL && aml_recy_flags_chk(AML_RECY_STATE_ONGOING)) {
+        AML_INFO("recy ongoing, can't change iface type!\n");
+        return -EBUSY;
+    }
+#endif
     if (vif->up)
         return (-EBUSY);
 
@@ -1629,7 +1632,9 @@ int aml_cfg80211_change_iface(struct wiphy *wiphy,
     case NL80211_IFTYPE_STATION:
     case NL80211_IFTYPE_P2P_CLIENT:
         vif->sta.flags = 0;
+        spin_lock_bh(&vif->ap_lock);
         vif->sta.ap = NULL;
+        spin_unlock_bh(&vif->ap_lock);
         vif->sta.tdls_sta = NULL;
         vif->sta.ft_assoc_ies = NULL;
         vif->sta.ft_assoc_ies_len = 0;
@@ -1694,7 +1699,8 @@ static int aml_cfg80211_scan(struct wiphy *wiphy,
     AML_INFO("n_channels:%d,iftype:%d",request->n_channels,request->wdev->iftype);
 
 #ifdef CONFIG_AML_RECOVERY
-    if (aml_recy != NULL && aml_recy_flags_chk(AML_RECY_STATE_ONGOING)) {
+    if (aml_recy != NULL &&
+            (aml_recy_flags_chk(AML_RECY_STATE_ONGOING) || aml_recy->recy_request)) {
         printk("recy ongoing, can't scan now!\n");
         return -EBUSY;
     }
@@ -3179,8 +3185,11 @@ static int aml_cfg80211_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
         if (roc) {
             // Test if current RoC can be re-used
             if ((roc->vif != aml_vif) ||
-                (roc->chan->center_freq != params->chan->center_freq))
-                return -EINVAL;
+                (roc->chan->center_freq != params->chan->center_freq)) {
+                AML_INFO("roc chan=0x%x,params chan=0x%X\n",roc->chan->center_freq,params->chan->center_freq);
+                cfg80211_mgmt_tx_status(wdev,*cookie,mgmt,params->len,0,GFP_ATOMIC);
+                return 0;
+            }
             // TODO: inform FW to increase RoC duration
         } else {
             int error;
@@ -3601,11 +3610,7 @@ static int aml_cfg80211_channel_switch(struct wiphy *wiphy,
         INIT_WORK(&csa->work, aml_csa_finish);
 #ifndef CONFIG_PT_MODE
     #ifdef CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT
-        #if ((defined (AML_KERNEL_VERSION) && AML_KERNEL_VERSION >= 15) || LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0))
-        cfg80211_ch_switch_started_notify(dev, &csa->chandef, 0, params->count, params->block_tx, 0);
-        #else
         cfg80211_ch_switch_started_notify(dev, &csa->chandef, 0, params->count, params->block_tx);
-        #endif
     #else
         cfg80211_ch_switch_started_notify(dev, &csa->chandef, params->count);
     #endif
@@ -5634,8 +5639,6 @@ static void aml_cfg80211_add_connected_pno_support(struct wiphy *wiphy)
 #endif
 
 static int aml_inetaddr_event(struct notifier_block *this,unsigned long event, void *ptr) {
-    struct net_device *ndev;
-    struct aml_vif *aml_vif;
     struct in_ifaddr *ifa = (struct in_ifaddr *)ptr;
 
     if (!ifa || !(ifa->ifa_dev->dev)) {
@@ -5646,27 +5649,29 @@ static int aml_inetaddr_event(struct notifier_block *this,unsigned long event, v
         return NOTIFY_DONE;
     }
 
-    ndev = ifa->ifa_dev->dev;
-    aml_vif = netdev_priv(ndev);
-
-    switch (aml_vif->wdev.iftype) {
-        case NL80211_IFTYPE_STATION:
-        case NL80211_IFTYPE_P2P_CLIENT:
-            if (event == NETDEV_UP) {
+    if (event == NETDEV_UP) {
+        struct net_device *ndev = ifa->ifa_dev->dev;
+        struct aml_vif *aml_vif = netdev_priv(ndev);
+        uint8_t* ip_addr = (uint8_t*)&ifa->ifa_address;
+        if (!ip_addr) {
+            AML_INFO("ip_addr null");
+        }
+        else {
+            if (((aml_vif->vif_index == AML_STA_VIF_IDX) && (aml_vif->wdev.iftype == NL80211_IFTYPE_STATION))
+            || ((aml_vif->vif_index == AML_P2P_VIF_IDX) && (aml_vif->wdev.iftype == NL80211_IFTYPE_P2P_CLIENT))) {
                 int ret;
-                uint8_t* ip_addr = (uint8_t*)&ifa->ifa_address;
                 ret = aml_send_notify_ip(aml_vif, IPV4_VER,ip_addr);
-                printk("notify ip addr, vif:%d, ret:%d, ip:%d.%d.%d.%d\n", aml_vif->vif_index, ret, ip_addr[0], ip_addr[1], ip_addr[2], ip_addr[3]);
+                AML_INFO("vif:%d, ret:%d, ip:%d.%d.%d.%d\n", aml_vif->vif_index, ret, ip_addr[0], ip_addr[1], ip_addr[2], ip_addr[3]);
 #ifdef SCC_STA_SOFTAP
                 aml_scc_check_chan_conflict(aml_vif->aml_hw);
 #endif
-
             }
-            break;
-
-        default:
-            break;
+            else {
+                AML_INFO("vif:%d, ip:%d.%d.%d.%d\n", aml_vif->vif_index, ip_addr[0], ip_addr[1], ip_addr[2], ip_addr[3]);
+            }
+        }
     }
+
     return NOTIFY_DONE;
 }
 

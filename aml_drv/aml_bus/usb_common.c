@@ -27,21 +27,6 @@ extern void extern_wifi_set_enable(int is_on);
 static int auc_probe(struct usb_interface *interface, const struct usb_device_id *id)
 {
     g_udev = usb_get_dev(interface_to_usbdev(interface));
-
-    USB_LOCK_INIT();
-
-    g_cmd_buf = ZMALLOC(sizeof(*g_cmd_buf),"cmd stage",GFP_DMA | GFP_ATOMIC);
-    if (!g_cmd_buf) {
-        PRINT("g_cmd_buf malloc fail\n");
-        return -ENOMEM;
-    }
-
-    g_kmalloc_buf = (unsigned char *)ZMALLOC(20*1024,"reg tmp",GFP_DMA | GFP_ATOMIC);
-    if (!g_kmalloc_buf) {
-        ERROR_DEBUG_OUT("data malloc fail\n");
-        FREE(g_cmd_buf,"cmd stage");
-        return -ENOMEM;
-    }
     memset(g_kmalloc_buf,0,1024*20);
     memset(g_cmd_buf,0,sizeof(struct crg_msc_cbw ));
     g_usb_after_probe = 1;
@@ -56,9 +41,6 @@ static int auc_probe(struct usb_interface *interface, const struct usb_device_id
 
 static void auc_disconnect(struct usb_interface *interface)
 {
-    USB_LOCK_DESTROY();
-    FREE(g_kmalloc_buf, "usb_read_sram");
-    FREE(g_cmd_buf,"cmd stage");
     usb_set_intfdata(interface, NULL);
     usb_put_dev(g_udev);
     g_usb_after_probe = 0;
@@ -120,14 +102,25 @@ int aml_usb_insmod(void)
 {
     int err = 0;
 
+    g_cmd_buf = ZMALLOC(sizeof(*g_cmd_buf), "cmd stage", GFP_DMA | GFP_ATOMIC);
+    if (!g_cmd_buf) {
+        PRINT("g_cmd_buf malloc fail\n");
+        return -ENOMEM;
+    }
+    g_kmalloc_buf = (unsigned char *)ZMALLOC(20*1024, "reg tmp", GFP_DMA | GFP_ATOMIC);
+    if (!g_kmalloc_buf) {
+        ERROR_DEBUG_OUT("data malloc fail\n");
+        FREE(g_cmd_buf, "cmd stage");
+        return -ENOMEM;
+    }
     err = usb_register(&aml_usb_common_driver);
-    auc_driver_insmoded = 1;
-    auc_wifi_in_insmod = 0;
-    PRINT("%s(%d) aml common driver insmod\n",__func__, __LINE__);
-
     if (err) {
         PRINT("failed to register usb driver: %d \n", err);
     }
+    auc_driver_insmoded = 1;
+    auc_wifi_in_insmod = 0;
+    USB_LOCK_INIT();
+    PRINT("%s(%d) aml common driver insmod\n", __func__, __LINE__);
 
     return err;
 }
@@ -138,7 +131,9 @@ void aml_usb_rmmod(void)
     auc_driver_insmoded = 0;
     wifi_drv_rmmod_ongoing = 0;
     g_auc_hif_ops.hi_cleanup_scat();
-
+    FREE(g_cmd_buf, "cmd stage");
+    FREE(g_kmalloc_buf, "reg tmp");
+    USB_LOCK_DESTROY();
 #ifndef CONFIG_PT_MODE
 #ifndef CONFIG_LINUXPC_VERSION
     extern_wifi_set_enable(0);
@@ -151,16 +146,30 @@ void aml_usb_rmmod(void)
 }
 void aml_usb_reset(void)
 {
-#ifndef CONFIG_PT_MODE
+    uint32_t count = 0;
+    uint32_t try_cnt = 0;
+
+Try_again:
     printk("%s: ******* usb reset begin *******\n", __func__);
-    g_usb_after_probe = 0;
+
+#ifndef CONFIG_PT_MODE
+
 #ifndef CONFIG_LINUXPC_VERSION
     extern_wifi_set_enable(0);
+    while (g_usb_after_probe) {
+        msleep(5);
+    }
     extern_wifi_set_enable(1);
 #endif
-
-    while (!g_usb_after_probe) {
+    while ((!g_usb_after_probe) && try_cnt <= 3) {
         msleep(5);
+        count++;
+        if (count > 200) {
+            count = 0;
+            try_cnt++;
+            printk("%s: usb reset fail, try again(%d)\n", __func__, try_cnt);
+            goto Try_again;
+        }
     };
     bus_state_detect.bus_reset_ongoing = 0;
     bus_state_detect.bus_err = 0;

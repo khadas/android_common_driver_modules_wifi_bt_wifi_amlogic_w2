@@ -244,6 +244,18 @@ struct rxbuf_list{
     unsigned int rx_buf_len;
 };
 
+struct aml_dyn_snr_cfg {
+    bool need_trial;
+    unsigned int best_snr_cfg;
+    unsigned int enable;
+    unsigned int snr_mcs_ration;
+    u64 rx_byte_1; //trial 1
+    u64 rx_byte_2; //trial 2
+    u64 rx_byte;   //all rx bytes
+    //struct aml_rx_rate_stats rx_rate;
+    unsigned long last_time;
+};
+
 #define DEBUG_RX_BUF_CNT       300
 
 #define AML_WRAP CO_BIT(31)

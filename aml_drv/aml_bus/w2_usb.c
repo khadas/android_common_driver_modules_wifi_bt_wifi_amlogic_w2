@@ -6,6 +6,7 @@
 #include "w2_usb.h"
 #include "aml_static_buf.h"
 #include "w2_sdio.h"
+#include "aml_interface.h"
 
  /* memory mapping for wifi space */
 #define MAC_ICCM_AHB_BASE    0x00000000
@@ -37,6 +38,7 @@ extern struct usb_device *g_udev;
 extern unsigned char auc_driver_insmoded;
 extern struct crg_msc_cbw *g_cmd_buf;
 extern unsigned char *g_kmalloc_buf;
+extern struct aml_bus_state_detect bus_state_detect;
 unsigned char *g_auc_kmalloc_buf = NULL;
 
 
@@ -66,7 +68,22 @@ int auc_bulk_msg(struct usb_device *usb_dev, unsigned int pipe,
 {
     int ret = 0;
 
+#ifdef CONFIG_AML_RECOVERY
+    if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
+        ERROR_DEBUG_OUT("bus reset is ongoing(bus err:%d, reset on going: %d:), do not read/write now!\n",
+            bus_state_detect.bus_err, bus_state_detect.bus_reset_ongoing);
+        return -ENOMEM;
+    }
+#endif
     ret = usb_bulk_msg(usb_dev, pipe, data, len, actual_length, timeout);
+#ifdef CONFIG_AML_RECOVERY
+    if (ret && !bus_state_detect.bus_err) {
+        if ((bus_state_detect.is_drv_load_finished) && (!bus_state_detect.is_recy_ongoing)) {
+            bus_state_detect.bus_err = 1;
+            ERROR_DEBUG_OUT("bus error(%d), will do reovery later\n", ret);
+        }
+    }
+#endif
 
     return ret;
 }
@@ -699,6 +716,14 @@ void auc_write_word_by_ep_for_wifi(unsigned int addr,unsigned int data, unsigned
 {
     int len = 4;
 
+#ifdef CONFIG_AML_RECOVERY
+    if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
+        ERROR_DEBUG_OUT("EP-%d bus reset is ongoing(bus err:%d, reset on going: %d:), do not read/write now!\n",
+            ep, bus_state_detect.bus_err, bus_state_detect.bus_reset_ongoing);
+        return;
+    }
+#endif
+
     if ((ep == USB_EP4) || (ep == USB_EP5) || (ep == USB_EP6) || (ep == USB_EP7)) {
         ep = USB_EP1;
         auc_write_reg_by_ep(addr, data, len, ep);
@@ -712,6 +737,13 @@ unsigned int auc_read_word_by_ep_for_wifi(unsigned int addr, unsigned int ep)
     int len = 4;
     unsigned int value = 0;
 
+#ifdef CONFIG_AML_RECOVERY
+    if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
+        ERROR_DEBUG_OUT("EP-%d bus reset is ongoing(bus err:%d, reset on going: %d:), do not read/write now!\n",
+            ep, bus_state_detect.bus_err, bus_state_detect.bus_reset_ongoing);
+        return 0;
+    }
+#endif
     if ((ep == USB_EP4) || (ep == USB_EP5) || (ep == USB_EP6) || (ep == USB_EP7)) {
         ep = USB_EP1;
         value = auc_read_reg_by_ep(addr, len, ep, WIFI_READ_CMD);
@@ -728,7 +760,13 @@ void auc_write_sram_by_ep_for_wifi(unsigned char *buf, unsigned char *sram_addr,
         ERROR_DEBUG_OUT("EP-%d write len err!\n", ep);
         return;
     }
-
+#ifdef CONFIG_AML_RECOVERY
+    if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
+        ERROR_DEBUG_OUT("EP-%d bus reset is ongoing(bus err:%d, reset on going: %d:), do not read/write now!\n",
+            ep, bus_state_detect.bus_err, bus_state_detect.bus_reset_ongoing);
+        return;
+    }
+#endif
     if ((ep == USB_EP4) || (ep == USB_EP5) || (ep == USB_EP6) || (ep == USB_EP7)) {
         ep = USB_EP1;
         auc_write_sram_by_ep(buf, (unsigned int)(unsigned long)sram_addr, len, ep);
@@ -743,7 +781,13 @@ void auc_read_sram_by_ep_for_wifi(unsigned char *buf,unsigned char *sram_addr, u
         ERROR_DEBUG_OUT("EP-%d read len err!\n", ep);
         return;
     }
-
+#ifdef CONFIG_AML_RECOVERY
+    if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
+        ERROR_DEBUG_OUT("EP-%d bus reset is ongoing(bus err:%d, reset on going: %d:), do not read/write now!\n",
+            ep, bus_state_detect.bus_err, bus_state_detect.bus_reset_ongoing);
+        return;
+    }
+#endif
     if ((ep == USB_EP4) || (ep == USB_EP5) || (ep == USB_EP6) || (ep == USB_EP7)) {
         ep = USB_EP1;
         auc_read_sram_by_ep(buf, (unsigned int)(unsigned long)sram_addr, len, ep, WIFI_READ_CMD);
@@ -766,6 +810,13 @@ void auc_write_word_by_ep_for_bt(unsigned int addr,unsigned int data, unsigned i
 {
     int len = 4;
 
+#ifdef CONFIG_AML_RECOVERY
+    if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
+        ERROR_DEBUG_OUT("EP-%d bus reset is ongoing(bus err:%d, reset on going: %d:), do not read/write now!\n",
+            ep, bus_state_detect.bus_err, bus_state_detect.bus_reset_ongoing);
+        return;
+    }
+#endif
     switch (ep) {
         case USB_EP2:
             auc_write_reg_by_ep(addr, data, len, ep);
@@ -784,6 +835,13 @@ unsigned int auc_read_word_by_ep_for_bt(unsigned int addr, unsigned int ep)
     int len = 4;
     unsigned int value = 0;
 
+#ifdef CONFIG_AML_RECOVERY
+    if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
+        ERROR_DEBUG_OUT("EP-%d bus reset is ongoing(bus err:%d, reset on going: %d:), do not read/write now!\n",
+            ep, bus_state_detect.bus_err, bus_state_detect.bus_reset_ongoing);
+        return 0;
+    }
+#endif
     switch (ep) {
         case USB_EP1:
             value = auc_read_reg_ep1(addr, len);
@@ -807,7 +865,13 @@ void auc_write_sram_by_ep_for_bt(unsigned char *buf, unsigned char *sram_addr, u
         ERROR_DEBUG_OUT("EP-%d write len err!\n", ep);
         return;
     }
-
+#ifdef CONFIG_AML_RECOVERY
+    if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
+        ERROR_DEBUG_OUT("EP-%d bus reset is ongoing(bus err:%d, reset on going: %d:), do not read/write now!\n",
+            ep, bus_state_detect.bus_err, bus_state_detect.bus_reset_ongoing);
+        return;
+    }
+#endif
     switch (ep) {
         case USB_EP2:
             auc_write_sram_by_ep(buf, (unsigned int)(unsigned long)sram_addr, len, ep);
@@ -826,7 +890,13 @@ void auc_read_sram_by_ep_for_bt(unsigned char *buf,unsigned char *sram_addr, uns
         ERROR_DEBUG_OUT("EP-%d read len err!\n", ep);
         return;
     }
-
+#ifdef CONFIG_AML_RECOVERY
+    if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
+        ERROR_DEBUG_OUT("EP-%d bus reset is ongoing(bus err:%d, reset on going: %d:), do not read/write now!\n",
+            ep, bus_state_detect.bus_err, bus_state_detect.bus_reset_ongoing);
+        return;
+    }
+#endif
     switch (ep) {
         case USB_EP1:
             auc_read_sram_ep1(buf, (unsigned int)(unsigned long)sram_addr, len);
@@ -1049,7 +1119,14 @@ int w2_usb_send_frame(struct amlw_hif_scatter_req * pframe)
 
 
     memset(&pframe->page, 0, sizeof(struct tx_trb_info_ex));
-
+#ifdef CONFIG_AML_RECOVERY
+    if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
+        ERROR_DEBUG_OUT("bus err or reset is on going(bus err %d, bus reset ongoing: %d)\n",
+            bus_state_detect.bus_err, bus_state_detect.bus_reset_ongoing);
+        w2_usb_scat_complete(pframe);
+        return 0;
+    }
+#endif
     USB_BEGIN_LOCK();
     /* build page_info array */
     pframe->page.packet_num = pframe->scat_count;
@@ -1060,7 +1137,7 @@ int w2_usb_send_frame(struct amlw_hif_scatter_req * pframe)
     }
     aml_usb_build_tx_packet_info(g_cmd_buf, CMD_WRITE_PACKET, &(pframe->page));
     /* cmd stage */
-    ret = usb_bulk_msg(udev, usb_sndbulkpipe(udev, USB_EP1),
+    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, USB_EP1),
         g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
     if (ret) {
         ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d\n",ret);

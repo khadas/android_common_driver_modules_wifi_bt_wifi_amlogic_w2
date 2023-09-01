@@ -219,16 +219,21 @@ extern void aml_sdio_reset(void);
 static int aml_recy_fw_reload_for_usb_sdio(struct aml_hw * aml_hw)
 {
     int ret = 0;
-
+    int try_cnt = 0;
 
     RECY_DBG("reload fw start");
 
     aml_recy_flags_set(AML_RECY_FW_ONGOING | AML_RECY_IPC_ONGOING);
+    bus_state_detect.is_recy_ongoing = 1;
+Try_again:
+
     aml_platform_off(aml_hw, NULL);
-    if (aml_bus_type == USB_MODE && bus_state_detect.bus_err) {
+    if (aml_bus_type == USB_MODE) {
+       bus_state_detect.bus_reset_ongoing = 1;
        aml_usb_reset();
+       bus_state_detect.bus_reset_ongoing = 0;
     }
-    if ((aml_bus_type == SDIO_MODE) && (bus_state_detect.bus_err == 1)) {
+    if (((aml_bus_type == SDIO_MODE) && (bus_state_detect.bus_err == 1)) || (try_cnt > 1)) {
        aml_sdio_reset();
     }
     if (aml_sdio_platform_on(aml_hw, NULL)) {
@@ -258,6 +263,13 @@ static int aml_recy_fw_reload_for_usb_sdio(struct aml_hw * aml_hw)
     }
     AML_INFO("recy fw reload success!!!\n");
 out:
+    if (ret && try_cnt < 3) {
+        try_cnt++;
+        ret = 0;
+        AML_INFO("fw reload fail, try again(%d)\n", try_cnt);
+        goto Try_again;
+    }
+    bus_state_detect.is_recy_ongoing = 0;
     aml_recy_flags_clr(AML_RECY_FW_ONGOING);
     return ret;
 }
@@ -473,6 +485,7 @@ static int aml_recy_vif_restart(struct aml_hw *aml_hw)
         aml_vif->vif_index = cfm.inst_nbr;
         aml_vif->up = true;
         aml_hw->vif_table[cfm.inst_nbr] = aml_vif;
+        aml_set_scan_hang(aml_vif, 0, __func__, __LINE__);
         spin_unlock_bh(&aml_hw->cb_lock);
 
         /* should keep STA operations before AP mode */
@@ -537,8 +550,6 @@ int aml_recy_doit(struct aml_hw *aml_hw)
         goto out;
     }
     aml_recy_flags_clr(AML_RECY_DROP_XMIT_PKT);
-    /* clear suspend state flag */
-    aml_hw->state = WIFI_SUSPEND_STATE_NONE;
     ret = aml_recy_fw_reload(aml_hw);
     if (ret) {
         AML_INFO("fw reload failed");
@@ -552,6 +563,9 @@ int aml_recy_doit(struct aml_hw *aml_hw)
     }
 
 out:
+    /* clear suspend state flag */
+    aml_recy->recy_request = 0;
+    aml_hw->state = WIFI_SUSPEND_STATE_NONE;
     aml_recy_flags_clr(AML_RECY_STATE_ONGOING | AML_RECY_DROP_XMIT_PKT);
     return ret;
 }
@@ -566,10 +580,10 @@ static int aml_recy_detection(void)
 
     cmd_mgr = &aml_recy->aml_hw->cmd_mgr;
     spin_lock_bh(&cmd_mgr->lock);
-    if (cmd_mgr->state == AML_CMD_MGR_STATE_CRASHED) {
+    if ((cmd_mgr->state == AML_CMD_MGR_STATE_CRASHED) || aml_recy->recy_request) {
         ret = true;
     }
-    if (aml_bus_type == SDIO_MODE) {
+    if (aml_bus_type != PCIE_MODE) {
         if (!bus_state_detect.bus_reset_ongoing &&
             (bus_state_detect.bus_err == 1)) {
             bus_state_detect.bus_reset_ongoing = 1;
@@ -644,9 +658,8 @@ int aml_recy_init(struct aml_hw *aml_hw)
     aml_recy->aml_hw = aml_hw;
 
     timer_setup(&aml_recy->timer, aml_recy_timer_cb, 0);
-    if (aml_bus_type != USB_MODE) {
-        aml_recy_enable();
-    }
+    aml_recy_enable();
+
     return 0;
 }
 

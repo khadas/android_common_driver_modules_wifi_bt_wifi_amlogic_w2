@@ -1413,6 +1413,9 @@ void aml_scan_rx(struct aml_hw *aml_hw, struct hw_rxhdr *hw_rxhdr, struct sk_buf
             struct scan_results *scan_res;
             uint8_t contain = 0;
 
+            if (aml_hw->sta_stats)
+                aml_hw->scan_cnt++;
+
             contain = aml_scan_find_already_saved(aml_hw, skb);
             if (contain)
                 return;
@@ -2198,12 +2201,7 @@ void record_proc_rx_buf(u16 status, u32 dma_addr, u32 host_id, struct aml_hw *am
 }
 #endif
 
-extern unsigned int g_snr_enable;
-extern unsigned int g_snr_mcs_ration;
 struct aml_rx_rate_stats gst_rx_rate;
-
-static unsigned long last_time = 0;
-
 void idx_to_rate_cfg_for_dyn_snr(int idx, union aml_rate_ctrl_info *r_cfg, int *ru_size)
 {
     r_cfg->value = 0;
@@ -2280,28 +2278,52 @@ void idx_to_rate_cfg_for_dyn_snr(int idx, union aml_rate_ctrl_info *r_cfg, int *
     }
 }
 
+struct aml_dyn_snr_cfg g_dyn_snr;
 int aml_last_rx_info(struct aml_hw *priv, struct aml_sta *sta)
 {
     struct aml_rx_rate_stats *rate_stats;
     int i;
     int cpt;
     u64 high_rate_percent = 0;
+    u32 snr_cfg, old_snr_cfg, change_value;
 
-    if (!g_snr_enable)
+    if (!g_dyn_snr.enable)
         return 0;
 
     if (aml_recy != NULL && aml_recy_flags_chk(AML_RECY_STATE_ONGOING))
         return 0;
 
-    if (jiffies < last_time + 2 * HZ)
+    if (!g_dyn_snr.need_trial && jiffies < g_dyn_snr.last_time + 3 * HZ)
+        return 0;
+    else if (g_dyn_snr.need_trial && jiffies < g_dyn_snr.last_time + msecs_to_jiffies(100))
         return 0;
 
-    last_time = jiffies;
+    g_dyn_snr.last_time = jiffies;
     rate_stats = &sta->stats.rx_rate;
     if (rate_stats->table == NULL || gst_rx_rate.table == NULL)
         return 0;
+    change_value = AML_REG_READ(priv->plat, AML_ADDR_SYSTEM, 0xc00828);
+    old_snr_cfg = (change_value >> 29) & 0x3;
 
     cpt = rate_stats->cpt - gst_rx_rate.cpt;
+    if (!g_dyn_snr.need_trial) {
+        g_dyn_snr.rx_byte_1 = sta->stats.rx_bytes - g_dyn_snr.rx_byte;
+    } else {
+        g_dyn_snr.rx_byte_2 = sta->stats.rx_bytes - g_dyn_snr.rx_byte;
+    }
+
+    g_dyn_snr.rx_byte = sta->stats.rx_bytes;
+    /* no process when low rx t-puts */
+    if (g_dyn_snr.rx_byte_1 < 10000) {
+        spin_lock_bh(&priv->tx_lock);
+        memcpy(gst_rx_rate.table, sta->stats.rx_rate.table,
+                sta->stats.rx_rate.size * sizeof(sta->stats.rx_rate.table[0]));
+        gst_rx_rate.cpt = sta->stats.rx_rate.cpt;
+        gst_rx_rate.rate_cnt = sta->stats.rx_rate.rate_cnt;
+        spin_unlock_bh(&priv->tx_lock);
+        return 0;
+    }
+
     for (i = 0 ; i < rate_stats->size ; i++ ) {
         if (rate_stats->table[i]) {
             union aml_rate_ctrl_info rate_config;
@@ -2320,29 +2342,51 @@ int aml_last_rx_info(struct aml_hw *priv, struct aml_sta *sta)
             if ((rate_config.formatModTx < FORMATMOD_HT_MF) || (rate_config.formatModTx == FORMATMOD_HE_ER))
                 continue;
             else if (rate_config.formatModTx == FORMATMOD_HT_MF) {
-                if ((r->ht.nss < 1) && (r->ht.mcs < 7))
-                    continue;
-                high_rate_percent += percent;
+                if ((r->ht.nss >= 1) && (r->ht.mcs >= 6))
+                    high_rate_percent += percent;
+                continue;
+            } else if (rate_config.formatModTx == FORMATMOD_VHT) {
+                if ((r->vht.nss >= 1) && (r->vht.mcs >= 7)) // VHT
+                    high_rate_percent += percent;
+                continue;
             } else {
-                if ((r->vht.nss < 1) && (r->vht.mcs < 9)) // VHT/HE_SU/HE_MU
-                    continue;
-                high_rate_percent += percent;
+                if ((r->vht.nss >= 1) && (r->vht.mcs >= 8)) // HE_SU/HE_MU
+                    high_rate_percent += percent;
+                continue;
             }
         }
     }
-    if (high_rate_percent > 0) {
-        u32 snr_cfg = AML_REG_READ(priv->plat, AML_ADDR_SYSTEM, 0xc00828);
-        u32 change = ((snr_cfg & BIT(29)) ^ BIT(29));
 
-        snr_cfg &= ~BIT(29);
-        snr_cfg |= change;
-        if ((high_rate_percent < g_snr_mcs_ration * 10)) {
-            printk("need change, per %d, snr_cfg 0x%x \n", high_rate_percent, snr_cfg);
-            AML_REG_WRITE(snr_cfg, priv->plat, AML_ADDR_SYSTEM, 0xc00828);
+    /* high rate percent is greater than 60%
+       or rx byte with current cfg is greater than rx byte with previous cfg */
+    if ((high_rate_percent >= g_dyn_snr.snr_mcs_ration * 10)
+            || (g_dyn_snr.need_trial && ((g_dyn_snr.rx_byte_1 / 30) < (g_dyn_snr.rx_byte_2 * 102 / 100)))) {
+        //keep current configuration
+        g_dyn_snr.best_snr_cfg = old_snr_cfg;
+        if (g_dyn_snr.need_trial)
+            g_dyn_snr.need_trial = false;
+    } else if (high_rate_percent < g_dyn_snr.snr_mcs_ration * 10) {
+        if (!g_dyn_snr.need_trial) {
+            //recode current snr cfg
+            g_dyn_snr.best_snr_cfg = old_snr_cfg;
+
+            get_random_bytes(&snr_cfg, 1);
+            snr_cfg &= 0x3;
+            if (snr_cfg == old_snr_cfg)
+                snr_cfg = (old_snr_cfg + 1) & 0x3;
+            g_dyn_snr.need_trial = true;
+        } else {
+            snr_cfg = g_dyn_snr.best_snr_cfg;
+            g_dyn_snr.need_trial = false;
         }
+        change_value &= ~(BIT(29) | BIT(30));
+        change_value |= (snr_cfg << 29);
+        AML_REG_WRITE(change_value, priv->plat, AML_ADDR_SYSTEM, 0xc00828);
     }
+
     spin_lock_bh(&priv->tx_lock);
-    memcpy(gst_rx_rate.table, sta->stats.rx_rate.table, sta->stats.rx_rate.size * sizeof(sta->stats.rx_rate.table[0]));
+    memcpy(gst_rx_rate.table, sta->stats.rx_rate.table,
+            sta->stats.rx_rate.size * sizeof(sta->stats.rx_rate.table[0]));
     gst_rx_rate.cpt = sta->stats.rx_rate.cpt;
     gst_rx_rate.rate_cnt = sta->stats.rx_rate.rate_cnt;
     spin_unlock_bh(&priv->tx_lock);
@@ -2716,6 +2760,7 @@ void aml_rx_deferred(struct work_struct *ws)
 }
 
 #ifndef CONFIG_AML_DEBUGFS
+extern struct aml_dyn_snr_cfg g_dyn_snr;
 void aml_alloc_global_rx_rate(struct aml_hw *aml_hw, struct aml_wq *aml_wq)
 {
     uint8_t *sta_idx = (uint8_t *)aml_wq->data;
@@ -2752,6 +2797,10 @@ void aml_alloc_global_rx_rate(struct aml_hw *aml_hw, struct aml_wq *aml_wq)
     rate_stats->cpt = 0;
     rate_stats->rate_cnt = 0;
     AML_INFO("nb_rate:%d, gst_stable:%p, sta_rate_table:%p", nb_rx_rate, gst_rx_rate.table, rate_stats->table);
+
+    memset(&g_dyn_snr, 0, sizeof(struct aml_dyn_snr_cfg));
+    g_dyn_snr.enable = 1;
+    g_dyn_snr.snr_mcs_ration = 60;
     return;
 error_after_dir:
     if (sta->stats.rx_rate.table) {

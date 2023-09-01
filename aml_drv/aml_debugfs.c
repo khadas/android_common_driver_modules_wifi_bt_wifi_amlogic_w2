@@ -2184,6 +2184,8 @@ void aml_dbgfs_trigger_fw_dump(struct aml_hw *aml_hw, char *reason)
 
 #ifdef CONFIG_AML_FULLMAC
 extern struct aml_rx_rate_stats gst_rx_rate;
+extern struct aml_dyn_snr_cfg g_dyn_snr;
+
 extern struct aml_vif *aml_rx_get_vif(struct aml_hw *aml_hw, int vif_idx);
 static void _aml_dbgfs_register_sta(struct aml_debugfs *aml_debugfs, struct aml_sta *sta)
 {
@@ -2249,6 +2251,10 @@ static void _aml_dbgfs_register_sta(struct aml_debugfs *aml_debugfs, struct aml_
         gst_rx_rate.size = nb_rx_rate;
         gst_rx_rate.cpt = 0;
         gst_rx_rate.rate_cnt = 0;
+
+        memset(&g_dyn_snr, 0, sizeof(struct aml_dyn_snr_cfg));
+        g_dyn_snr.enable = 1;
+        g_dyn_snr.snr_mcs_ration = 60;
     }
 
     rate_stats->size = nb_rx_rate;

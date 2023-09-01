@@ -84,6 +84,12 @@
 #define NORMAL_AMSDU_MAX_LEN    2304
 
 #define AML_NAPI_WEIGHT 48
+
+#define AML_STA_VIF_IDX         0
+#define AML_AP_VIF_IDX          1
+#define AML_P2P_VIF_IDX         1
+#define AML_P2P_DEVICE_VIF_IDX  2
+
 enum wifi_module_sn {
       MODULE_ITON = 0X1,
       MODULE_AMPAK,
@@ -900,7 +906,9 @@ struct aml_hw {
     struct urb *g_urb;
     struct usb_ctrlrequest *g_cr;
     unsigned char *g_buffer;
-
+    //for get link loss stats and scan null or not
+    unsigned char sta_stats;
+    unsigned char scan_cnt;
     u8 la_enable;
     // Debug FS and stats
     struct aml_debugfs debugfs;

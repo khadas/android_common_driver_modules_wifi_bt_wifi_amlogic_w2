@@ -1198,22 +1198,6 @@ unsigned char aml_download_wifi_fw_img(char *firmware_filename)
     release_firmware(fw);
     //FREE(kmalloc_buf, "sdio_write");
 
-    wifi_cpu_clk_switch(0x4f770033);
-    /* mac clock 160 Mhz */
-    hif_ops->hi_random_word_write(RG_INTF_MAC_CLK, 0x00030001);
-    hif_ops->hi_random_word_write(RG_AON_A37, hif_ops->hi_random_word_read(RG_AON_A37) | 0x1);
-    //cpu select riscv
-    regdata = hif_ops->hi_random_word_read(RG_WIFI_CPU_CTRL);
-    regdata |= 0x10000;
-    hif_ops->hi_random_word_write(RG_WIFI_CPU_CTRL,regdata);
-    printk("RG_WIFI_CPU_CTRL = %x redata= %x \n",RG_WIFI_CPU_CTRL,regdata);
-    //enable cpu
-    pmu_a22.data = hif_ops->bt_hi_read_word(RG_PMU_A22);
-    pmu_a22.b.rg_dev_reset_sw = 0x00;
-    hif_ops->bt_hi_write_word(RG_PMU_A22,pmu_a22.data);
-    printk("RG_PMU_A22 = %x redata= %x \n",RG_PMU_A22,pmu_a22.data);
-    printk("fw download success!\n");
-
     return true;
 }
 

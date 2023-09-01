@@ -138,7 +138,7 @@ endif
 # for host debug
 ccflags-y += -DDEBUG_CODE
 # scc mode config
-ccflags-y += -DSCC_MODE
+#ccflags-y += -DSCC_MODE
 #hostapd cannot handle sta+softap scc mode,so do sta_softap scc in fw&drv
 ccflags-y += -DSCC_STA_SOFTAP
 

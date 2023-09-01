@@ -916,7 +916,7 @@ int aml_platform_reset(struct aml_plat *aml_plat)
     printk("%s:%d regval_aml:%x, regval_cpu:%x, regval_status:%x\n", __func__, __LINE__, regval_aml, regval_cpu, regval_status);
 
     if ((regval_aml & SOFT_RESET) || (!(regval_cpu & CPU_RESET))) {
-        dev_err(aml_platform_get_dev(aml_plat), "reset: failed\n");
+        AML_INFO("reset: failed\n");
         return -EIO;
     }
 
@@ -1762,7 +1762,6 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
 
     //start firmware cpu
     AML_REG_WRITE(0x00070000, aml_plat, AML_ADDR_AON, RG_PMU_A22);
-    AML_REG_WRITE(CPU_CLK_VALUE, aml_plat, AML_ADDR_MAC_PHY, CPU_CLK_REG_ADDR);
     /* wait for chip ready */
     while (!(AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, REG_OF_VENDOR_ID)
             == W2s_VENDOR_AMLOGIC_EFUSE)) {
@@ -1773,6 +1772,17 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
             return -1;
         }
             msleep(5);
+
+#ifdef CONFIG_PT_MODE
+        {
+            static int wait_cnt = 0;
+            wait_cnt++;
+            if (wait_cnt > 200) {
+                printk("error found! start FW fail!\n");
+                return -1;
+            }
+        }
+#endif
     };
 
     //printk("%s:%d, value %x", __func__, __LINE__, readl(aml_plat->get_address(aml_plat, AML_ADDR_MAC_PHY, 0x00a070b4)));
@@ -2175,6 +2185,7 @@ void aml_platform_off(struct aml_hw *aml_hw, void **config)
             FREE(aml_hw->g_cr, "fw_stat");
         }
         if (aml_hw->g_urb) {
+            usb_kill_urb(aml_hw->g_urb);
             usb_free_urb(aml_hw->g_urb);
         }
     }

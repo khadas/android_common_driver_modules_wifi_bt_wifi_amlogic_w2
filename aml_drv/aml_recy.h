@@ -67,6 +67,7 @@ struct aml_recy {
    /* AML_RECY_x flags */
     u32 flags;
     u8 reconnect_rest;
+    u32 recy_request;
     struct aml_hw *aml_hw;
     struct aml_recy_assoc_info assoc_info;
     struct aml_recy_ap_info ap_info;

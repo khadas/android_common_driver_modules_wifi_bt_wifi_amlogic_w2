@@ -289,6 +289,32 @@ int aml_cfgfile_parse(struct aml_hw *aml_hw, struct aml_cfgfile *cfg)
     return 0;
 }
 
+int aml_get_mac_addr_from_conftxt(unsigned int *efuse_data_l, unsigned int *efuse_data_h)
+{
+    int ret = -1;
+    const u8 *tag_ptr;
+    u8 fbuf[AML_CFGFILE_FBUF_MAXLEN] = {0};
+    const char *path = AML_CFGFILE_DEFAULT_PATH;
+
+    ret = aml_cfgfile_retrieve(path, fbuf, AML_CFGFILE_FBUF_MAXLEN);
+    if (ret >= AML_CFGFILE_FBUF_MAXLEN) {
+        AML_INFO("retrieve file data error\n");
+        return -1;
+    }
+
+    tag_ptr = aml_cfgfile_find_tag(fbuf, strlen(fbuf),
+            "VIF0_MACADDR=", strlen("00:00:00:00:00:00"));
+
+    if (tag_ptr != NULL)
+    {
+        *efuse_data_l = (simple_strtoul(tag_ptr + 6, NULL, 16) << 24) | (simple_strtoul(tag_ptr + 9, NULL, 16) << 16)
+                        | (simple_strtoul(tag_ptr + 12, NULL, 16) << 8) | simple_strtoul(tag_ptr + 15, NULL, 16);
+        *efuse_data_h = (simple_strtoul(tag_ptr, NULL, 16) << 8) | (simple_strtoul(tag_ptr + 3, NULL, 16));
+    }
+
+    return 0;
+}
+
 int aml_cfgfile_parse_phy(struct aml_hw *aml_hw, const char *filename,
         struct aml_cfgfile_phy *cfg, int path)
 {

@@ -118,7 +118,8 @@ static inline bool is_non_blocking_msg(int id)
 
 bool aml_msg_send_mtheod(int id)
 {
-    return ((id == ME_TRAFFIC_IND_REQ));
+    return ((id == ME_TRAFFIC_IND_REQ) ||
+        (id == SM_EXTERNAL_AUTH_REQUIRED_RSP));
 }
 
 
@@ -415,7 +416,12 @@ static int aml_send_msg(struct aml_hw *aml_hw, const void *msg_params,
     }
 #endif
     if ((aml_hw->state > WIFI_SUSPEND_STATE_NONE || g_pci_shutdown) && (*(msg->param) != MM_SUB_SET_SUSPEND_REQ)
-        && (*(msg->param) != MM_SUB_SCANU_CANCEL_REQ)) {
+        && (*(msg->param) != MM_SUB_SCANU_CANCEL_REQ)
+#ifdef CONFIG_AML_RECOVERY
+        && (!aml_recy_flags_chk(AML_RECY_STATE_ONGOING))
+#endif
+
+    ) {
         printk("driver in suspend, cmd not allow to send, id:%d,aml_hw->state:%d g_pci_shutdown:%d\n",
             msg->id, aml_hw->state, g_pci_shutdown);
         kfree(msg);
