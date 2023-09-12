@@ -21,7 +21,8 @@ static struct aml_android_cmd aml_android_cmd_tbl[] = {
     AML_ANDROID_CMD(CMDID_P2P_SET_NOA, "P2P_SET_NOA"),
     AML_ANDROID_CMD(CMDID_P2P_GET_NOA, "P2P_GET_NOA"),
     AML_ANDROID_CMD(CMDID_P2P_SET_PS, "P2P_SET_PS"),
-    AML_ANDROID_CMD(CMDID_SET_AP_WPS_P2P_IE, "SET_AP_WPS_P2P_IE")
+    AML_ANDROID_CMD(CMDID_SET_AP_WPS_P2P_IE, "SET_AP_WPS_P2P_IE"),
+    AML_ANDROID_CMD(CMDID_BTCOEXSCAN, "BTCOEXSCAN"),
 };
 
 static int aml_android_cmdstr2id(char *cmdstr)

@@ -69,12 +69,15 @@ static void aml_rx_statistic(struct aml_hw *aml_hw, struct hw_rxhdr *hw_rxhdr,
     struct aml_vif *aml_vif;
     struct aml_rx_rate_stats *rate_stats = &sta->stats.rx_rate;
     struct rx_vector_1 *rxvect = &hw_rxhdr->hwvect.rx_vect1;
-    int mpdu, ampdu, mpdu_prev, rate_idx;
+    unsigned int mpdu, ampdu, mpdu_prev, rate_idx;
 
     /* update ampdu rx stats */
     mpdu = hw_rxhdr->hwvect.mpdu_cnt;
     ampdu = hw_rxhdr->hwvect.ampdu_cnt;
     mpdu_prev = stats->ampdus_rx_map[ampdu];
+
+	if (mpdu_prev > IEEE80211_MAX_AMPDU_BUF)
+        mpdu_prev = mpdu;
 
     /* work-around, for MACHW that incorrectly return 63 for last MPDU of A-MPDU or S-MPDU */
     if (mpdu == 63) {

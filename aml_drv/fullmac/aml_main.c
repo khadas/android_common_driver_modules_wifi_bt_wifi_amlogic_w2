@@ -5737,6 +5737,7 @@ static int aml_hwctx_buf_init(struct aml_hw *aml_hw)
         AML_INFO("Failed to alloc sta table");
         return -1;
     }
+    memset(aml_hw->sta_table,0,buf_size);
 
 #ifdef CONFIG_AML_PREALLOC_BUF_STATIC
     aml_hw->rxbufs = (struct aml_ipc_buf *)aml_prealloc_get(PREALLOC_BUF_TYPE_RX,

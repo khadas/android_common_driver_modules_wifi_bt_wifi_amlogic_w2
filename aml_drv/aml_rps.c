@@ -216,7 +216,8 @@ int aml_rps_dev_flow_table_enable(struct net_device *net)
 
 static int aml_rps_sock_flow_sysctl_set(char *buffer)
 {
-    unsigned int orig_size, size;
+    unsigned int orig_size;
+	unsigned long size = 0;
     int ret = 0, i;
     struct rps_sock_flow_table *orig_sock_table = NULL, *sock_table = NULL;
     static DEFINE_MUTEX(sock_flow_mutex);
