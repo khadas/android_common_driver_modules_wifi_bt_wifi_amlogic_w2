@@ -1,4 +1,4 @@
-AML_VERS_NUM=v1.5.5_20231012-w2p driver:0179190a49ff4de25288dd7c101e9d0e7daf2c7c
+AML_VERS_NUM=v1.6.0_20231008-w2ps driver:beda4cf8a6de13e9965149cf7527141baec80fcd
 #KERNELDIR=/usr/lib/modules/5.8.0-63-generic/build
 PWD=$(shell pwd)
 ifeq ($(ARCH),)
@@ -80,8 +80,8 @@ CONFIG_AML_P2P_DEBUGFS ?= y
 # Need open it when use FPGA pcie version
 CONFIG_AML_FPGA_PCIE ?= n
 
-# Need close it when the vendor/device id is written to efuse
-CONFIG_AML_PLATFORM_AH212 ?= y
+# Amlogic specified android(/w Kernel) platform depends
+CONFIG_AML_PLATFORM_ANDROID ?= y
 
 # Support to use preallocing static buffer for wlan driver reloadable
 CONFIG_AML_PREALLOC_BUF_STATIC ?= y
@@ -119,7 +119,7 @@ subdir-ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_AML_DEBUGFS
 subdir-ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_AML_UM_HELPER_DFLT=\"$(CONFIG_AML_UM_HELPER_DFLT)\"
 subdir-ccflags-$(CONFIG_AML_P2P_DEBUGFS) += -DCONFIG_AML_P2P_DEBUGFS
 subdir-ccflags-$(CONFIG_AML_FPGA_PCIE) += -DCONFIG_AML_FPGA_PCIE
-subdir-ccflags-$(CONFIG_AML_PLATFORM_AH212) += -DCONFIG_AML_PLATFORM_AH212
+subdir-ccflags-$(CONFIG_AML_PLATFORM_ANDROID) += -DCONFIG_AML_PLATFORM_ANDROID
 subdir-ccflags-$(CONFIG_AML_PREALLOC_BUF_STATIC) += -DCONFIG_AML_PREALLOC_BUF_STATIC
 subdir-ccflags-$(CONFIG_AML_PREALLOC_BUF_SKB) += -DCONFIG_AML_PREALLOC_BUF_SKB
 subdir-ccflags-$(CONFIG_AML_WFA_CERT_MODE) += -DCONFIG_AML_WFA_CERT_MODE

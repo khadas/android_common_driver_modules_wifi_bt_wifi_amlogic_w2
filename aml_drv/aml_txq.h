@@ -373,19 +373,19 @@ static inline bool aml_txq_is_ready_for_push(struct aml_txq *txq)
 #ifdef CONFIG_MAC80211_TXQ
 #define foreach_sta_txq(sta, txq, tid, aml_hw)                         \
     for (tid = 0, txq = aml_txq_sta_get(sta, 0);                       \
-         tid < NX_NB_TXQ_PER_STA;                                       \
+         txq && tid < NX_NB_TXQ_PER_STA;                                       \
          tid++, txq = aml_txq_sta_get(sta, tid))
 
 #elif defined(CONFIG_AML_SOFTMAC)
 #define foreach_sta_txq(sta, txq, tid, aml_hw)                         \
     for (tid = 0, txq = &sta->txqs[0];                                  \
-         tid < NX_NB_TXQ_PER_STA;                                       \
+         txq && tid < NX_NB_TXQ_PER_STA;                                       \
          tid++, txq++)
 
 #else /* CONFIG_AML_FULLMAC */
 #define foreach_sta_txq(sta, txq, tid, aml_hw)                          \
     for (tid = 0, txq = aml_txq_sta_get(sta, 0, aml_hw);               \
-         tid < (is_multicast_sta(sta->sta_idx) ? 1 : NX_NB_TXQ_PER_STA); \
+         txq && tid < (is_multicast_sta(sta->sta_idx) ? 1 : NX_NB_TXQ_PER_STA); \
          tid++, txq++)
 
 #define foreach_sta_txq_safe(sta, txq, tid, aml_hw)                          \

@@ -55,6 +55,15 @@ LA ON: rx buffer large size 0x30000, small size: 0x20000
 #define USB_RX_BUFFER_LEN_SMALL              (USB_RXBUF_END_ADDR_SMALL - RXBUF_START_ADDR)
 #define USB_RX_BUFFER_LEN_LARGE              (USB_RXBUF_END_ADDR_LARGE - RXBUF_START_ADDR)
 
+#define SDIO_USB_EXTEND_E2A_IRQ_STATUS CMD_DOWN_FIFO_FDN_ADDR
+
+/* SDIO USB E2A EXTEND IRQ TYPE */
+enum sdio_usb_e2a_irq_type {
+    DYNAMIC_BUF_HOST_TX_STOP  = 1,
+    DYNAMIC_BUF_HOST_TX_START,
+    DYNAMIC_BUF_NOTIFY_FW_TX_STOP,
+    DYNAMIC_BUF_LA_SWITCH_FINSH,
+};
 
 struct sdio_buffer_control
 {
@@ -66,6 +75,7 @@ struct sdio_buffer_control
     unsigned int tx_rate;
     unsigned int rx_rate;
     unsigned int buffer_status;
+    unsigned int hwwr_switch_addr;
 };
 extern struct sdio_buffer_control sdio_buffer_ctrl;
 
@@ -73,15 +83,22 @@ extern struct sdio_buffer_control sdio_buffer_ctrl;
 #define BUFFER_RX_USED             BIT(1)
 #define BUFFER_TX_NEED_ENLARGE     BIT(2)
 #define BUFFER_RX_NEED_ENLARGE     BIT(3)
-#define BUFFER_RX_ENLARGED         BIT(4)
-#define BUFFER_RX_REDUCED          BIT(5)
-#define BUFFER_RX_HOST_NOTIFY      BIT(6)
-#define BUFFER_RX_NO_UPDATE_HW_RD  BIT(7)
-#define BUFFER_RX_ENLARGE_FINSH    BIT(8)
-#define BUFFER_RX_FORCE_REDUCE     BIT(9)
-#define BUFFER_RX_FORCE_ENLARGE    BIT(10)
-#define BUFFER_RX_FORBID_REDUCE    BIT(11)
-#define BUFFER_RX_FORBID_ENLARGE   BIT(12)
+#define BUFFER_RX_REDUCED          BIT(4)
+#define BUFFER_RX_HOST_NOTIFY      BIT(5)
+#define BUFFER_RX_REDUCE_FLAG      BIT(6)
+#define BUFFER_RX_ENLARGE_FINSH    BIT(7)
+#define BUFFER_RX_FORCE_REDUCE     BIT(8)
+#define BUFFER_RX_FORCE_ENLARGE    BIT(9)
+#define BUFFER_RX_FORBID_REDUCE    BIT(10)
+#define BUFFER_RX_FORBID_ENLARGE   BIT(11)
+#define BUFFER_RX_WAIT_READ_DATA   BIT(12)
+#define BUFFER_TX_STOP_FLAG        BIT(13)
+#define BUFFER_RX_ENLARGE_FLAG     BIT(14)
+
+#define RX_ENLARGE_READ_RX_DATA_FINSH BIT(25)
+#define HOST_RXBUF_ENLARGE_FINSH      BIT(26)
+#define RX_REDUCE_READ_RX_DATA_FINSH  BIT(27)
+#define HOST_RXBUF_REDUCE_FINSH       BIT(28)
 
 #define CHAN_SWITCH_IND_MSG_ADDR (0xa17fc0)
 #define SDIO_IRQ_E2A_CHAN_SWITCH_IND_MSG           CO_BIT(15)

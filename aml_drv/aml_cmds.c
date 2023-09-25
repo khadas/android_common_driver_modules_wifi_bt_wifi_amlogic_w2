@@ -37,11 +37,13 @@ static void cmd_dump(const struct aml_cmd *cmd)
 }
 
 #define CMD_PRINT(cmd) do { \
-    printk("[%-20.20s %4d] cmd tkn[%d]  flags:%04x  result:%3d  cmd:%4d-%-24s - reqcfm(%4d-%-s)\n", \
-           __func__, __LINE__,  \
-           cmd->tkn, cmd->flags, cmd->result, cmd->id, AML_ID2STR(cmd->id), \
-           cmd->reqid, (((cmd->flags & AML_CMD_FLAG_REQ_CFM) && \
-           (cmd->reqid != (lmac_msg_id_t)-1)) ? AML_ID2STR(cmd->reqid) : "none")); \
+    if (cmd->id != ME_TRAFFIC_IND_REQ) { \
+        printk("[%-20.20s %4d] cmd tkn[%d]  flags:%04x  result:%3d  cmd:%4d-%-24s - reqcfm(%4d-%-s)\n", \
+               __func__, __LINE__,  \
+               cmd->tkn, cmd->flags, cmd->result, cmd->id, AML_ID2STR(cmd->id), \
+               cmd->reqid, (((cmd->flags & AML_CMD_FLAG_REQ_CFM) && \
+               (cmd->reqid != (lmac_msg_id_t)-1)) ? AML_ID2STR(cmd->reqid) : "none")); \
+    } \
 } while (0);
 
 /**
@@ -117,6 +119,8 @@ int aml_msg_task(void *data)
 /**
  *
  */
+extern struct aml_bus_state_detect bus_state_detect;
+unsigned char g_fw_recovery_flag = 0;
 static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
 {
     struct aml_hw *aml_hw = container_of(cmd_mgr, struct aml_hw, cmd_mgr);
@@ -126,7 +130,7 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
     unsigned long tout = msecs_to_jiffies(AML_80211_CMD_TIMEOUT_MS * (cmd_mgr->queue_sz + 1));
 #endif
     long ret;
-    AML_DBG(AML_FN_ENTRY_STR);
+
     trace_msg_send(cmd->id);
 
     spin_lock_bh(&cmd_mgr->lock);
@@ -209,7 +213,6 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
 
 
     if (!(cmd_flags & AML_CMD_FLAG_NONBLOCK)) {
-        CMD_PRINT(cmd);
         #ifdef CONFIG_AML_FHOST
         if (wait_for_completion_killable(&cmd->complete)) {
             if (cmd->flags & AML_CMD_FLAG_WAIT_ACK)
@@ -237,6 +240,9 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
         }
         if (!ret || tout/5 == 0) {
             u32 i;
+#ifdef CONFIG_PT_MODE
+            static u8 g_fw_recovery_ongoing = 0;
+#endif
             struct aml_vif *vif = NULL;
             for (i = 0; i < NX_VIRT_DEV_MAX; i++) {
                 if (aml_hw->vif_table[i] != NULL) {
@@ -253,12 +259,22 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
                 cmd_complete(cmd_mgr, cmd);
             }
             spin_unlock_bh(&cmd_mgr->lock);
-            if (aml_bus_type == PCIE_MODE) {
-                if (vif != NULL) {
-                    for (i = 0; i < CMD_CRASH_FW_PC_NUM; i++) {
-                        AML_INFO("fw_pc:%08x\n", aml_read_reg(vif->ndev, AML_FW_PC_POINTER));
-                        mdelay(100);
+#ifdef CONFIG_PT_MODE
+            if (aml_bus_type == SDIO_MODE) {
+                if (bus_state_detect.is_drv_load_finished) {
+                    if (!g_fw_recovery_ongoing) {
+                        g_fw_recovery_ongoing = 1;
+                        g_fw_recovery_flag = 1;
+                        aml_recy_fw_reload_for_usb_sdio(aml_hw);
+                        g_fw_recovery_ongoing = 0;
                     }
+                }
+            }
+#endif
+            if (vif != NULL) {
+                for (i = 0; i < CMD_CRASH_FW_PC_NUM; i++) {
+                    AML_INFO("fw_pc:%08x\n", aml_read_reg(vif->ndev, AML_FW_PC_POINTER));
+                    mdelay(100);
                 }
             }
         }
@@ -277,7 +293,8 @@ static int cmd_mgr_llind(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
     struct aml_hw *aml_hw = container_of(cmd_mgr, struct aml_hw, cmd_mgr);
     bool defer_push = true;
 
-    CMD_PRINT(cmd);
+    if (aml_bus_type != USB_MODE)
+        CMD_PRINT(cmd);
     aml_spin_lock(&cmd_mgr->lock);
     list_for_each_entry(cur, &cmd_mgr->cmds, list) {
         if (!acked) {
@@ -358,7 +375,8 @@ static int cmd_mgr_msgind(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd_e2amsg *ms
     list_for_each_entry(cmd, &cmd_mgr->cmds, list) {
         if (cmd->reqid == msg->id &&
             (cmd->flags & AML_CMD_FLAG_WAIT_CFM)) {
-            CMD_PRINT(cmd);
+            if (aml_bus_type != USB_MODE)
+                CMD_PRINT(cmd);
             if (!cmd_mgr_run_callback(aml_hw, cmd, msg, cb)) {
                 found = true;
                 cmd->flags &= ~AML_CMD_FLAG_WAIT_CFM;

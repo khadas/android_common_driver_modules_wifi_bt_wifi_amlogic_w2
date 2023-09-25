@@ -28,7 +28,7 @@ extern unsigned char wifi_in_insmod;
 extern unsigned char wifi_in_rmmod;
 extern unsigned char  chip_en_access;
 extern unsigned char wifi_sdio_shutdown;
-
+extern struct aml_pm_type g_wifi_pm;
 static DEFINE_MUTEX(wifi_bt_sdio_mutex);
 static DEFINE_MUTEX(wifi_ipc_mutex);
 
@@ -408,6 +408,13 @@ void aml_bt_sdio_read_sram(unsigned char *buf, unsigned char *addr, SYS_TYPE len
         printk("%s: sdio bus is recovery ongoing, can not read/write\n", __func__);
         return;
     }
+#ifdef CONFIG_PM
+    if (atomic_read(&g_wifi_pm.bus_suspend_cnt)) {
+        ERROR_DEBUG_OUT("bus suspend (%d) ongoing, do not read/write now!\n",
+            atomic_read(&g_wifi_pm.bus_suspend_cnt));
+        return;
+    }
+#endif
 
     aml_sdio_bottom_read(SDIO_FUNC7, ((SYS_TYPE)addr & SDIO_ADDR_MASK),
         buf, len, (len > 8 ? SDIO_OPMODE_INCREMENT : SDIO_OPMODE_FIXED));
@@ -420,6 +427,13 @@ void aml_bt_sdio_write_sram(unsigned char *buf, unsigned char *addr, SYS_TYPE le
         printk("%s: sdio bus is recovery ongoing, can not read/write\n", __func__);
         return;
     }
+#ifdef CONFIG_PM
+    if (atomic_read(&g_wifi_pm.bus_suspend_cnt)) {
+        ERROR_DEBUG_OUT("bus suspend (%d) ongoing, do not read/write now!\n",
+            atomic_read(&g_wifi_pm.bus_suspend_cnt));
+        return;
+    }
+#endif
 
     aml_sdio_bottom_write(SDIO_FUNC7, ((SYS_TYPE)addr & SDIO_ADDR_MASK),
         buf, len, (len > 8 ? SDIO_OPMODE_INCREMENT : SDIO_OPMODE_FIXED));
@@ -440,6 +454,13 @@ unsigned int aml_bt_hi_read_word(unsigned int addr)
         printk("%s: sdio bus is recovery ongoing, can not read/write\n", __func__);
         return regdata;
     }
+#ifdef CONFIG_PM
+    if (atomic_read(&g_wifi_pm.bus_suspend_cnt)) {
+        ERROR_DEBUG_OUT("bus suspend (%d) ongoing, do not read/write now!\n",
+            atomic_read(&g_wifi_pm.bus_suspend_cnt));
+        return regdata;
+    }
+#endif
 
     reg_tmp = aml_sdio_self_define_domain_read32( RG_SDIO_IF_MISC_CTRL);
 
@@ -465,6 +486,13 @@ void aml_bt_hi_write_word(unsigned int addr,unsigned int data)
         printk("%s: sdio bus is recovery ongoing, can not read/write\n", __func__);
         return;
     }
+#ifdef CONFIG_PM
+    if (atomic_read(&g_wifi_pm.bus_suspend_cnt)) {
+        ERROR_DEBUG_OUT("bus suspend (%d) ongoing, do not read/write now!\n",
+            atomic_read(&g_wifi_pm.bus_suspend_cnt));
+        return;
+    }
+#endif
     /*
      * make sure function 5 section address-mapping feature is disabled,
      * when this feature is disabled,

@@ -9,10 +9,14 @@ char *bus_type = "pci";
 unsigned int aml_bus_type;
 unsigned char wifi_drv_rmmod_ongoing = 0;
 struct aml_bus_state_detect bus_state_detect;
+struct aml_pm_type g_wifi_pm = {0};
+
 EXPORT_SYMBOL(bus_state_detect);
 EXPORT_SYMBOL(wifi_drv_rmmod_ongoing);
 EXPORT_SYMBOL(bus_type);
 EXPORT_SYMBOL(aml_bus_type);
+EXPORT_SYMBOL(g_wifi_pm);
+
 extern int aml_usb_insmod(void);
 extern int aml_usb_rmmod(void);
 extern int aml_sdio_insmod(void);
@@ -101,10 +105,14 @@ int aml_bus_intf_insmod(void)
             printk("aml sdio bus init fail\n");
         }
     }
-
+    atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
+    atomic_set(&g_wifi_pm.drv_suspend_cnt, 0);
+    atomic_set(&g_wifi_pm.is_shut_down, 0);
+#ifndef CONFIG_PT_MODE
     if (aml_bus_type == SDIO_MODE) {
         aml_bus_state_detect_init();
     }
+#endif
 
     return 0;
 }
@@ -117,11 +125,15 @@ void aml_bus_intf_rmmod(void)
     } else if (strncmp(bus_type,"pci",3) == 0) {
         aml_pci_rmmod();
     }
+#ifndef CONFIG_PT_MODE
     if (aml_bus_type == SDIO_MODE) {
         aml_bus_state_detect_deinit();
     }
+#endif
     aml_deinit_wlan_mem();
 }
+
+lp_shutdown_func g_lp_shutdown_func = NULL;
 
 EXPORT_SYMBOL(aml_bus_state_detect_deinit);
 module_param(bus_type, charp,S_IRUSR | S_IRGRP | S_IROTH);
@@ -130,3 +142,5 @@ module_init(aml_bus_intf_insmod);
 module_exit(aml_bus_intf_rmmod);
 
 MODULE_LICENSE("GPL");
+
+EXPORT_SYMBOL(g_lp_shutdown_func);

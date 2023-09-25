@@ -17,4 +17,12 @@ struct aml_bus_state_detect {
   struct work_struct detect_work;
   int (*insmod_drv)(void);
 };
+
+struct aml_pm_type {
+    atomic_t bus_suspend_cnt;
+    atomic_t drv_suspend_cnt;
+    atomic_t is_shut_down;
+};
+
+typedef void (*lp_shutdown_func)(void);
 #endif

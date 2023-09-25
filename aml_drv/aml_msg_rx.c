@@ -32,13 +32,13 @@
 #include "aml_interface.h"
 #include "aml_msg_rx.h"
 #include "aml_scc.h"
+#include "aml_recy.h"
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 41) && defined (CONFIG_AMLOGIC_KERNEL_VERSION))
 #include <linux/upstream_version.h>
 #endif
 
 extern bool pt_mode;
-
 
 static int aml_freq_to_idx(struct aml_hw *aml_hw, int freq)
 {
@@ -722,7 +722,9 @@ void aml_sta_notify_csa_ch_switch(struct aml_hw *aml_hw, struct ipc_e2a_msg *msg
         }
 
         if (AML_VIF_TYPE(vif) == NL80211_IFTYPE_STATION) {
+#ifdef CONFIG_AML_RECOVERY
             aml_recy_flags_set(AML_RECY_CHECK_SCC);
+#endif
             aml_check_scc();
         }
     }
@@ -841,8 +843,6 @@ static inline int aml_rx_scan_done_ind(struct aml_hw *aml_hw,
  * Messages from SCANU task
  **************************************************************************/
 #ifdef CONFIG_AML_FULLMAC
-extern struct aml_recy *aml_recy;
-
 static inline int aml_rx_scanu_start_cfm(struct aml_hw *aml_hw,
                                           struct aml_cmd *cmd,
                                           struct ipc_e2a_msg *msg)
@@ -864,12 +864,16 @@ static inline int aml_rx_scanu_start_cfm(struct aml_hw *aml_hw,
 
     aml_hw->scan_request = NULL;
 
-    if (aml_hw->sta_stats && (!aml_hw->scan_cnt)) {
-        aml_recy->recy_request = 1;
-        aml_hw->sta_stats = 0;
-        aml_hw->scan_cnt= 0;
-        AML_INFO("********* receive recovery request*********");
+#ifdef CONFIG_AML_RECOVERY
+    if (aml_recy && aml_recy->link_loss.is_enabled
+        && aml_recy->link_loss.is_happened
+        && !aml_recy->link_loss.scan_result_cnt) {
+        aml_recy->link_loss.is_requested = 1;
+        aml_recy->link_loss.is_happened = 0;
+        aml_recy->link_loss.scan_result_cnt = 0;
     }
+#endif
+
     return 0;
 }
 
@@ -976,8 +980,13 @@ static inline int aml_pcie_rx_scanu_result_ind(struct aml_hw *aml_hw,
     }
     */
     //AML_DBG(AML_FN_ENTRY_STR);
-    if (aml_hw->sta_stats)
-        aml_hw->scan_cnt++;
+
+#ifdef CONFIG_AML_RECOVERY
+    if (aml_recy && aml_recy->link_loss.is_enabled
+        && aml_recy->link_loss.is_happened) {
+        aml_recy->link_loss.scan_result_cnt++;
+    }
+#endif
 
     chan = ieee80211_get_channel(aml_hw->wiphy, ind->center_freq);
 
@@ -1372,11 +1381,16 @@ static inline int aml_rx_sm_disconnect_ind(struct aml_hw *aml_hw,
         return 0;
 
     AML_INFO("vif_idx:%d, reason_code: %d, reassoc: %d", aml_vif->vif_index, ind->reason_code, ind->reassoc);
-    /* 40 for MAC_RS_LINK_LOSS_DISCONNECT */
-    if (ind->reason_code == 40) {
-        aml_hw->sta_stats = 1;
+
+#ifdef CONFIG_AML_RECOVERY
+    if (aml_recy && aml_recy->link_loss.is_enabled
+        && ind->reason_code == AML_RECY_REASON_CODE_LINK_LOSS) {
+        AML_INFO("link loss disconnect happen, statistics scan and evaluates for recovery");
+        aml_recy->link_loss.is_happened = true;
         ind->reason_code = 1;
     }
+#endif
+
     dev = aml_vif->ndev;
 
     /* if vif is not up, aml_close has already been called */
@@ -1406,7 +1420,7 @@ static inline int aml_rx_sm_disconnect_ind(struct aml_hw *aml_hw,
 #ifndef CONFIG_AML_DEBUGFS
         aml_dealloc_global_rx_rate(aml_hw, aml_vif->sta.ap);
 #endif
-        AML_INFO("sta assoc ap info was cleared,sta_idx:%d", aml_vif->sta.ap->sta_idx);
+        AML_INFO("sta assoc ap info was cleared, sta_idx:%d", aml_vif->sta.ap->sta_idx);
         spin_lock_bh(&aml_vif->ap_lock);
         aml_vif->sta.ap->valid = false;
         aml_vif->sta.ap = NULL;

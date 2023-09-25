@@ -25,6 +25,7 @@ struct aml_plat_pci *g_aml_plat_pci;
 unsigned char g_pci_driver_insmoded;
 unsigned char g_pci_after_probe;
 unsigned char g_pci_shutdown;
+extern struct aml_pm_type g_wifi_pm;
 
 uint32_t aml_pci_read_for_bt(int base, u32 offset);
 
@@ -94,6 +95,18 @@ bool g_pcie_suspend = 0;
 static int aml_pci_suspend(struct pci_dev *pdev, pm_message_t state)
 {
     int ret;
+    int cnt = 0;
+
+    while (atomic_read(&g_wifi_pm.drv_suspend_cnt) == 0)
+    {
+        msleep(50);
+        cnt++;
+        if (cnt > 40)
+        {
+            printk("wifi suspend fail \n");
+            return -1;
+        }
+    }
     g_pcie_suspend = 1;
     printk("%s\n", __func__);
     //aml_suspend_dump_cfgregs(bus, "BEFORE_EP_SUSPEND");
@@ -104,6 +117,8 @@ static int aml_pci_suspend(struct pci_dev *pdev, pm_message_t state)
     if (ret) {
         ERROR_DEBUG_OUT("pci_set_power_state error %d\n", ret);
     }
+    atomic_set(&g_wifi_pm.bus_suspend_cnt, 1);
+
     printk("%s ok exit\n", __func__);
     //aml_suspend_dump_cfgregs(bus, "AFTER_EP_SUSPEND");
     return ret;
@@ -137,27 +152,30 @@ static int aml_pci_resume(struct pci_dev *pdev)
     g_pcie_suspend = 0;
     printk("%s ok exit\n", __func__);
 out:
+    atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
     return err;
 }
 
 extern uint32_t aml_pci_read_for_bt(int base, u32 offset);
 extern void aml_pci_write_for_bt(u32 val, int base, u32 offset);
-
-void aml_wifi_shutdown(void)
-{
-    // Notify fw to enter shutdown mode
-    unsigned int reg_data;
-
-    reg_data = aml_pci_read_for_bt(AML_ADDR_AON, RG_AON_A55);
-    reg_data |= BIT(28);
-    aml_pci_write_for_bt(reg_data, AML_ADDR_AON, RG_AON_A55);
-}
+extern lp_shutdown_func g_lp_shutdown_func;
 
 static void aml_pci_shutdown(struct pci_dev *pdev)
 {
     g_pci_shutdown = 1;
-    aml_wifi_shutdown();
-    if (pci_is_enabled(pdev)) {
+
+    // Notify fw to enter shutdown mode
+    if (g_lp_shutdown_func != NULL)
+    {
+        g_lp_shutdown_func();
+    }
+
+    //notify fw shutdown
+    //notify bt wifi will go shutdown
+    aml_pci_write_for_bt(aml_pci_read_for_bt(AML_ADDR_AON, RG_AON_A55) | BIT(28), AML_ADDR_AON, RG_AON_A55);
+
+    if (pci_is_enabled(pdev))
+    {
         msleep(100);
         pci_disable_device(pdev);
     }

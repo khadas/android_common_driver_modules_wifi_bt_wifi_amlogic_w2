@@ -315,6 +315,7 @@ struct aml_vif {
     u8 is_disconnect;
     spinlock_t ap_lock;
     spinlock_t sta_lock; // for AP or GO interface
+    unsigned char ipv4_addr[IPV4_ADDR_LEN];
     union
     {
         struct
@@ -633,6 +634,7 @@ enum suspend_ind_state {
 #define WOW_FILTER_OPTION_GTK_ERROR BIT(6)
 struct tx_task_param {
     u32 tx_page_free_num;
+    u32 tx_page_tot_num;
     u32 tot_page_num;
     u32 mpdu_num;
     u8  tx_page_once;
@@ -779,6 +781,8 @@ struct aml_hw {
     uint32_t fw_new_pos;
     uint32_t fw_buf_pos;
     uint32_t last_fw_pos;
+    uint32_t dynabuf_stop_tx;
+    uint32_t send_tx_stop_to_fw;
     uint8_t *host_buf;
     uint8_t *host_buf_start;
     uint8_t *host_buf_end;
@@ -906,9 +910,6 @@ struct aml_hw {
     struct urb *g_urb;
     struct usb_ctrlrequest *g_cr;
     unsigned char *g_buffer;
-    //for get link loss stats and scan null or not
-    unsigned char sta_stats;
-    unsigned char scan_cnt;
     u8 la_enable;
     // Debug FS and stats
     struct aml_debugfs debugfs;

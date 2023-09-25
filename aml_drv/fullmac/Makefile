@@ -46,7 +46,7 @@ w2-y := aml_msg_tx.o        \
         aml_utils.o         \
         aml_cmds.o          \
         aml_irqs.o          \
-        aml_cfgfile.o       \
+        aml_cfg.o           \
         aml_strs.o          \
         aml_rx.o            \
         aml_tx.o            \
@@ -137,8 +137,10 @@ endif
 
 # for host debug
 ccflags-y += -DDEBUG_CODE
-# scc mode config
-#ccflags-y += -DSCC_MODE
+# supplicant scc mode config
+#ccflags-y += -DSUPPLICANT_SCC_MODE
+# drv scc mode for p2p
+ccflags-y += -DDRV_P2P_SCC_MODE
 #hostapd cannot handle sta+softap scc mode,so do sta_softap scc in fw&drv
 ccflags-y += -DSCC_STA_SOFTAP
 

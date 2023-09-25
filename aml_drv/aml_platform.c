@@ -1552,7 +1552,7 @@ void usb_stor_control_msg(struct aml_hw *aml_hw, struct urb *urb)
     aml_hw->g_cr->bRequest = CMD_USB_IRQ;
     aml_hw->g_cr->wValue = 0;
     aml_hw->g_cr->wIndex = 0;
-    aml_hw->g_cr->wLength = cpu_to_le16(sizeof(int));
+    aml_hw->g_cr->wLength = cpu_to_le16(2 * sizeof(int));
 
     /*fill a control urb*/
     usb_fill_control_urb(urb,
@@ -1561,7 +1561,7 @@ void usb_stor_control_msg(struct aml_hw *aml_hw, struct urb *urb)
         (unsigned char *)(aml_hw->g_cr),
         aml_hw->g_buffer,
         2 * sizeof(int),
-        (usb_complete_t)aml_irq_usb_hdlr,
+        aml_irq_usb_hdlr,
         aml_hw);
 
     /*submit urb*/
@@ -1702,6 +1702,10 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
     if (aml_plat->enabled)
         return 0;
 
+    if (aml_bus_type == SDIO_MODE) {
+        aml_sdio_calibration();
+    }
+
     rg_dpll_a6.data = AML_REG_READ(aml_plat, AML_ADDR_AON, RG_DPLL_A6);
 
     /*bpll not init*/
@@ -1749,7 +1753,6 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
         if ((ret = start_wifi()))
             return ret;
     } else {
-        aml_sdio_calibration();
         aml_download_wifi_fw_img(AML_MAC_FW_SDIO);
     }
 
@@ -1779,6 +1782,7 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
             wait_cnt++;
             if (wait_cnt > 200) {
                 printk("error found! start FW fail!\n");
+                wait_cnt = 0;
                 return -1;
             }
         }
@@ -1869,9 +1873,11 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
     if (aml_bus_type == SDIO_MODE) {
 #ifdef CONFIG_AML_LA
          aml_hw->g_tx_param.tx_page_free_num = SDIO_TX_PAGE_NUM_LARGE; /* for tx large */
+         aml_hw->g_tx_param.tx_page_tot_num = SDIO_TX_PAGE_NUM_LARGE;
         //aml_hw->g_tx_param.tx_page_free_num = 64; /* for rx large */
 #else
          aml_hw->g_tx_param.tx_page_free_num = SDIO_TX_PAGE_NUM_SMALL;
+         aml_hw->g_tx_param.tx_page_tot_num = SDIO_TX_PAGE_NUM_SMALL;
 #endif
         aml_amsdu_buf_list_init(aml_hw);
         aml_sdio_scatter_reg_init(aml_hw);
@@ -1885,6 +1891,7 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
         aml_hw->plat->usb_dev = g_udev;
         usb_stor_control_msg(aml_hw, aml_hw->g_urb);
         aml_hw->g_tx_param.tx_page_free_num = USB_TX_PAGE_NUM_SMALL;
+        aml_hw->g_tx_param.tx_page_tot_num = USB_TX_PAGE_NUM_SMALL;
     }
     aml_plat->enabled = true;
     aml_scatter_req_init(aml_hw);
@@ -2365,7 +2372,7 @@ static int aml_pci_platform_enable(struct aml_hw *aml_hw)
 #ifdef CONFIG_PT_MODE
         dev_set_drvdata(&func->dev, aml_hw);
         sdio_claim_host(func);
-        ret = sdio_claim_irq(func, aml_irq_sdio_hdlr_for_pt);
+        sdio_claim_irq(func, aml_irq_sdio_hdlr_for_pt);
         sdio_release_host(func);
         printk("%s(%d) claim_irq ret=%d\n",__func__,__LINE__, ret);
 #else

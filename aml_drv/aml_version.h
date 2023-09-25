@@ -6,9 +6,9 @@
 static inline void aml_print_version(void)
 {
     printk(AML_VERS_BANNER"\n");
-    printk(AML_DRIVER_COMPILE_INFO"\n");
-    printk(FIRMWARE_INFO"\n");
-    printk(COMMON_INFO"\n");
+    //printk(AML_DRIVER_COMPILE_INFO"\n");
+    //printk(FIRMWARE_INFO"\n");
+    //printk(COMMON_INFO"\n");
 }
 
 #endif /* _AML_VERSION_H_ */

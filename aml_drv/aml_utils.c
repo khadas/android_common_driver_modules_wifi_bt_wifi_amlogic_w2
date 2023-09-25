@@ -1136,6 +1136,19 @@ void aml_scatter_req_init(struct aml_hw *aml_hw)
     }
 }
 
+void aml_host_send_stop_tx_to_fw(struct aml_hw *aml_hw)
+{
+    uint32_t cmd_buf[2] = {0};
+
+    cmd_buf[0] = DYNAMIC_BUF_NOTIFY_FW_TX_STOP;
+    cmd_buf[1] = 1;
+    if (aml_bus_type == USB_MODE) {
+        aml_hw->plat->hif_ops->hi_write_sram((unsigned char*)(cmd_buf), (unsigned char *)(SYS_TYPE)(SDIO_USB_EXTEND_E2A_IRQ_STATUS), 8, USB_EP4);
+    } else if (aml_bus_type == SDIO_MODE) {
+        aml_hw->plat->hif_sdio_ops->hi_sram_write((unsigned char*)(cmd_buf), (unsigned char *)(SYS_TYPE)(SDIO_USB_EXTEND_E2A_IRQ_STATUS), 8);
+    }
+}
+
 int aml_tx_task(void *data)
 {
     struct aml_hw *aml_hw = (struct aml_hw *)data;
@@ -1179,6 +1192,19 @@ int aml_tx_task(void *data)
             break;
         }
 
+        if (aml_hw->dynabuf_stop_tx == DYNAMIC_BUF_HOST_TX_STOP) {
+            if (aml_hw->send_tx_stop_to_fw) {
+                if (aml_hw->g_tx_param.tx_page_free_num == aml_hw->g_tx_param.tx_page_tot_num) {
+                    aml_hw->send_tx_stop_to_fw = 0;
+                    aml_host_send_stop_tx_to_fw(aml_hw);
+                } else {
+                    aml_update_tx_cfm((void *)aml_hw);
+                    up(&aml_hw->aml_tx_sem);
+                }
+            }
+            continue;
+        }
+
         if (list_empty(&aml_hw->tx_desc_save)) {
             continue;
         }
@@ -1197,7 +1223,7 @@ int aml_tx_task(void *data)
                 page_num = howmanypage(frame_tot_len + SDIO_DATA_OFFSET + SDIO_FRAME_TAIL_LEN, SDIO_PAGE_LEN);
             }
 
-            if ((aml_hw->g_tx_param.tx_page_free_num > 1) && (page_num <= aml_hw->g_tx_param.tx_page_free_num)
+            if (((page_num + 1)  <= aml_hw->g_tx_param.tx_page_free_num)
                 && ((aml_hw->g_tx_param.tot_page_num + page_num <= aml_hw->g_tx_param.tx_page_once) || (aml_hw->g_tx_param.tot_page_num == 0))) {
 
                 ASSERT(aml_hw->g_tx_param.scat_req != NULL);
@@ -2230,7 +2256,7 @@ u32 aml_ieee80211_chan_to_freq(u32 chan, u32 band)
     }
 }
 
-u32 aml_ieee80211_freq_to_chan(u32 freq, u32 band)
+u8 aml_ieee80211_freq_to_chan(u32 freq, u32 band)
 {
     if (band == NL80211_BAND_5GHZ) {
         if (freq >= 4910 && freq <= 4980) {

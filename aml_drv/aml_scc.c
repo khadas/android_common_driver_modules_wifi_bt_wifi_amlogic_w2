@@ -62,6 +62,13 @@ static u32 sap_init_band;
 u32 beacon_need_update = 0;
 static u8 *scc_bcn_buf = NULL;  //used in new channel
 static u8 *scc_csa_bcn = NULL;  //used in old channel, add csa ie
+
+/*p2p related*/
+u8 g_scc_p2p_save[500] = {0,};
+u8 g_scc_p2p_len_before = 0;
+u8 g_scc_p2p_len_diff = 0;
+bool g_scc_p2p_peer_5g_support = 0;
+
 char chan_width_trace[][35] = {
     "NL80211_CHAN_WIDTH_20_NOHT",
     "NL80211_CHAN_WIDTH_20",
@@ -182,10 +189,12 @@ int aml_scc_change_beacon_ht_ie(struct wiphy *wiphy, struct net_device *dev, str
     struct aml_ipc_buf buf = {0};
     int error;
     unsigned int addr;
-    u8* tmp;
+    u8* ds_ie, *vht_ie, *ht_ie;
     u8 len;
     u8 *var_pos;
+    u32 target_freq = target_chdef.chan->center_freq;
     int var_offset = offsetof(struct ieee80211_mgmt, u.beacon.variable);
+    u8 chan_no = aml_ieee80211_freq_to_chan(target_freq, target_chdef.chan->band);
 
     // Build the beacon
     if (scc_bcn_buf == NULL) {
@@ -197,14 +206,52 @@ int aml_scc_change_beacon_ht_ie(struct wiphy *wiphy, struct net_device *dev, str
     /*change saved buffer ht INFO CHAN*/
     len = bcn->len - var_offset;
     var_pos = scc_bcn_buf + var_offset;
-    tmp = (u8*)cfg80211_find_ie(WLAN_EID_HT_OPERATION, var_pos, len);
-    if (tmp && tmp[1] >= sizeof(struct ieee80211_ht_operation)) {
-        struct ieee80211_ht_operation *htop = (void *)(tmp + 2);
-        u32 target_freq = target_chdef.chan->center_freq;
-        u8 chan_no = aml_ieee80211_freq_to_chan(target_freq, target_chdef.chan->band);
-        htop->primary_chan = chan_no;
+    /*find DS ie*/
+    ds_ie = (u8*)cfg80211_find_ie(WLAN_EID_DS_PARAMS, var_pos, len);
+    if (ds_ie && (ds_ie[1] == 1)) {
+        ds_ie[2] = chan_no;
     }
-
+    /*find HT ie*/
+    ht_ie = (u8*)cfg80211_find_ie(WLAN_EID_HT_OPERATION, var_pos, len);
+    if (ht_ie && ht_ie[1] >= sizeof(struct ieee80211_ht_operation)) {
+        struct ieee80211_ht_operation *htop = (void *)(ht_ie + 2);
+        htop->primary_chan = chan_no;
+        /*clear second channel offset,channel width*/
+        htop->ht_param &= 0xF8;
+        if (target_chdef.width >= NL80211_CHAN_WIDTH_40) {
+            htop->ht_param |= IEEE80211_HT_PARAM_CHAN_WIDTH_ANY;
+            if (target_chdef.chan->center_freq > target_chdef.center_freq1) {
+                htop->ht_param |= IEEE80211_HT_PARAM_CHA_SEC_BELOW;
+            } else if (target_chdef.chan->center_freq < target_chdef.center_freq1) {
+                htop->ht_param |= IEEE80211_HT_PARAM_CHA_SEC_ABOVE;
+            } else {
+                AML_INFO("err: primary=%u,center=%u,width=%u", target_chdef.chan->center_freq,target_chdef.center_freq1,target_chdef.width);
+            }
+        }
+    }
+    /*find vht ie*/
+    vht_ie = (u8*)cfg80211_find_ie(WLAN_EID_VHT_OPERATION, var_pos, len);
+    if (vht_ie && (vht_ie[1] >= sizeof(struct ieee80211_vht_operation))) {
+        struct ieee80211_vht_operation *vhtop = (void *)(vht_ie + 2);
+        switch (target_chdef.width) {
+            case NL80211_CHAN_WIDTH_20:
+            case NL80211_CHAN_WIDTH_40:
+                vhtop->chan_width = 0;
+                vhtop->center_freq_seg0_idx = 0;
+                vhtop->center_freq_seg1_idx = 0;
+            break;
+            case NL80211_CHAN_WIDTH_80:
+            case NL80211_CHAN_WIDTH_160:
+            case NL80211_CHAN_WIDTH_80P80:
+                vhtop->chan_width = 1;
+                if (target_chdef.center_freq1)
+                    vhtop->center_freq_seg0_idx = aml_ieee80211_freq_to_chan(target_chdef.center_freq1, target_chdef.chan->band);
+                if (target_chdef.center_freq2)
+                    vhtop->center_freq_seg1_idx = aml_ieee80211_freq_to_chan(target_chdef.center_freq2, target_chdef.chan->band);
+            break;
+        }
+    }
+    aml_save_bcn_buf(scc_bcn_buf,bcn->len);
     // Sync buffer for FW
     if (aml_bus_type == PCIE_MODE) {
         if ((error = aml_ipc_buf_a2e_init(aml_hw, &buf, scc_bcn_buf, bcn->len))) {
@@ -319,14 +366,114 @@ void aml_scc_csa_finish(struct work_struct *ws)
     vif->ap.csa = NULL;
 }
 
-u8 aml_get_operation_class(struct cfg80211_chan_def chan_def)
+u8 aml_get_operation_class(struct cfg80211_chan_def chandef)
 {
-    u8 region = 0;
-    bool suc = false;
-    suc = ieee80211_chandef_to_operating_class(&chan_def, &region);
-    if (!suc)
-        AML_INFO("error");
-    return region;
+    u8 vht_opclass = 0;
+    u32 freq = chandef.center_freq1;
+    u8 ret = 0;
+
+    if (freq >= 2412 && freq <= 2472) {
+        if (chandef.width > NL80211_CHAN_WIDTH_40)
+            return ret;
+
+        /* 2.407 GHz, channels 1..13 */
+        if (chandef.width == NL80211_CHAN_WIDTH_40) {
+            if (freq > chandef.chan->center_freq)
+                ret = 83; /* HT40+ */
+            else
+                ret = 84; /* HT40- */
+        } else {
+            ret = 81;
+        }
+
+        return ret;
+    }
+
+    if (freq == 2484) {
+        /* channel 14 is only for IEEE 802.11b */
+        if (chandef.width != NL80211_CHAN_WIDTH_20_NOHT)
+            return ret;
+        ret = 82; /* channel 14 */
+        return ret;
+    }
+
+    /* 5 GHz, channels 36..48 */
+    if (freq >= 5180 && freq <= 5240) {
+        if (vht_opclass) {
+            ret = vht_opclass;
+        } else if (chandef.width == NL80211_CHAN_WIDTH_40) {
+            if (freq > chandef.chan->center_freq)
+                ret = 116;
+            else
+                ret = 117;
+        } else {
+            ret = 115;
+        }
+
+        return ret;
+    }
+
+    /* 5 GHz, channels 52..64 */
+    if (freq >= 5260 && freq <= 5320) {
+        if (vht_opclass) {
+            ret = vht_opclass;
+        } else if (chandef.width == NL80211_CHAN_WIDTH_40) {
+            if (freq > chandef.chan->center_freq)
+                ret = 119;
+            else
+                ret = 120;
+        } else {
+            ret = 118;
+        }
+
+        return ret;
+    }
+
+    /* 5 GHz, channels 100..144 */
+    if (freq >= 5500 && freq <= 5720) {
+        if (vht_opclass) {
+            ret = vht_opclass;
+        } else if (chandef.width == NL80211_CHAN_WIDTH_40) {
+            if (freq > chandef.chan->center_freq)
+                ret = 122;
+            else
+                ret = 123;
+        } else {
+            ret = 121;
+        }
+
+        return ret;
+    }
+
+    /* 5 GHz, channels 149..169 */
+    if (freq >= 5745 && freq <= 5845) {
+        if (vht_opclass) {
+            ret = vht_opclass;
+        } else if (chandef.width == NL80211_CHAN_WIDTH_40) {
+            if (freq > chandef.chan->center_freq)
+                ret = 126;
+            else
+                ret = 127;
+        } else if (freq <= 5805) {
+            ret = 124;
+        } else {
+            ret = 125;
+        }
+
+        return ret;
+    }
+
+    /* 56.16 GHz, channel 1..4 */
+    if (freq >= 56160 + 2160 * 1 && freq <= 56160 + 2160 * 6) {
+        if (chandef.width >= NL80211_CHAN_WIDTH_40)
+            return ret;
+
+        ret = 180;
+        return ret;
+    }
+
+    /* not supported yet */
+    return ret;
 }
 
 static int aml_csa_send_action(struct aml_hw *aml_hw, struct aml_vif *aml_vif, struct aml_sta *sta, struct cfg80211_chan_def chan_def)
@@ -428,6 +575,16 @@ static int aml_scc_channel_switch(struct aml_hw *aml_hw, struct aml_vif *vif, st
     *(pos + idx++) = aml_get_operation_class(chan_def);//new operating class
     *(pos + idx++) = ieee80211_frequency_to_channel(chan_def.chan->center_freq);//chan no
     *(pos + idx++) = CSA_COUNT;//count
+    /*add second channel offset ie for 40M width*/
+    if (chan_def.width == NL80211_CHAN_WIDTH_40) {
+        *(pos + idx++) = WLAN_EID_SECONDARY_CHANNEL_OFFSET; //ie
+        *(pos + idx++) = 1; //len
+        if (chan_def.chan->center_freq < chan_def.center_freq1) {
+            *(pos + idx++) = IEEE80211_HT_PARAM_CHA_SEC_ABOVE;
+        } else {
+            *(pos + idx++) = IEEE80211_HT_PARAM_CHA_SEC_BELOW;
+        }
+    }
     if ((chan_def.width == NL80211_CHAN_WIDTH_80) || (chan_def.width == NL80211_CHAN_WIDTH_80P80) || (chan_def.width == NL80211_CHAN_WIDTH_160)) {
         *(pos + idx++) = WLAN_EID_CHANNEL_SWITCH_WRAPPER; //ie
         *(pos + idx++) = 5; //len
@@ -530,10 +687,13 @@ void aml_scc_check_chan_conflict(struct aml_hw *aml_hw)
                 struct aml_vif *target_vif ;
                 struct cfg80211_chan_def target_chdef;
                 struct cfg80211_chan_def cur_chdef;
+
+#ifdef CONFIG_AML_RECOVERY
                 if (aml_recy_flags_chk(AML_RECY_STOP_AP_PROC)) {
                     AML_INFO("proc stop ap,so not need to check");
                     break;
                 }
+#endif
                 target_vif_idx = aml_scc_get_conflict_vif_idx(vif);
                 AML_INFO("target_idx:%d, sta_list:%d, use_csa:%d", target_vif_idx, list_empty(&vif->ap.sta_list), scc_use_csa);
                 if (target_vif_idx == 0xff) {
@@ -631,6 +791,7 @@ void aml_scc_deinit(void)
 
 void aml_check_scc(void)
 {
+#ifdef CONFIG_AML_RECOVERY
     if (aml_recy_flags_chk(AML_RECY_CHECK_SCC)) {
         struct aml_wq *aml_wq;
         enum aml_wq_type type = AML_WQ_CHECK_SCC;
@@ -644,6 +805,17 @@ void aml_check_scc(void)
         aml_wq->id = AML_WQ_CHECK_SCC;
         memcpy(aml_wq->data, &type, 1);
         aml_wq_add(aml_recy->aml_hw, aml_wq);
+    }
+#endif
+}
+
+void aml_scc_p2p_action_restore(u8 *buf, u32* len_diff)
+{
+    if (g_scc_p2p_len_before) {
+        memcpy(buf,g_scc_p2p_save, g_scc_p2p_len_before);
+        AML_INFO("[P2P SCC] len %d -- > %d", *len_diff, *len_diff + g_scc_p2p_len_diff);
+        *len_diff = *len_diff + g_scc_p2p_len_diff;
+        g_scc_p2p_len_before = 0;
     }
 }
 

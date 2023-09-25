@@ -319,10 +319,12 @@ void aml_txq_flush(struct aml_hw *aml_hw, struct aml_txq *txq)
  */
 static void aml_txq_deinit(struct aml_hw *aml_hw, struct aml_txq *txq)
 {
-    if (txq->idx == TXQ_INACTIVE)
-        return;
 
     spin_lock_bh(&aml_hw->tx_lock);
+    if (!txq || (txq->idx == TXQ_INACTIVE)) {
+        spin_unlock_bh(&aml_hw->tx_lock);
+        return;
+    }
     AML_INFO("txq deinit, txq idx=%d, vif_idx=%d",
             txq->idx, txq->sta == NULL ? 0xff : txq->sta->vif_idx);
     aml_txq_del_from_hw_list(txq);
@@ -585,10 +587,11 @@ static bool aml_txq_drop_old_traffic(struct aml_txq *txq, struct aml_hw *aml_hw,
     bool pkt_queued = false;
     int retry_packet;
 
-    if (txq->idx == TXQ_INACTIVE)
-        return false;
-
     aml_spin_lock(&aml_hw->tx_lock);
+    if (!txq || txq->idx == TXQ_INACTIVE) {
+        aml_spin_unlock(&aml_hw->tx_lock);
+        return false;
+    }
     // get nb_retry; The variable should be in the lock to avoid updating the value after
     // obtaining the lock
     retry_packet = txq->nb_retry;

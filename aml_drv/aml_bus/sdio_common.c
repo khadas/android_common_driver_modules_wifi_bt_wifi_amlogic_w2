@@ -30,6 +30,7 @@ unsigned char  chip_en_access;
 extern unsigned char wifi_sdio_shutdown;
 extern unsigned char wifi_drv_rmmod_ongoing;
 extern struct aml_bus_state_detect bus_state_detect;
+extern struct aml_pm_type g_wifi_pm;
 
 static DEFINE_MUTEX(wifi_bt_sdio_mutex);
 static DEFINE_MUTEX(wifi_ipc_mutex);
@@ -153,6 +154,10 @@ void aml_sdio_init_ops(void)
     return;
 }
 
+#ifdef CONFIG_PT_MODE
+void *g_drv_data = NULL;
+#endif
+
 int aml_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id)
 {
     int ret = 0;
@@ -196,6 +201,7 @@ int aml_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id)
    // g_hif_sdio_ops.hi_enable_scat(&g_hwif_rx_sdio);
 
 #ifdef CONFIG_PT_MODE
+    dev_set_drvdata(&func->dev, g_drv_data);
     g_sdio_is_probe = 1;
 #endif
 
@@ -222,6 +228,9 @@ static void  aml_sdio_remove(struct sdio_func *func)
     sdio_claim_host(func);
     sdio_disable_func(func);
     sdio_release_host(func);
+#ifdef CONFIG_PT_MODE
+    g_drv_data = dev_get_drvdata(&func->dev);
+#endif
 
     host_wake_req = NULL;
     host_suspend_req = NULL;
@@ -230,22 +239,57 @@ static void  aml_sdio_remove(struct sdio_func *func)
 
  int aml_sdio_pm_suspend(struct device *device)
 {
+    int ret = 0;
+    int cnt = 0;
+    while (atomic_read(&g_wifi_pm.drv_suspend_cnt) == 0)
+    {
+        msleep(50);
+        cnt++;
+        if (cnt > 40)
+        {
+            printk("wifi suspend fail \n");
+            return -1;
+        }
+    }
     if (host_suspend_req != NULL)
-        return host_suspend_req(device);
+        ret = host_suspend_req(device);
     else
-        return aml_sdio_suspend(1);
+        ret = aml_sdio_suspend(1);
+    atomic_set(&g_wifi_pm.bus_suspend_cnt, 1);
+    return ret;
 }
 
  int aml_sdio_pm_resume(struct device *device)
 {
+    int ret = 0;
+
     if (host_resume_req != NULL)
-        return host_resume_req(device);
-    else
-        return 0;
+        ret = host_resume_req(device);
+    atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
+
+    return ret;
 }
 
+extern lp_shutdown_func g_lp_shutdown_func;
+
+//The shutdown interface will be called 7 times by the driver, and msg only needs to send once
+int g_sdio_shutdown_cnt = 0;
 void aml_sdio_shutdown(struct device *device)
 {
+    //sdio the shutdown interface will be called 7 times by the driver, and msg only needs to send once
+    if (g_sdio_shutdown_cnt++)
+    {
+        return;
+    }
+
+    //send msg only once
+    if (g_lp_shutdown_func != NULL)
+    {
+        g_lp_shutdown_func();
+    }
+
+    //notify fw shutdown
+    //notify bt wifi will go shutdown
     aml_sdio_random_word_write(RG_AON_A55, aml_sdio_random_word_read(RG_AON_A55) | BIT(28));
 }
 
@@ -364,6 +408,7 @@ void set_wifi_bt_sdio_driver_bit(bool is_register, int shift)
     AML_BT_WIFI_MUTEX_OFF();
 }
 
+
 int aml_sdio_insmod(void)
 {
     aml_sdio_init();
@@ -402,3 +447,4 @@ EXPORT_SYMBOL(host_wake_req);
 EXPORT_SYMBOL(host_suspend_req);
 EXPORT_SYMBOL(host_resume_req);
 EXPORT_SYMBOL(aml_priv_to_func);
+

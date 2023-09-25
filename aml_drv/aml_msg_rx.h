@@ -20,5 +20,6 @@ struct aml_ft_auth_timeout {
 void aml_rx_handle_msg(struct aml_hw *aml_hw, struct ipc_e2a_msg *msg);
 void aml_rx_sdio_ind_msg_handle(struct aml_hw *aml_hw, struct ipc_e2a_msg *msg);
 void aml_del_sta(struct aml_vif *aml_vif, const u8 *mac_addr, u32 freq);
+int aml_send_me_shutdown(struct aml_hw *aml_hw);
 
 #endif /* _AML_MSG_RX_H_ */

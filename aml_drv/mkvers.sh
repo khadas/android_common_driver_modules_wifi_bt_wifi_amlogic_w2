@@ -12,7 +12,8 @@ set -e
 VERDIR=$(dirname $(readlink -f $0))
 TARGET=$1
 
-DATE_FORMAT="%b %d %Y %T"
+DATE_FORMAT1="%b %d %Y %T"
+DATE_FORMAT="W2.%Y.W%02W.%02w"
 AML_VERS_MOD=$(grep AML_VERS_NUM $VERDIR/Makefile | cut -f2 -d= | sed 's/\s\+$//')
 tmpout=$TARGET.tmp
 cd $VERDIR
@@ -47,16 +48,16 @@ then
 
     # append git info (sha1 and branch name)
     git_sha1=$(git rev-parse --short HEAD)
-    if (git status -uno --porcelain | grep -q '^ M')
-    then
-	git_sha1+="M"
-    fi
+    #if (git status -uno --porcelain | grep -q '^ M')
+    #then
+    #    git_sha1+="M"
+    #fi
     git_branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "detached")
     if [ "$svnrev" ]
     then
-	svnrev="svn$svnrev ($git_sha1/$git_branch)"
+    	svnrev="svn$svnrev ($git_sha1)"
     else
-	svnrev="$git_sha1 ($git_branch)"
+    	svnrev="$git_sha1"
     fi
     drv_hash=$(git log -1 | awk 'NR==1{print}' | awk -F" " '{print $2}')
     fw_hash=$(git log -1 ../firmware | awk 'NR==1{print}' | awk -F" " '{print $2}')
@@ -87,10 +88,11 @@ else
 fi
 
 date=$(LC_TIME=C date +"$DATE_FORMAT")
+date1=$(LC_TIME=C date +"$DATE_FORMAT1")
 
 AML_VERS_REV="$svnrev"
 #      "lmac vX.X.X.X - build:"
-banner="aml v$AML_VERS_MOD - build: $(whoami) $date - $AML_VERS_REV"
+banner="$date ($date1 - driver:$AML_VERS_REV)"
 
 define() { echo "#define $1 \"$2\""; }
 {

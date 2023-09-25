@@ -39,6 +39,7 @@ extern unsigned char auc_driver_insmoded;
 extern struct crg_msc_cbw *g_cmd_buf;
 extern unsigned char *g_kmalloc_buf;
 extern struct aml_bus_state_detect bus_state_detect;
+extern struct aml_pm_type g_wifi_pm;
 unsigned char *g_auc_kmalloc_buf = NULL;
 
 
@@ -67,7 +68,13 @@ int auc_bulk_msg(struct usb_device *usb_dev, unsigned int pipe,
     void *data, int len, int *actual_length, int timeout)
 {
     int ret = 0;
-
+#ifdef CONFIG_PM
+    if (atomic_read(&g_wifi_pm.bus_suspend_cnt)) {
+        ERROR_DEBUG_OUT("bus suspend (%d) ongoing, do not read/write now!\n",
+            atomic_read(&g_wifi_pm.bus_suspend_cnt));
+        return -ENOMEM;
+    }
+#endif
 #ifdef CONFIG_AML_RECOVERY
     if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
         ERROR_DEBUG_OUT("bus reset is ongoing(bus err:%d, reset on going: %d:), do not read/write now!\n",
@@ -529,7 +536,7 @@ int auc_write_reg_by_ep(unsigned int addr, unsigned int value, unsigned int len,
     USB_BEGIN_LOCK();
     auc_build_cbw(g_cmd_buf, AML_XFER_TO_DEVICE, 0, CMD_WRITE_REG, addr, value, len);
     /* cmd stage */
-    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, ep),(void *) g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
+    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, ep),(void *)g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
     if (ret) {
         ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d, ep: %d, addr: 0x%x, len: %d, value: 0x%x\n", ret, ep, addr, len, value);
         USB_END_LOCK();

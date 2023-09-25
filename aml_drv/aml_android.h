@@ -42,7 +42,7 @@ enum aml_android_cmdid {
     CMDID_P2P_GET_NOA,
     CMDID_P2P_SET_PS,
     CMDID_SET_AP_WPS_P2P_IE,
-	CMDID_BTCOEXSCAN,
+    CMDID_BTCOEXSCAN,
 };
 
 struct aml_android_cmd {

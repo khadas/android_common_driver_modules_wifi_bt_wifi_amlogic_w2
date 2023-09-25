@@ -15,7 +15,7 @@
 #include "aml_defs.h"
 #include "aml_tx.h"
 #include "hal_desc.h"
-#include "aml_cfgfile.h"
+#include "aml_cfg.h"
 #include "aml_dini.h"
 #include "reg_access.h"
 #include "aml_compat.h"
@@ -1098,14 +1098,14 @@ static void aml_set_rf_params(struct aml_hw *aml_hw, struct wiphy *wiphy)
 #ifndef CONFIG_AML_SDM
     struct ieee80211_supported_band *band_5GHz = wiphy->bands[NL80211_BAND_5GHZ];
     u32 mdm_phy_cfg = __MDM_PHYCFG_FROM_VERS(aml_hw->version_cfm.version_phy_1);
-    struct aml_cfgfile_phy phy_conf;
+    struct aml_cfg_phy phy_conf;
 
     /*
      * Get configuration file depending on the RF
      */
     if (mdm_phy_cfg == MDM_PHY_CONFIG_TRIDENT) {
         // Retrieve the Trident configuration
-        aml_cfgfile_parse_phy(aml_hw, AML_PHY_CONFIG_TRD_NAME,
+        aml_cfg_parse_phy(aml_hw, AML_PHY_CONFIG_TRD_NAME,
                                   &phy_conf, aml_hw->mod_params->phy_cfg);
         memcpy(&aml_hw->phy.cfg, &phy_conf.trd, sizeof(phy_conf.trd));
     } else if (mdm_phy_cfg == MDM_PHY_CONFIG_CATAXIA) {
@@ -1115,7 +1115,7 @@ static void aml_set_rf_params(struct aml_hw *aml_hw, struct wiphy *wiphy)
     } else if (mdm_phy_cfg == MDM_PHY_CONFIG_KARST) {
         // We use the NSS parameter as is
         // Retrieve the Karst configuration
-        aml_cfgfile_parse_phy(aml_hw, AML_PHY_CONFIG_KARST_NAME,
+        aml_cfg_parse_phy(aml_hw, AML_PHY_CONFIG_KARST_NAME,
                                   &phy_conf, aml_hw->mod_params->phy_cfg);
 
         memcpy(&aml_hw->phy.cfg, &phy_conf.karst, sizeof(phy_conf.karst));

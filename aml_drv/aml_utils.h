@@ -292,7 +292,7 @@ void aml_umh_done(struct aml_hw *aml_hw);
 void *aml_ipc_fw_trace_desc_get(struct aml_hw *aml_hw);
 const char* ssid_sprintf(const unsigned char *ssid, unsigned char ssid_len);
 u32 aml_ieee80211_chan_to_freq(u32 chan, u32 band);
-u32 aml_ieee80211_freq_to_chan(u32 freq, u32 band);
+u8 aml_ieee80211_freq_to_chan(u32 freq, u32 band);
 int aml_traceind(void *pthis, int mode);
 
 void aml_txbuf_list_init(struct aml_hw *aml_hw);

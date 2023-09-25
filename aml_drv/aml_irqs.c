@@ -12,24 +12,28 @@
 #include "ipc_host.h"
 #include "aml_prof.h"
 
-extern bool b_usb_suspend;
-extern bool usb_is_shutdown;
+extern struct aml_pm_type g_wifi_pm;
 extern struct aml_bus_state_detect bus_state_detect;
-int aml_irq_usb_hdlr(struct urb *urb)
+void aml_irq_usb_hdlr(struct urb *urb)
 {
     struct aml_hw *aml_hw = (struct aml_hw *)(urb->context);
 
-    if (b_usb_suspend || usb_is_shutdown)
+    if (atomic_read(&g_wifi_pm.bus_suspend_cnt) || atomic_read(&g_wifi_pm.is_shut_down))
     {
-        return IRQ_HANDLED;
+        return ;
     }
     urb->status = 0;
     up(&aml_hw->aml_irq_sem);
-    return IRQ_HANDLED;
+    return ;
 }
 
 irqreturn_t aml_irq_sdio_hdlr(int irq, void *dev_id)
 {
+    if (atomic_read(&g_wifi_pm.bus_suspend_cnt))
+    {
+        return IRQ_HANDLED;
+    }
+
     struct aml_hw *aml_hw = (struct aml_hw *)dev_id;
     disable_irq_nosync(irq);
     up(&aml_hw->aml_irq_sem);
@@ -88,18 +92,26 @@ int aml_irq_task(void *data)
         ) {
             usleep_range(20, 30);
             USB_BEGIN_LOCK();
-            if ((b_usb_suspend == 0) && (usb_is_shutdown == 0)) {
+            if ((atomic_read(&g_wifi_pm.bus_suspend_cnt) == 0) && (atomic_read(&g_wifi_pm.is_shut_down) == 0) &&
+                (atomic_read(&g_wifi_pm.drv_suspend_cnt) == 0)) {
                 ret = usb_submit_urb(aml_hw->g_urb, GFP_ATOMIC);
+            } else {
+                ret = 0;
             }
             USB_END_LOCK();
             if (ret < 0) {
                 try_cnt++;
-                ERROR_DEBUG_OUT("usb_submit_urb failed %d\n", ret);
+                ERROR_DEBUG_OUT("usb_submit_urb failed %d, bus_supend: %d, drv_suspend: %d\n",
+                    ret, atomic_read(&g_wifi_pm.bus_suspend_cnt), atomic_read(&g_wifi_pm.drv_suspend_cnt));
                 if (try_cnt < 5) {
-                    up(&aml_hw->aml_irq_sem);
+                    if ((atomic_read(&g_wifi_pm.bus_suspend_cnt) == 0) && (atomic_read(&g_wifi_pm.is_shut_down) == 0) &&
+                        (atomic_read(&g_wifi_pm.drv_suspend_cnt) == 0))
+                        up(&aml_hw->aml_irq_sem);
                 } else {
 #ifdef CONFIG_AML_RECOVERY
-                    bus_state_detect.bus_err = 1;
+                    if ((atomic_read(&g_wifi_pm.bus_suspend_cnt) == 0) && (atomic_read(&g_wifi_pm.is_shut_down) == 0) &&
+                        (atomic_read(&g_wifi_pm.drv_suspend_cnt) == 0))
+                        bus_state_detect.bus_err = 1;
 #endif
                     ERROR_DEBUG_OUT("usb_submit_urb failed(%d), try cnt %d\n", ret, try_cnt);
                 }
@@ -127,6 +139,11 @@ int aml_irq_task(void *data)
 irqreturn_t aml_irq_pcie_hdlr(int irq, void *dev_id)
 {
     struct aml_hw *aml_hw = (struct aml_hw *)dev_id;
+
+    if (atomic_read(&g_wifi_pm.bus_suspend_cnt))
+    {
+        return IRQ_HANDLED;
+    }
     disable_irq_nosync(irq);
 #ifdef CONFIG_AML_USE_TASK
     up(&aml_hw->irqhdlr->task_sem);

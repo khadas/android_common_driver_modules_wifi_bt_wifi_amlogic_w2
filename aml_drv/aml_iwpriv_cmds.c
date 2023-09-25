@@ -28,7 +28,6 @@ static char *reg_path = "/data/dumpinfo";
 #define REG_DUMP_SIZE 2048
 
 unsigned long long g_dbg_modules = 0;
-int g_ps_mode = 0;
 bool pt_mode = 0;
 static unsigned char offset_times = 0;
 
@@ -99,6 +98,10 @@ typedef unsigned char   U8;
 #define EFUSE_BASE_16 0x16
 #define EFUSE_BASE_17 0x17
 #define EFUSE_BASE_07 0x07
+#define EFUSE_BASE_00 0x00
+#define EFUSE_BASE_06 0x06
+
+
 #define BIT4 0x00000010
 #define BIT31 0x80000000
 #define BIT16 0x00010000
@@ -651,7 +654,6 @@ static int aml_set_ps_mode(struct net_device *dev, int ps_mode)
         printk("param err, please reset\n");
         return -1;
     }
-    g_ps_mode = ps_mode;
     printk("set ps_mode:0x%x success\n", ps_mode);
     return aml_send_me_set_ps_mode(aml_hw, ps_mode);
 }
@@ -1766,6 +1768,164 @@ int aml_set_pt_calibration(struct net_device *dev, int pt_cali_val)
 
     return 0;
 }
+int aml_get_all_efuse(struct net_device *dev,union iwreq_data *wrqu, char *extra)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    unsigned int reg_val = 0;
+    unsigned int production_vendor_id = 0;
+    unsigned int efuse_map_version = 0;
+    U8 xosc_ctune = 0;
+    U8 offset_power_wf0_2g_l = 0;
+    U8 offset_power_wf0_2g_m = 0;
+    U8 offset_power_wf0_2g_h = 0;
+    U8 offset_power_wf0_5200 = 0;
+    U8 offset_power_wf0_5300 = 0;
+    U8 offset_power_wf0_5530 = 0;
+    U8 offset_power_wf0_5660 = 0;
+    U8 offset_power_wf0_5780 = 0;
+    U8 offset_power_wf1_2g_l = 0;
+    U8 offset_power_wf1_2g_m = 0;
+    U8 offset_power_wf1_2g_h = 0;
+    U8 offset_power_wf1_5200 = 0;
+    U8 offset_power_wf1_5300 = 0;
+    U8 offset_power_wf1_5530 = 0;
+    U8 offset_power_wf1_5660 = 0;
+    U8 offset_power_wf1_5780 = 0;
+    unsigned int wifi_efuse_data_l = 0;
+    unsigned int wifi_efuse_data_h = 0;
+    unsigned int wifi_efuse_data = 0;
+    unsigned int bt_efuse_data_l = 0;
+    unsigned int bt_efuse_data_h = 0;
+    unsigned int bt_efuse_data = 0;
+
+    reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_00);
+    production_vendor_id = reg_val;
+
+    printk("production&vendor id:0x%x\n", production_vendor_id);
+
+    reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_06);
+    efuse_map_version = (reg_val >> 16) & 0x7F;
+    printk("efuse map version:0x%02x\n", efuse_map_version);
+
+    reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_07);
+    // xosc second times vld disable, read the value written for the first time
+    if ((reg_val & 0x80000000) == 0) {
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_05);
+        xosc_ctune = (reg_val & 0xFF000000) >> 24;
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1A);
+        offset_power_wf0_2g_l = (reg_val & 0x1F0000) >> 16;
+        offset_power_wf0_2g_m = (reg_val & 0x1F000000) >> 24;
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1B);
+        offset_power_wf0_2g_h = (reg_val & 0x1F);
+        offset_power_wf0_5200 = (reg_val & 0x1F00) >> 8;
+        offset_power_wf0_5300 = (reg_val & 0x1F0000) >> 16;
+        offset_power_wf0_5530 = (reg_val & 0x1F000000) >> 24;
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1C);
+        offset_power_wf0_5660 = (reg_val & 0x1F);
+        offset_power_wf0_5780 = (reg_val & 0x1F00) >> 8;
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1E);
+        offset_power_wf1_2g_l = (reg_val & 0x1F);
+        offset_power_wf1_2g_m = (reg_val & 0x1F00) >> 8;
+        offset_power_wf1_2g_h = (reg_val & 0x1F0000) >> 16;
+        offset_power_wf1_5200 = (reg_val & 0x1F000000) >> 24;
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_1F);
+        offset_power_wf1_5300 = (reg_val & 0x1F);
+        offset_power_wf1_5530 = (reg_val & 0x1F00) >> 8;
+        offset_power_wf1_5660 = (reg_val & 0x1F0000) >> 16;
+        offset_power_wf1_5780 = (reg_val & 0x1F000000) >> 24;
+
+        printk("xosc_ctune=0x%02x\n", xosc_ctune);
+        printk("offset_power_wf0_2g_l=0x%02x,offset_power_wf0_2g_m=0x%02x,offset_power_wf0_2g_h=0x%02x\n",
+               offset_power_wf0_2g_l, offset_power_wf0_2g_m, offset_power_wf0_2g_h);
+        printk("offset_power_wf0_5200=0x%02x,offset_power_wf0_5300=0x%02x,offset_power_wf0_5530=0x%02x,offset_power_wf0_5660=0x%02x,offset_power_wf0_5780=0x%02x\n",
+               offset_power_wf0_5200, offset_power_wf0_5300, offset_power_wf0_5530,offset_power_wf0_5660, offset_power_wf0_5780);
+        printk("offset_power_wf1_2g_l=0x%02x,offset_power_wf1_2g_m=0x%02x,offset_power_wf1_2g_h=0x%02x\n",
+               offset_power_wf1_2g_l, offset_power_wf1_2g_m, offset_power_wf1_2g_h);
+        printk("offset_power_wf1_5200=0x%02x,offset_power_wf1_5300=0x%02x,offset_power_wf1_5530=0x%02x,offset_power_wf1_5660=0x%02x,offset_power_wf1_5780=0x%02x\n",
+               offset_power_wf1_5200, offset_power_wf1_5300, offset_power_wf1_5530,offset_power_wf1_5660, offset_power_wf1_5780);
+    } else {
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_05);
+        xosc_ctune = (reg_val & 0x00FF0000) >> 16;
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_14);
+        offset_power_wf0_2g_l = (reg_val & 0x0000001F);
+        offset_power_wf0_2g_m = (reg_val & 0x00001F00) >> 8;
+        offset_power_wf0_2g_h = (reg_val & 0x001F0000) >> 16;
+        offset_power_wf0_5200 = (reg_val & 0x1F000000) >> 24;
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_15);
+        offset_power_wf0_5300 = (reg_val & 0x0000001F);
+        offset_power_wf0_5530 = (reg_val & 0x00001F00) >> 8;
+        offset_power_wf0_5660 = (reg_val & 0x001F0000) >> 16;
+        offset_power_wf0_5780 = (reg_val & 0x1F000000) >> 24;
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_16);
+        offset_power_wf1_2g_l = (reg_val & 0x1F);
+        offset_power_wf1_2g_m = (reg_val & 0x1F00) >> 8;
+        offset_power_wf1_2g_h = (reg_val & 0x1F0000) >> 16;
+        offset_power_wf1_5200 = (reg_val & 0x1F000000) >> 24;
+        reg_val = _aml_get_efuse(aml_vif, EFUSE_BASE_17);
+        offset_power_wf1_5300 = (reg_val & 0x1F);
+        offset_power_wf1_5530 = (reg_val & 0x1F00) >> 8;
+        offset_power_wf1_5660 = (reg_val & 0x1F0000) >> 16;
+        offset_power_wf1_5780 = (reg_val & 0x1F000000) >> 24;
+
+        printk("second xosc_ctune=0x%02x\n", xosc_ctune);
+        printk("offset_power_wf0_2g_l=0x%02x,offset_power_wf0_2g_m=0x%02x,offset_power_wf0_2g_h=0x%02x\n",
+               offset_power_wf0_2g_l, offset_power_wf0_2g_m, offset_power_wf0_2g_h);
+        printk("offset_power_wf0_5200=0x%02x,offset_power_wf0_5300=0x%02x,offset_power_wf0_5530=0x%02x,offset_power_wf0_5660=0x%02x,offset_power_wf0_5780=0x%02x\n",
+               offset_power_wf0_5200, offset_power_wf0_5300, offset_power_wf0_5530,offset_power_wf0_5660, offset_power_wf0_5780);
+        printk("offset_power_wf1_2g_l=0x%02x,offset_power_wf1_2g_m=0x%02x,offset_power_wf1_2g_h=0x%02x\n",
+               offset_power_wf1_2g_l, offset_power_wf1_2g_m, offset_power_wf1_2g_h);
+        printk("offset_power_wf1_5200=0x%02x,offset_power_wf1_5300=0x%02x,offset_power_wf1_5530=0x%02x,offset_power_wf1_5660=0x%02x,offset_power_wf1_5780=0x%02x\n",
+               offset_power_wf1_5200, offset_power_wf1_5300, offset_power_wf1_5530,offset_power_wf1_5660, offset_power_wf1_5780);
+    }
+
+    wifi_efuse_data = _aml_get_efuse(aml_vif, EFUSE_BASE_07);
+
+    if (wifi_efuse_data & BIT17) {
+        wifi_efuse_data_l = _aml_get_efuse(aml_vif, EFUSE_BASE_11);
+        wifi_efuse_data_h = _aml_get_efuse(aml_vif, EFUSE_BASE_12);
+    } else {
+        wifi_efuse_data_l = _aml_get_efuse(aml_vif, EFUSE_BASE_01);
+        wifi_efuse_data_h = _aml_get_efuse(aml_vif, EFUSE_BASE_02);
+    }
+    if (wifi_efuse_data_l != 0 || wifi_efuse_data_h != 0) {
+        printk("efuse addr:%08x,%08x, wifi MAC addr is: %02x:%02x:%02x:%02x:%02x:%02x\n", EFUSE_BASE_01, EFUSE_BASE_02,
+            (wifi_efuse_data_h & 0xff00) >> 8,wifi_efuse_data_h & 0x00ff, (wifi_efuse_data_l & 0xff000000) >> 24,
+            (wifi_efuse_data_l & 0x00ff0000) >> 16,(wifi_efuse_data_l & 0xff00) >> 8,wifi_efuse_data_l & 0xff);
+    }
+
+    bt_efuse_data = _aml_get_efuse(aml_vif, EFUSE_BASE_07);
+    if (bt_efuse_data & BIT16) {
+        bt_efuse_data_l = _aml_get_efuse(aml_vif, EFUSE_BASE_12);
+        bt_efuse_data_h = _aml_get_efuse(aml_vif, EFUSE_BASE_13);
+    } else {
+        bt_efuse_data_l = _aml_get_efuse(aml_vif, EFUSE_BASE_02);
+        bt_efuse_data_h = _aml_get_efuse(aml_vif, EFUSE_BASE_03);
+    }
+    if (bt_efuse_data_l != 0 || bt_efuse_data_h != 0) {
+        printk("BT MAC addr is: %02x:%02x:%02x:%02x:%02x:%02x\n",
+            (bt_efuse_data_h & 0xff000000) >> 24,(bt_efuse_data_h & 0x00ff0000) >> 16,
+            (bt_efuse_data_h & 0xff00) >> 8, bt_efuse_data_h & 0xff,
+            (bt_efuse_data_l & 0xff000000) >> 24, (bt_efuse_data_l & 0x00ff0000) >> 16);
+    }
+    wrqu->data.length = scnprintf(extra, IW_PRIV_SIZE_MASK, "production_vendor_id:0x%08x, efuse_map_version:0x%02x\n\
+        xosc_ctune=0x%02x\n\
+        offset_power_wf0_2g_l=0x%02x,offset_power_wf0_2g_m=0x%02x,offset_power_wf0_2g_h=0x%02x\n\
+        offset_power_wf0_5200=0x%02x,offset_power_wf0_5300=0x%02x,offset_power_wf0_5530=0x%02x,offset_power_wf0_5660=0x%02x,offset_power_wf0_5780=0x%02x\n\
+        offset_power_wf1_2g_l=0x%02x,offset_power_wf1_2g_m=0x%02x,offset_power_wf1_2g_h=0x%02x\n\
+        offset_power_wf1_5200=0x%02x,offset_power_wf1_5300=0x%02x,offset_power_wf1_5530=0x%02x,offset_power_wf1_5660=0x%02x,offset_power_wf1_5780=0x%02x\n\
+        wifi_mac=%02x:%02x:%02x:%02x:%02x:%02x\n\
+        bt_mac=%02x:%02x:%02x:%02x:%02x:%02x\n",
+        production_vendor_id, efuse_map_version, xosc_ctune, offset_power_wf0_2g_l, offset_power_wf0_2g_m, offset_power_wf0_2g_h,
+        offset_power_wf0_5200, offset_power_wf0_5300, offset_power_wf0_5530,offset_power_wf0_5660, offset_power_wf0_5780,
+        offset_power_wf1_2g_l, offset_power_wf1_2g_m, offset_power_wf1_2g_h,
+        offset_power_wf1_5200, offset_power_wf1_5300, offset_power_wf1_5530,offset_power_wf1_5660, offset_power_wf1_5780,
+        (wifi_efuse_data_h & 0xff00) >> 8,wifi_efuse_data_h & 0x00ff, (wifi_efuse_data_l & 0xff000000) >> 24,
+        (wifi_efuse_data_l & 0x00ff0000) >> 16,(wifi_efuse_data_l & 0xff00) >> 8,wifi_efuse_data_l & 0xff,
+        (bt_efuse_data_h & 0xff000000) >> 24, (bt_efuse_data_h & 0x00ff0000) >> 16, (bt_efuse_data_h & 0xff00) >> 8,
+        bt_efuse_data_h & 0xff, (bt_efuse_data_l & 0xff000000) >> 24, (bt_efuse_data_l & 0x00ff0000) >> 16);
+    wrqu->data.length++;
+}
+
 
 int aml_get_xosc_offset(struct net_device *dev,union iwreq_data *wrqu, char *extra)
 {
@@ -1896,7 +2056,7 @@ int aml_set_rx_end(struct net_device *dev,union iwreq_data *wrqu, char *extra)
     wrqu->data.length = scnprintf(extra, IW_PRIV_SIZE_MASK, "fcs_ok=%d, fcs_err=%d, fcs_rx_end=%d, rx_err=%d\n", fcs_ok, fcs_err, fcs_rx_end, rx_err);
     wrqu->data.length++;
     aml_set_reg(dev, 0x60c0b500, 0x00041000);
-    aml_set_reg(dev, 0x00f0007c, 0x2000d110);  //bt clock enable
+    //aml_set_reg(dev, 0x00f0007c, 0x2000d110);  //bt clock enable
     return 0;
 }
 
@@ -1950,8 +2110,128 @@ int aml_set_rx(struct net_device *dev, int antenna, int channel)
             break;
     }
     aml_set_reg(dev, 0x00f00078, 0x0000c1e0);   //wifi clock auto
-    aml_set_reg(dev, 0x00f0007c, 0x7800d110);  //bt clock disable
+    //aml_set_reg(dev, 0x00f0007c, 0x7800d110);  //bt clock disable
     return 0;
+}
+
+int aml_set_2G_dc_tone(struct net_device *dev, int wf_mode)
+{
+    aml_set_reg(dev, 0x00a0e018, 0x01110f00);
+    aml_set_reg(dev, 0x00a0e010, 0x00002110);
+    aml_set_reg(dev, 0x00a0e010, 0x00003110);
+    switch (wf_mode) {
+        case 1: //wf0 siso dc
+            aml_set_reg(dev, 0x00a0e408, 0xa8200000);
+            aml_set_reg(dev, 0x00a0e40c, 0x88400000);
+            aml_set_reg(dev, 0x00a0e410, 0x00000002);
+            aml_set_reg(dev, 0x00a0e008, 0x11111111);
+            break;
+        case 2: //wf1 siso dc
+            aml_set_reg(dev, 0x00a0f018, 0x01110f00);
+            aml_set_reg(dev, 0x00a0f010, 0x00002110);
+            aml_set_reg(dev, 0x00a0f010, 0x00003110);
+            aml_set_reg(dev, 0x00a0f408, 0xa8200000);
+            aml_set_reg(dev, 0x00a0f40c, 0x88400000);
+            aml_set_reg(dev, 0x00a0f410, 0x00000002);
+            aml_set_reg(dev, 0x00a0f008, 0x11111111);
+            break;
+        case 3: //wf0 siso tone
+            aml_set_reg(dev, 0x00a0e408, 0xa8200000);
+            aml_set_reg(dev, 0x00a0e40c, 0x88400000);
+            aml_set_reg(dev, 0x00a0e410, 0x00000001);
+            aml_set_reg(dev, 0x00a0e008, 0x11111111);
+            break;
+        case 4: //wf1 siso tone
+            aml_set_reg(dev, 0x00a0f018, 0x01110f00);
+            aml_set_reg(dev, 0x00a0f010, 0x00002110);
+            aml_set_reg(dev, 0x00a0f010, 0x00003110);
+            aml_set_reg(dev, 0x00a0f408, 0xa8200000);
+            aml_set_reg(dev, 0x00a0f40c, 0x88400000);
+            aml_set_reg(dev, 0x00a0f410, 0x00000001);
+            aml_set_reg(dev, 0x00a0f008, 0x11111111);
+            break;
+        default:
+            printk("set wf mode error :%x\n", wf_mode);
+            break;
+    }
+
+    return 0;
+}
+
+int aml_set_5G_dc_tone(struct net_device *dev, int wf_mode)
+{
+    aml_set_reg(dev, 0x00a0f018, 0x01110f00);
+    aml_set_reg(dev, 0x00a0f010, 0x00002110);
+    aml_set_reg(dev, 0x00a0f010, 0x00003110);
+    switch (wf_mode) {
+        case 1: //wf0 siso dc
+            aml_set_reg(dev, 0x00a0e018, 0x01110f00);
+            aml_set_reg(dev, 0x00a0e010, 0x00002110);
+            aml_set_reg(dev, 0x00a0e010, 0x00003110);
+            aml_set_reg(dev, 0x00a0e408, 0xa8200000);
+            aml_set_reg(dev, 0x00a0e40c, 0x88400000);
+            aml_set_reg(dev, 0x00a0e410, 0x00000002);
+            aml_set_reg(dev, 0x00a0e008, 0x11111111);
+            break;
+        case 2: //wf1 siso dc
+            aml_set_reg(dev, 0x00a0f408, 0xa8200000);
+            aml_set_reg(dev, 0x00a0f40c, 0x88400000);
+            aml_set_reg(dev, 0x00a0f410, 0x00000002);
+            aml_set_reg(dev, 0x00a0f008, 0x11111111);
+            break;
+        case 3: //wf0 siso tone
+            aml_set_reg(dev, 0x00a0e018, 0x01110f00);
+            aml_set_reg(dev, 0x00a0e010, 0x00002110);
+            aml_set_reg(dev, 0x00a0e010, 0x00003110);
+            aml_set_reg(dev, 0x00a0e408, 0xa8200000);
+            aml_set_reg(dev, 0x00a0e40c, 0x88400000);
+            aml_set_reg(dev, 0x00a0e410, 0x00000001);
+            aml_set_reg(dev, 0x00a0e008, 0x11111111);
+            break;
+        case 4: //wf1 siso tone
+            aml_set_reg(dev, 0x00a0f408, 0xa8200000);
+            aml_set_reg(dev, 0x00a0f40c, 0x88400000);
+            aml_set_reg(dev, 0x00a0f410, 0x00000001);
+            aml_set_reg(dev, 0x00a0f008, 0x11111111);
+            break;
+        default:
+            printk("set wf mode error :%x\n", wf_mode);
+            break;
+    }
+
+
+    return 0;
+}
+
+int aml_set_tone(struct net_device *dev, int signal, int wf_mode)
+{
+    printk("set %d G, signal_mode %d\n", signal, wf_mode);
+
+    switch (signal) {
+        case 2: //2.4 G
+            aml_set_2G_dc_tone(dev, wf_mode);
+            break;
+        case 5: //5G
+            aml_set_5G_dc_tone(dev, wf_mode);
+            break;
+        default:
+            printk("set 2G/5G error :%x\n", signal);
+            break;
+    }
+
+    return 0;
+}
+
+int aml_stop_dc_tone(struct net_device *dev)
+{
+    aml_set_reg(dev, 0x00a0e408, 0x88200000);
+    aml_set_reg(dev, 0x00a0e40c, 0x88200000);
+    aml_set_reg(dev, 0x00a0e410, 0x00000000);
+    aml_set_reg(dev, 0x00a0e008, 0x00000000);
+    aml_set_reg(dev, 0x00a0f408, 0x88200000);
+    aml_set_reg(dev, 0x00a0f40c, 0x88200000);
+    aml_set_reg(dev, 0x00a0f410, 0x00000000);
+    aml_set_reg(dev, 0x00a0f008, 0x00000000);
 }
 
 static unsigned int tx_path = 0;
@@ -2876,23 +3156,44 @@ int aml_set_tx_prot(struct net_device *dev, int tx_pam, int tx_pam1)
     return 0;
 }
 
-int aml_set_tx_end(struct net_device *dev)
+extern unsigned char g_fw_recovery_flag;
+int aml_set_tx_end(struct net_device *dev, union iwreq_data *wrqu, char *extra)
 {
+    unsigned char err_msg[] = " FW-error";
+    struct aml_vif *aml_vif = netdev_priv(dev);
+
     tx_start = 0;
     printk("set_tx_end\n");
     //aml_set_reg(dev, 0x60c06000, 0x00000000);  //tx end
     aml_set_reg(dev, 0x60805018, 0x00000001);  //phy reset
     aml_set_reg(dev, 0x60805018, 0x00000000);
-
     aml_set_reg(dev, 0x60c0b390, 0x00011103);
+
+    if (g_fw_recovery_flag || (!_aml_get_efuse(aml_vif, 0))) {
+        wrqu->data.length = scnprintf(extra, IW_PRIV_SIZE_MASK, "%s", err_msg);
+        wrqu->data.length++;
+        g_fw_recovery_flag = 0;
+        printk("%s, %d: recovery flag found!\n", __func__, __LINE__);
+    }
 
     return 0;
 }
 
-int aml_set_tx_start(struct net_device *dev)
+int aml_set_tx_start(struct net_device *dev, union iwreq_data *wrqu, char *extra)
 {
+    unsigned char err_msg[] = " FW-error";
+    struct aml_vif *aml_vif = netdev_priv(dev);
+
     tx_start = 1;
     aml_set_tx_prot(dev, tx_param, tx_param1);
+
+    if (g_fw_recovery_flag || (!_aml_get_efuse(aml_vif, 0))) {
+        wrqu->data.length = scnprintf(extra, IW_PRIV_SIZE_MASK, "%s", err_msg);
+        wrqu->data.length++;
+        g_fw_recovery_flag = 0;
+        printk("%s, %d: recovery flag found!\n", __func__, __LINE__);
+    }
+
     printk("set_tx_start\n");
     return 0;
 }
@@ -2955,6 +3256,10 @@ int aml_recy_ctrl(struct net_device *dev, int recy_id)
         case 3:
             AML_INFO("do recovery straightforward");
             aml_recy_doit(aml_hw);
+            break;
+        case 5:
+            AML_INFO("do simulate link loss recovery");
+            aml_recy_link_loss_test();
             break;
 #endif
         case 4:
@@ -4098,6 +4403,9 @@ static int aml_iwpriv_send_para2(struct net_device *dev,
         case AML_IWP_SNR_CFG:
             aml_dyn_snr_cfg(dev, set1, set2);
             break;
+        case AML_IWP_SET_DC_TONE:
+            aml_set_tone(dev, set1, set2);
+            break;
         default:
             break;
     }
@@ -4242,12 +4550,6 @@ static int aml_iwpriv_get(struct net_device *dev,
         case AML_IWP_SET_RX_START:
             aml_set_rx_start(dev);
             break;
-        case AML_IWP_SET_TX_END:
-            aml_set_tx_end(dev);
-            break;
-        case AML_IWP_SET_TX_START:
-            aml_set_tx_start(dev);
-            break;
         case AML_IWP_SET_OFFSET_POWER_VLD:
             aml_set_offset_power_vld(dev);
             break;
@@ -4259,6 +4561,9 @@ static int aml_iwpriv_get(struct net_device *dev,
             break;
         case AML_IWP_LA_ENABLE:
             aml_emb_la_enable(dev);
+            break;
+        case AML_IWP_STOP_DC_TONE:
+            aml_stop_dc_tone(dev);
             break;
         default:
             printk("%s %d param err\n", __func__, __LINE__);
@@ -4323,6 +4628,15 @@ static int aml_iwpriv_get_char(struct net_device *dev,
             break;
         case AML_IWP_GET_MAC_TIMES:
             aml_get_mac_efuse_times(dev, wrqu, extra);
+            break;
+        case AML_IWP_GET_ALL_EFUSE:
+            aml_get_all_efuse(dev,wrqu, extra);
+            break;
+        case AML_IWP_SET_TX_END:
+            aml_set_tx_end(dev, wrqu, extra);
+            break;
+        case AML_IWP_SET_TX_START:
+            aml_set_tx_start(dev, wrqu, extra);
             break;
         default:
             break;
@@ -4453,12 +4767,6 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
         AML_IWP_SET_RX_START,
         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "pt_rx_start"},
     {
-        AML_IWP_SET_TX_END,
-        0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "pt_tx_end"},
-    {
-        AML_IWP_SET_TX_START,
-        0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "pt_tx_start"},
-    {
         AML_IWP_SET_OFFSET_POWER_VLD,
         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "offset_pow_vld"},
     {
@@ -4470,6 +4778,9 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_IWP_LA_ENABLE,
         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "la_enable"},
+    {
+        AML_IWP_STOP_DC_TONE,
+        0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "stop_dc_tone"},
     {
         SIOCIWFIRSTPRIV + 1,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, ""},
@@ -4631,6 +4942,9 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
         AML_IWP_SNR_CFG,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 2, 0, "dyn_snr_cfg"},
     {
+        AML_IWP_SET_DC_TONE,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 2, 0, "send_dc_tone"},
+    {
         SIOCIWFIRSTPRIV + 3,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 3, 0, ""},
     {
@@ -4690,11 +5004,20 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
         AML_IWP_GET_XOSC_OFFSET,
         IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "get_xosc_offset"},
     {
+        AML_IWP_GET_ALL_EFUSE,
+        IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "get_all_efuse"},
+    {
         AML_IWP_GET_XOSC_EFUSE_TIMES,
         IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "get_xosc_times"},
     {
         AML_IWP_GET_MAC_TIMES,
         IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "get_mac_times"},
+    {
+        AML_IWP_SET_TX_START,
+        IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "pt_tx_start"},
+    {
+        AML_IWP_SET_TX_END,
+        IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, IW_PRIV_TYPE_CHAR | IW_PRIV_SIZE_MASK, "pt_tx_end"},
     {
         SIOCIWFIRSTPRIV + 6,
         IW_PRIV_TYPE_INT | IW_PRIV_INT_SIZE_MASK, IW_PRIV_TYPE_BYTE | IW_PRIV_SIZE_MASK, ""},

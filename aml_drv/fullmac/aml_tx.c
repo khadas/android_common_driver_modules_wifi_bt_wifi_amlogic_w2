@@ -733,7 +733,9 @@ static void aml_tx_retry(struct aml_hw *aml_hw, struct sk_buff *skb,
         // On next push, firmware needs to re-use the same SN
         sw_txhdr->desc.api.host.flags |= TXU_CNTRL_REUSE_SN;
         sw_txhdr->desc.api.host.sn_for_retry = status.sn;
-        printk("%s %d, reuse sn = %d\n", __func__, __LINE__, status.sn);
+
+        if (aml_bus_type != PCIE_MODE)
+            printk("%s, reuse sn = %d\n", __func__, status.sn);
     }
 
     txq->credits++;
@@ -967,7 +969,6 @@ static bool aml_amsdu_add_subframe(struct aml_hw *aml_hw, struct sk_buff *skb,
            available, otherwise end the current amsdu */
         struct aml_sw_txhdr *sw_txhdr = txq->amsdu;
         eth = (struct ethhdr *)(skb->data);
-
         if ((sw_txhdr->desc.api.host.flags & TXU_CNTRL_SP_FRAME) ||
             ((sw_txhdr->amsdu.len + sw_txhdr->amsdu.pad +
               aml_amsdu_subframe_length(eth, skb->len)) > txq->amsdu_len) ||
@@ -1254,7 +1255,11 @@ bool aml_filter_sp_data_frame(struct sk_buff *skb, struct aml_vif *aml_vif, AML_
                     target_mac[0], target_mac[1], target_mac[2], target_mac[3], target_mac[4], target_mac[5]);
         offset += sprintf(p + offset, "%d.%d.%d.%d]",
                     target_ip[0], target_ip[1], target_ip[2], target_ip[3]);
-        printk("%s\n", p);
+
+        if (((sp_status == SP_STATUS_RX) && (!memcmp(target_ip, &aml_vif->ipv4_addr, IPV4_ADDR_LEN)))
+            || (sp_status != SP_STATUS_RX))
+            printk("%s\n", p);
+
         return false; // Solving the compatibility problem between w2 softap and mtk
     }
 
@@ -1290,7 +1295,7 @@ bool aml_filter_sp_data_frame(struct sk_buff *skb, struct aml_vif *aml_vif, AML_
     return false;
 }
 
-uint32_t aml_filter_sp_mgmt_frame(struct aml_vif *vif, u8 *buf, AML_SP_STATUS_E sp_status,u32 frame_len,u32* frame_len_offset)
+uint32_t aml_filter_sp_mgmt_frame(struct aml_vif *vif, u8 *buf, AML_SP_STATUS_E sp_status, u32 frame_len, u32* len_diff)
 {
     u32 offset = 0;
     u32 subtype = ((*buf) & IEEE80211_FCTL_STYPE) >> 4;
@@ -1321,22 +1326,36 @@ uint32_t aml_filter_sp_mgmt_frame(struct aml_vif *vif, u8 *buf, AML_SP_STATUS_E 
                         if ((oui_subtype == P2P_ACTION_GO_NEG_RSP) || (oui_subtype == P2P_ACTION_GO_NEG_CFM) || (oui_subtype == P2P_ACTION_INVIT_RSP)) {
                             ret |= AML_SP_FRAME;
                         }
-#if 0 //code for change p2p go intent & chanlist
+#ifdef DRV_P2P_SCC_MODE
                         if (sp_status == SP_STATUS_TX_START) {
-                            if ((oui_subtype == P2P_ACTION_GO_NEG_REQ) || (oui_subtype == P2P_ACTION_GO_NEG_RSP) || (oui_subtype == P2P_ACTION_INVIT_RSP)) {
+                            if ((oui_subtype == P2P_ACTION_GO_NEG_REQ) || (oui_subtype == P2P_ACTION_INVIT_REQ))
+                                AML_SCC_SET_P2P_PEER_5G_SUPPORT(false); //rest 5g support flag
+
+                            if ((oui_subtype == P2P_ACTION_GO_NEG_REQ) || (oui_subtype == P2P_ACTION_GO_NEG_RSP) || (oui_subtype == P2P_ACTION_INVIT_REQ) || (oui_subtype == P2P_ACTION_INVIT_RSP)) {
                                 struct aml_vif *sta_vif ;
                                 sta_vif = vif->aml_hw->vif_table[0];
                                 if (sta_vif && sta_vif->sta.ap && (sta_vif->sta.ap->valid)) {
                                     struct cfg80211_chan_def target_chdef;
                                     target_chdef = vif->aml_hw->chanctx_table[sta_vif->ch_index].chan_def;
-                                    AML_INFO("p2p channel to:%d", aml_ieee80211_freq_to_chan(target_chdef.chan->center_freq, target_chdef.chan->band));
-                                    aml_change_p2p_chanlist(vif,buf, frame_len,frame_len_offset,target_chdef);
-                                    aml_change_p2p_operchan(vif,buf, frame_len,target_chdef);
+                                    AML_INFO("[P2P SCC] p2p channel to:%d", aml_ieee80211_freq_to_chan(target_chdef.chan->center_freq, target_chdef.chan->band));
+                                    AML_SCC_SAVE_P2P_ACTION_FRAME(buf, frame_len);
+                                    AML_SCC_SAVE_P2P_ACTION_LEN(frame_len);
+                                    aml_change_p2p_chanlist(vif, buf, frame_len, len_diff, target_chdef);
+                                    aml_change_p2p_operchan(vif, buf, frame_len, target_chdef);
+                                    AML_SCC_SAVE_P2P_ACTION_LEN_DIFF(*len_diff);
                                 }
                             }
-                            if ((oui_subtype == P2P_ACTION_GO_NEG_REQ) || (oui_subtype == P2P_ACTION_GO_NEG_RSP)) {
-                                aml_change_p2p_intent(vif,buf, frame_len,frame_len_offset);
+                        }
+
+                        if ((sp_status == SP_STATUS_TX_SUC) || (sp_status == SP_STATUS_TX_FAIL)) {
+                            if ((oui_subtype == P2P_ACTION_GO_NEG_REQ) || (oui_subtype == P2P_ACTION_GO_NEG_RSP) || (oui_subtype == P2P_ACTION_INVIT_REQ) || (oui_subtype == P2P_ACTION_INVIT_RSP)) {
+                                aml_scc_p2p_action_restore(buf, len_diff);
                             }
+                        }
+#endif
+#if 0    //code for change p2p go intent
+                        if ((oui_subtype == P2P_ACTION_GO_NEG_REQ) || (oui_subtype == P2P_ACTION_GO_NEG_RSP)) {
+                            aml_change_p2p_intent(vif, buf, frame_len, frame_len_offset);
                         }
 #endif
                     }
@@ -1679,7 +1698,7 @@ int aml_start_mgmt_xmit(struct aml_vif *vif, struct aml_sta *sta,
     struct aml_sdio_txhdr *sdio_txhdr;
     u32 tx_headroom;
     struct aml_usb_txhdr *usb_txhdr;
-    u32 frame_len_offset = 0;
+    u32 len_diff = 0;
     u32 sp_mgmt_ret;
     frame_len = params->len;
 
@@ -1732,7 +1751,7 @@ int aml_start_mgmt_xmit(struct aml_vif *vif, struct aml_sta *sta,
     /* Copy data in skb buffer */
     data = skb_put(skb, frame_len);
     memcpy(data, params->buf, frame_len);
-    sp_mgmt_ret = aml_filter_sp_mgmt_frame(vif,data,SP_STATUS_TX_START,frame_len,&frame_len_offset);
+    sp_mgmt_ret = aml_filter_sp_mgmt_frame(vif, data, SP_STATUS_TX_START, frame_len, &len_diff);
     if ((sp_mgmt_ret & AML_DPP_ACTION_FRAME) && offchan) {
 #ifdef CONFIG_AML_PREALLOC_BUF_STATIC
         txq = aml_hw->txq + NX_OFF_CHAN_TXQ_IDX;
@@ -1741,10 +1760,9 @@ int aml_start_mgmt_xmit(struct aml_vif *vif, struct aml_sta *sta,
 #endif
         AML_INFO("DPP change txq ---> off chan");
     }
-    if (frame_len_offset)
-    {
-        AML_INFO("frame_len:%d frame_len_offset:%d",frame_len,frame_len_offset);
-        frame_len -= frame_len_offset;
+    if (len_diff) {
+        AML_INFO("[P2P SCC] frame_len:%d frame_len_diff:%d", frame_len, len_diff);
+        frame_len -= len_diff;
     }
     robust = ieee80211_is_robust_mgmt_frame(skb);
 
@@ -1943,8 +1961,10 @@ int aml_tx_cfm_task(void *data)
             max_dyna_num = (aml_bus_type == SDIO_MODE) ? SDIO_DYNA_PAGE_NUM : USB_DYNA_PAGE_NUM;
             if (dyna_page == max_dyna_num)
                 aml_hw->g_tx_param.tx_page_free_num += dyna_page;
-            else
-                aml_hw->g_tx_param.tx_page_free_num -= dyna_page;
+            else {
+                if (aml_hw->la_enable)
+                    aml_hw->g_tx_param.tx_page_free_num -= dyna_page;
+            }
 
             spin_unlock_bh(&aml_hw->tx_buf_lock);
             AML_PRINT(AML_DBG_MODULES_TX, "%s, tx_page_free_num=%d, credit=%d, pagenum=%d, skb=%p, cfm.credits=%d, drv_txcfm_idx=%d\n", __func__, aml_hw->g_tx_param.tx_page_free_num, txq->credits, page_num, skb, cfm.credits, drv_txcfm_idx);
@@ -1971,7 +1991,7 @@ int aml_tx_cfm_task(void *data)
                 }
 
                 if (ieee80211_is_action(mgmt->frame_control)) {
-                    sp_ret = aml_filter_sp_mgmt_frame(sw_txhdr->aml_vif,(u8*)mgmt, cfm.status.acknowledged ? SP_STATUS_TX_SUC:SP_STATUS_TX_FAIL,0,0);
+                    sp_ret = aml_filter_sp_mgmt_frame(sw_txhdr->aml_vif, (u8*)mgmt, cfm.status.acknowledged ? SP_STATUS_TX_SUC:SP_STATUS_TX_FAIL, 0, &(sw_txhdr->frame_len));
                     if (sp_ret & AML_CSA_ACTION_FRAME) {
                         AML_INFO("csa action send cfm, status:%d", cfm.status.acknowledged);
                     }
@@ -2104,7 +2124,7 @@ int aml_txdatacfm(void *pthis, void *arg)
             sw_txhdr->aml_vif->is_disconnect = 0;
         }
         if (ieee80211_is_action(mgmt->frame_control)) {
-            sp_ret = aml_filter_sp_mgmt_frame(sw_txhdr->aml_vif,(u8*)mgmt, cfm->status.acknowledged ? SP_STATUS_TX_SUC:SP_STATUS_TX_FAIL,0,0);
+            sp_ret = aml_filter_sp_mgmt_frame(sw_txhdr->aml_vif, (u8*)mgmt, cfm->status.acknowledged ? SP_STATUS_TX_SUC:SP_STATUS_TX_FAIL, 0, &(sw_txhdr->frame_len));
             if (sp_ret & AML_CSA_ACTION_FRAME) {
                 AML_INFO("csa action send cfm, status:%d", cfm->status.acknowledged);
             }
@@ -2196,10 +2216,13 @@ void aml_txq_credit_update(struct aml_hw *aml_hw, int sta_idx, u8 tid, s8 update
     struct sk_buff *tx_skb;
     int user = 0, credits = 0;
 
-    txq = aml_txq_sta_get(sta, tid, aml_hw);
-    user = AML_TXQ_POS_ID(txq);
-
     aml_spin_lock(&aml_hw->tx_lock);
+    txq = aml_txq_sta_get(sta, tid, aml_hw);
+    if (!txq) {
+        aml_spin_unlock(&aml_hw->tx_lock);
+        return;
+    }
+    user = AML_TXQ_POS_ID(txq);
     if (txq->idx != TXQ_INACTIVE) {
 #ifdef CONFIG_CREDIT124
         if (update > NX_TXQ_INITIAL_CREDITS) {

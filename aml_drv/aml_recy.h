@@ -19,10 +19,13 @@
 
 #ifdef CONFIG_AML_RECOVERY
 
-#define RECY_RETRY_CONNECT_MAX 5
+#define AML_RECY_RECONNECT_TIMES    (5)
 #define AML_RECY_MON_INTERVAL       (4 * HZ)
 
-/* AML_RECY flags bit*/
+/* disconnect reason code for link loss, use internally */
+#define AML_RECY_REASON_CODE_LINK_LOSS (40)
+
+/* AML_RECY flag bits */
 #define AML_RECY_ASSOC_INFO_SAVED   BIT(0)
 #define AML_RECY_CHECK_SCC          BIT(1)
 #define AML_RECY_AP_INFO_SAVED      BIT(2)
@@ -36,8 +39,6 @@
 #define AML_RECY_CLOSE_VIF_PROC     BIT(10)
 #define AML_RECY_DROP_XMIT_PKT      BIT(11)
 #define AML_RECY_RX_RATE_ALLOC      BIT(12)
-
-
 
 
 #define AML_AGCCNTL_ADDR            0x00C0B390
@@ -63,11 +64,20 @@ struct aml_recy_ap_info {
     enum nl80211_band band;
 };
 
+struct aml_recy_link_loss {
+    bool is_enabled;
+    bool is_requested;
+    /* check link loss status and scan result */
+    bool is_happened;
+    u16 scan_result_cnt;
+};
+
 struct aml_recy {
    /* AML_RECY_x flags */
     u32 flags;
     u8 reconnect_rest;
-    u32 recy_request;
+    u8 ps_state;
+    struct aml_recy_link_loss link_loss;
     struct aml_hw *aml_hw;
     struct aml_recy_assoc_info assoc_info;
     struct aml_recy_ap_info ap_info;
@@ -84,9 +94,11 @@ bool aml_recy_flags_chk(u32 flags);
 void aml_recy_save_assoc_info(struct cfg80211_connect_params *sme, u8 vif_index);
 void aml_recy_save_ap_info(struct cfg80211_ap_settings *settings);
 void aml_recy_save_bcn_info(u8 *bcn, size_t bcn_len);
+void aml_recy_link_loss_test(void);
 int aml_recy_doit(struct aml_hw *aml_hw);
 int aml_recy_init(struct aml_hw *aml_hw);
 int aml_recy_deinit(void);
+
 bool aml_recy_connect_retry(void);
 int aml_recy_sta_connect(struct aml_hw *aml_hw, uint8_t *status);
 bool aml_recy_check_aml_vif_exit(struct aml_hw *aml_hw, struct aml_vif *aml_vif);

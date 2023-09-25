@@ -445,6 +445,7 @@ enum mm_sub_a2e_tag {
     MM_SUB_SET_DYNAMIC_BUF_STATE,
     MM_SUB_SET_LA_CAPTURE,
     MM_SUB_SET_LA_STATE,
+    MM_SUB_SHUTDOWN,
     /// the MAX
     MM_SUB_A2E_MAX,
     /// New members cannot be added below

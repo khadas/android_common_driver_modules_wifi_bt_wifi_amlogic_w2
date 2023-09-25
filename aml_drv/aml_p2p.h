@@ -4,9 +4,12 @@
 #include "aml_defs.h"
 #include "aml_scc.h"
 
-#define P2P_ACTION_HDR_LEN      8
-#define GO_INTENT_H 15
-#define GO_INTENT_L 0
+#define P2P_ACTION_HDR_LEN          8
+#define GO_INTENT_H                 15
+#define GO_INTENT_L                 0
+#define P2P_ELEMENT_HDR_LEN         6
+#define P2P_ATT_COUNTRY_STR_LEN     3
+#define P2P_ATT_BODY_OFT            3
 
 enum p2p_attr_id
 {

@@ -7,6 +7,7 @@
 #include "aml_interface.h"
 #include "fi_w2_sdio.h"
 #include "chip_intf_reg.h"
+#include "aml_interface.h"
 
 struct auc_hif_ops g_auc_hif_ops;
 struct usb_device *g_udev = NULL;
@@ -17,10 +18,9 @@ unsigned char g_usb_after_probe;
 struct crg_msc_cbw *g_cmd_buf = NULL;
 struct mutex auc_usb_mutex;
 unsigned char *g_kmalloc_buf;
-bool usb_is_shutdown = false;
 extern unsigned char wifi_drv_rmmod_ongoing;
 extern struct aml_bus_state_detect bus_state_detect;
-
+extern struct aml_pm_type g_wifi_pm;
 extern void auc_w2_ops_init(void);
 extern void extern_wifi_set_enable(int is_on);
 
@@ -33,7 +33,11 @@ static int auc_probe(struct usb_interface *interface, const struct usb_device_id
 
     auc_w2_ops_init();
     g_auc_hif_ops.hi_enable_scat();
-
+#ifdef CONFIG_PM
+    if (atomic_read(&g_wifi_pm.bus_suspend_cnt)) {
+        atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
+    }
+#endif
     PRINT("%s(%d)\n",__func__,__LINE__);
     return 0;
 }
@@ -50,27 +54,51 @@ static void auc_disconnect(struct usb_interface *interface)
 #ifdef CONFIG_PM
 static int auc_reset_resume(struct usb_interface *interface)
 {
+    atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
     PRINT("--------aml_usb:reset done-------\n");
     return 0;
 }
 
 static int auc_suspend(struct usb_interface *interface,pm_message_t state)
 {
+    int cnt = 0;
+
+    while (atomic_read(&g_wifi_pm.drv_suspend_cnt) == 0)
+    {
+        msleep(50);
+        cnt++;
+        if (cnt > 40)
+        {
+            PRINT("wifi suspend fail \n");
+            return -1;
+        }
+    }
+    atomic_set(&g_wifi_pm.bus_suspend_cnt, 1);
     PRINT("---------aml_usb suspend-------\n");
     return 0;
 }
 
 static int auc_resume(struct usb_interface *interface)
 {
+    atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
     return 0;
 }
 #endif
 
+extern lp_shutdown_func g_lp_shutdown_func;
 void auc_shutdown(struct device *dev)
 {
-    usb_is_shutdown = true;
+    // Notify fw to enter shutdown mode
+    if (g_lp_shutdown_func != NULL)
+    {
+        g_lp_shutdown_func();
+    }
+
+    atomic_set(&g_wifi_pm.is_shut_down, 1);
+
+    //notify fw shutdown
+    //notify bt wifi will go shutdown
     auc_write_word_by_ep_for_wifi(RG_AON_A55, auc_read_word_by_ep_for_wifi(RG_AON_A55, USB_EP4)|BIT(28) ,USB_EP4);
-    PRINT("---------aml_usb shutdown-------\n");
 }
 
 static const struct usb_device_id auc_devices[] =
@@ -158,16 +186,28 @@ Try_again:
     extern_wifi_set_enable(0);
     while (g_usb_after_probe) {
         msleep(5);
+        count++;
+        if (count > 40 && try_cnt <= 3) {
+            count = 0;
+            try_cnt++;
+            extern_wifi_set_enable(1);
+            msleep(50);
+            printk("%s: %d usb reset fail, try again(%d)\n", __func__, __LINE__, try_cnt);
+            goto Try_again;
+        }
     }
     extern_wifi_set_enable(1);
 #endif
+
+    count = 0;
+    try_cnt = 0;
     while ((!g_usb_after_probe) && try_cnt <= 3) {
         msleep(5);
         count++;
         if (count > 200) {
             count = 0;
             try_cnt++;
-            printk("%s: usb reset fail, try again(%d)\n", __func__, try_cnt);
+            printk("%s: %d usb reset fail, try again(%d)\n", __func__, __LINE__, try_cnt);
             goto Try_again;
         }
     };
@@ -188,5 +228,3 @@ EXPORT_SYMBOL(auc_driver_insmoded);
 EXPORT_SYMBOL(auc_wifi_in_insmod);
 EXPORT_SYMBOL(auc_usb_mutex);
 EXPORT_SYMBOL(g_usb_after_probe);
-EXPORT_SYMBOL(usb_is_shutdown);
-

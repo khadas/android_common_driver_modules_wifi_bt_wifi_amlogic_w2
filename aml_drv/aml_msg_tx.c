@@ -23,6 +23,7 @@
 #include "aml_recy.h"
 #include "aml_wq.h"
 #include "aml_sap.h"
+#include "chip_intf_reg.h"
 
 const struct mac_addr mac_addr_bcst = {{0xFFFF, 0xFFFF, 0xFFFF}};
 
@@ -416,7 +417,7 @@ static int aml_send_msg(struct aml_hw *aml_hw, const void *msg_params,
     }
 #endif
     if ((aml_hw->state > WIFI_SUSPEND_STATE_NONE || g_pci_shutdown) && (*(msg->param) != MM_SUB_SET_SUSPEND_REQ)
-        && (*(msg->param) != MM_SUB_SCANU_CANCEL_REQ)
+        && (*(msg->param) != MM_SUB_SCANU_CANCEL_REQ && (*(msg->param) != MM_SUB_SHUTDOWN))
 #ifdef CONFIG_AML_RECOVERY
         && (!aml_recy_flags_chk(AML_RECY_STATE_ONGOING))
 #endif
@@ -427,13 +428,14 @@ static int aml_send_msg(struct aml_hw *aml_hw, const void *msg_params,
         kfree(msg);
         return -EBUSY;
     }
-
+#ifdef CONFIG_AML_RECOVERY
     if ((aml_recy != NULL) && (aml_recy_flags_chk(AML_RECY_IPC_ONGOING)))
     {
         printk("ipc recy ongoing, cmd not allow to send, id:%d\n", msg->id);
         kfree(msg);
         return -EBUSY;
     }
+#endif
 
     if (!test_bit(AML_DEV_STARTED, (void*)&aml_hw->flags) &&
         reqid != MM_RESET_CFM && reqid != MM_VERSION_CFM &&
@@ -452,6 +454,10 @@ static int aml_send_msg(struct aml_hw *aml_hw, const void *msg_params,
     }
 
     nonblock = is_non_blocking_msg(msg->id);
+    if ((*(msg->param) == MM_SUB_SHUTDOWN) && (msg->id == MM_OTHER_REQ)) {
+        nonblock = true;
+    }
+
     call_thread = aml_msg_send_mtheod(msg->id);
 
     cmd = kzalloc(sizeof(struct aml_cmd), nonblock ? GFP_ATOMIC : GFP_KERNEL);
@@ -2077,6 +2083,7 @@ int aml_send_me_rc_set_rate(struct aml_hw *aml_hw,
 int aml_send_me_set_ps_mode(struct aml_hw *aml_hw, u8 ps_mode)
 {
     struct me_set_ps_mode_req *req;
+    int ret = 0;
 
     AML_INFO("set power save mode:%d", ps_mode);
 
@@ -2091,7 +2098,14 @@ int aml_send_me_set_ps_mode(struct aml_hw *aml_hw, u8 ps_mode)
 
     /* Send the ME_SET_PS_MODE_REQ message to FW */
     /* coverity[leaked_storage] - req will be freed later */
-    return aml_send_msg(aml_hw, req, 1, ME_SET_PS_MODE_CFM, NULL);
+    ret = aml_send_msg(aml_hw, req, 1, ME_SET_PS_MODE_CFM, NULL);
+#ifdef CONFIG_AML_RECOVERY
+    if ((aml_recy != NULL) && !ret) {
+        aml_recy->ps_state = ps_mode;
+    }
+#endif
+
+    return ret;
 }
 
 int aml_send_sm_connect_req(struct aml_hw *aml_hw,
@@ -3314,6 +3328,40 @@ int aml_rf_reg_read(struct net_device *dev, int addr)
     return ind.rf_data;
 }
 
+int aml_send_me_shutdown(struct aml_hw *aml_hw)
+{
+    void *shutdown_req = NULL;
+    int ret;
+    int count;
+    bool msg_recv;
+    unsigned int value;
+
+    shutdown_req = aml_priv_msg_zalloc(MM_SUB_SHUTDOWN, 0);
+    if (!shutdown_req)
+        return -ENOMEM;
+
+    ret = aml_priv_send_msg(aml_hw, shutdown_req, 0, MM_MSG_BYPASS_ID, NULL);
+
+    //wait fw set msg recv flag
+    do
+    {
+        value = AML_REG_READ(aml_hw->plat, AML_ADDR_AON, RG_AON_A55);
+        if (value != 0xffffffff) {
+            msg_recv = value & BIT(21);
+        }
+        msleep(10);
+        if (count++ > 5) {
+            printk("%s %d, ERROR wait shutdown_ind timeout:%d \n",
+                __func__, __LINE__, msg_recv );
+            return ret;
+        }
+    }while (!msg_recv);
+
+    printk("%s %d, shutdown_msg_send_ok! \n",__func__, __LINE__);
+
+    return ret;
+}
+
 int aml_csi_status_com_read(struct net_device *dev, struct csi_status_com_get_ind *ind)
 {
     void *void_param;
@@ -4181,3 +4229,6 @@ int _aml_set_la_enable(struct aml_hw *aml_hw, int value)
 
     return aml_priv_send_msg(aml_hw, la_status, 0, 0, NULL);
 }
+
+
+

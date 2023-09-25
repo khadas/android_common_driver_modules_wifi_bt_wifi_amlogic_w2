@@ -934,6 +934,27 @@ void ipc_host_irq_ext(struct ipc_host_env_tag *env, uint32_t status)
 }
 #endif
 
+void aml_sdio_usb_extend_irq_handle(struct aml_hw *aml_hw)
+{
+    uint32_t status = AML_REG_READ(aml_hw->plat, 0, SDIO_USB_EXTEND_E2A_IRQ_STATUS);
+    switch (status)
+    {
+        case DYNAMIC_BUF_HOST_TX_STOP:
+            aml_hw->dynabuf_stop_tx = DYNAMIC_BUF_HOST_TX_STOP;
+            aml_hw->send_tx_stop_to_fw = 1;
+            break;
+        case DYNAMIC_BUF_HOST_TX_START:
+            aml_hw->dynabuf_stop_tx = 0;
+            up(&aml_hw->aml_tx_sem);
+            break;
+        case DYNAMIC_BUF_LA_SWITCH_FINSH:
+            printk("la page had been released completely!\n");
+            break;
+        default:
+            break;
+    }
+}
+
 /**
  ******************************************************************************
  */
@@ -993,7 +1014,7 @@ void ipc_host_irq(struct ipc_host_env_tag *env, uint32_t status)
         ipc_host_radar_handler(env);
     }
 
-    if (status & IPC_IRQ_E2A_UNSUP_RX_VEC)
+    if ((status & IPC_IRQ_E2A_UNSUP_RX_VEC) && (aml_bus_type == PCIE_MODE))
     {
         // handle the unsupported rx vector reception
         ipc_host_unsup_rx_vec_handler(env);
@@ -1013,9 +1034,9 @@ void ipc_host_irq(struct ipc_host_env_tag *env, uint32_t status)
     {
         ipc_host_trace_handler(env);
     }
-    if ((status & IPC_IRQ_E2A_UNSUP_RX_VEC) && (aml_bus_type != PCIE_MODE))
+    if ((status & SDIO_USB_EXTEND_E2A_IRQ) && (aml_bus_type != PCIE_MODE))
     {
-        printk("la page had been released completely!\n");
+        aml_sdio_usb_extend_irq_handle((struct aml_hw *)env->pthis);
     }
 }
 
@@ -1048,7 +1069,6 @@ int ipc_host_msg_push(struct ipc_host_env_tag *env, void *msg_buf, uint16_t len)
         }
     }
 
-    AML_INFO("a2e msg hostid=0x%lx\n", msg_buf);
     env->msga2e_hostid = msg_buf;
 
     // Trigger the irq to send the message to EMB

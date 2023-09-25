@@ -242,6 +242,7 @@ struct rxbuf_list{
     unsigned int second_len;
     unsigned int rx_buf_end;
     unsigned int rx_buf_len;
+    unsigned int rxbuf_data_start;
 };
 
 struct aml_dyn_snr_cfg {
