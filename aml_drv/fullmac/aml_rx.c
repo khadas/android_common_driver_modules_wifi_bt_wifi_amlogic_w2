@@ -2363,7 +2363,7 @@ int aml_last_rx_info(struct aml_hw *priv, struct aml_sta *sta)
     /* high rate percent is greater than 60%
        or rx byte with current cfg is greater than rx byte with previous cfg */
     if ((high_rate_percent >= g_dyn_snr.snr_mcs_ration * 10)
-            || (g_dyn_snr.need_trial && ((g_dyn_snr.rx_byte_1 / 30) < (g_dyn_snr.rx_byte_2 * 102 / 100)))) {
+            || (g_dyn_snr.need_trial && (div_u64(g_dyn_snr.rx_byte_1, 30) < div_u64(g_dyn_snr.rx_byte_2 * 102, 100)))) {
         //keep current configuration
         g_dyn_snr.best_snr_cfg = old_snr_cfg;
         if (g_dyn_snr.need_trial)

@@ -520,7 +520,7 @@ static inline void SKB_APPEND(struct sk_buff *old, struct sk_buff *newsk, struct
 /******************************************************************************
  * File
  *****************************************************************************/
-#if defined(__ANDROID_COMMON_KERNEL__) /* for android */
+#if defined(__ANDROID_COMMON_KERNEL__) || defined(CONFIG_AML_ANDROID) /* for android */
   #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
     #define DISABLE_FILE_OPS
   #endif
