@@ -5039,6 +5039,11 @@ static int aml_cfg80211_suspend(struct wiphy *wiphy, struct cfg80211_wowlan *wow
         return error;
     }
     printk("%s ok exit   %d\n", __func__, __LINE__);
+
+    if (aml_bus_type == PCIE_MODE) {
+        printk("######### fir msi irq\n");
+        free_irq(aml_hw->plat->pci_dev->irq, aml_hw);
+    }
     return 0;
 #else
     printk("test %s,%d, suspend is not supported\n", __func__, __LINE__);
@@ -5051,8 +5056,16 @@ static int aml_cfg80211_resume(struct wiphy *wiphy)
 #ifdef CONFIG_AML_SUSPEND
     struct aml_hw *aml_hw = wiphy_priv(wiphy);
     int error = 0;
+    int ret;
 
     AML_DBG(AML_FN_ENTRY_STR);
+
+    if (aml_bus_type == PCIE_MODE) {
+        ret = request_irq(aml_hw->plat->pci_dev->irq, aml_irq_pcie_hdlr, 0,
+                          "aml", aml_hw);
+        AML_INFO("###### alloc irq:%d, ret:%d", aml_hw->plat->pci_dev->irq, ret);
+    }
+
     error = aml_ps_wow_resume(aml_hw);
     if (error){
         return error;

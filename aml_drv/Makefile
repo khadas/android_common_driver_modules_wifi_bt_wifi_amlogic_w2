@@ -1,4 +1,4 @@
-AML_VERS_NUM=v1.5.4_20230927-w2p driver:0179190a49ff4de25288dd7c101e9d0e7daf2c7c
+AML_VERS_NUM=v1.5.5_20231012-w2p driver:0179190a49ff4de25288dd7c101e9d0e7daf2c7c
 #KERNELDIR=/usr/lib/modules/5.8.0-63-generic/build
 PWD=$(shell pwd)
 ifeq ($(ARCH),)
