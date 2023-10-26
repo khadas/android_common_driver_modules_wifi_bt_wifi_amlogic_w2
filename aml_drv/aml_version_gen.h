@@ -1,6 +1,6 @@
 #define AML_VERS_REV "beda4cf8"
-#define AML_VERS_MOD "v1.6.0_20231008-w2ps driver:beda4cf8a6de13e9965149cf7527141baec80fcd"
-#define AML_VERS_BANNER "v1.6.0_20231008-w2ps driver:beda4cf8a6de13e9965149cf7527141baec80fcd (Oct 08 2023 21:25:10 - driver:beda4cf8)"
+#define AML_VERS_MOD "v1.6.1_20231129-w2ps driver:beda4cf8a6de13e9965149cf7527141baec80fcd"
+#define AML_VERS_BANNER "v1.6.1_20231129-w2ps driver:beda4cf8a6de13e9965149cf7527141baec80fcd (Oct 08 2023 21:25:10 - driver:beda4cf8)"
 #define AML_DRIVER_COMPILE_INFO "driver compile date: W2.2023.W40.00,driver hash: beda4cf8a6de13e9965149cf7527141baec80fcd"
 #define FIRMWARE_INFO "fw compile date: 2023-10-08 21:23:31,fw hash: 22cf708d4c82781350867fad0deeb38e18794430,fw size: 1843020"
 #define COMMON_INFO "common: last commit: 2023/Sep/22 20:04:00  hash: f85c0f51f77c67b665370e40793fa8dd55de8e2c"

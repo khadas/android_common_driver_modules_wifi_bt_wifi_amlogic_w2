@@ -5815,7 +5815,7 @@ static int aml_hwctx_buf_init(struct aml_hw *aml_hw)
             sizeof(struct aml_txq) * NX_NB_TXQ, &out_size);
 #endif
     buf_size = sizeof(struct aml_stats);
-    aml_hw->stats = kmalloc(buf_size, GFP_ATOMIC);
+    aml_hw->stats = kzalloc(buf_size, GFP_ATOMIC);
     if (!aml_hw->stats) {
         AML_INFO("Failed to alloc stats buf");
         kfree(aml_hw->sta_table);

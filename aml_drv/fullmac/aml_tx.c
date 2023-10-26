@@ -1563,7 +1563,7 @@ netdev_tx_t aml_start_xmit(struct sk_buff *skb, struct net_device *dev)
         return NETDEV_TX_OK;
 #endif
 
-    sw_txhdr = kmem_cache_alloc(aml_hw->sw_txhdr_cache, GFP_ATOMIC);
+    sw_txhdr = kmem_cache_zalloc(aml_hw->sw_txhdr_cache, GFP_ATOMIC);
     if (unlikely(sw_txhdr == NULL))
         goto free;
 
