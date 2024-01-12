@@ -128,6 +128,7 @@ endif
 
 #for buildroot
 ifeq ($(CONFIG_BUILDROOT), y)
+ccflags-y += -DCONFIG_BUILDROOT
 ccflags-y += -Wno-error=format=
 ccflags-y += -Wno-format
 ccflags-y += -Wno-error=implicit-fallthrough=

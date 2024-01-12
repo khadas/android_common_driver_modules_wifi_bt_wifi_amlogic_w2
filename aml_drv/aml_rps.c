@@ -17,6 +17,10 @@
 #include <net/ip.h>
 #include <linux/etherdevice.h>
 #include <net/addrconf.h>
+#include <linux/version.h>
+#if LINUX_VERSION_CODE > KERNEL_VERSION(6, 0, 0)
+#include <net/netdev_rx_queue.h>
+#endif
 #include "aml_rps.h"
 #include "aml_utils.h"
 

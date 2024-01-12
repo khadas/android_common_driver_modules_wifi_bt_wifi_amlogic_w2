@@ -1,4 +1,4 @@
-AML_VERS_NUM=v1.6.1_20231129-w2ps driver:beda4cf8a6de13e9965149cf7527141baec80fcd
+AML_VERS_NUM=v1.6.2_20240119-w2ps driver:beda4cf8a6de13e9965149cf7527141baec80fcd
 #KERNELDIR=/usr/lib/modules/5.8.0-63-generic/build
 PWD=$(shell pwd)
 ifeq ($(ARCH),)

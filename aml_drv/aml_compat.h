@@ -520,7 +520,7 @@ static inline void SKB_APPEND(struct sk_buff *old, struct sk_buff *newsk, struct
 /******************************************************************************
  * File
  *****************************************************************************/
-#if defined(__ANDROID_COMMON_KERNEL__) || defined(CONFIG_AML_ANDROID) /* for android */
+#if defined(__ANDROID_COMMON_KERNEL__) || defined(CONFIG_AML_ANDROID) || defined(CONFIG_BUILDROOT)
   #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
     #define DISABLE_FILE_OPS
   #endif
@@ -564,7 +564,7 @@ static inline int FILE_CLOSE(struct file *filp, fl_owner_t id)
 
 static inline int FILE_STAT(const char __user *filename, struct kstat *stat)
 {
-#ifdef CONFIG_ANDROID_GKI
+#if defined (CONFIG_ANDROID_GKI) || defined (CONFIG_BUILDROOT)
 	UNUSED(filename);
 	UNUSED(stat);
 	return -ENOTSUPP;

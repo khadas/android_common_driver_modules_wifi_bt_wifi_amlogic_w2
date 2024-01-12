@@ -1946,7 +1946,11 @@ int aml_prealloc_rxbuf_task(void *data)
             spin_unlock_bh(&aml_hw->prealloc_rxbuf_lock);
         }
     }
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
     complete_and_exit(&aml_hw->prealloc_completion, 0);
+#else
+    complete(&aml_hw->prealloc_completion);
+#endif
     return 0;
 }
 

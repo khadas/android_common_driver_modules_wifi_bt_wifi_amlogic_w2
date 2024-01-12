@@ -33,6 +33,7 @@
 } while (0);
 #else
 /* use set_user_nice() priority(100) to alleviate preempt cpu loading */
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
 #define AML_TASK_FUNC(data, name, func) do { \
     struct aml_hw *aml_hw = (struct aml_hw *)data; \
     set_user_nice(current, 0); \
@@ -43,6 +44,18 @@
     } \
     complete_and_exit(&aml_hw->name->task_cmpl, 0); \
 } while (0);
+#else
+#define AML_TASK_FUNC(data, name, func) do { \
+    struct aml_hw *aml_hw = (struct aml_hw *)data; \
+    set_user_nice(current, 0); \
+    while (!aml_hw->name->task_quit) { \
+        if (down_interruptible(&aml_hw->name->task_sem) != 0) break; \
+        if (aml_hw->name->task_quit) break; \
+        func(aml_hw); \
+    } \
+    complete(&aml_hw->name->task_cmpl); \
+} while (0);
+#endif
 #endif
 
 #define AML_TASK_INIT(aml_hw, name)  do { \
@@ -89,7 +102,11 @@ int aml_task_irqhdlr(void *data)
         enable_irq(aml_platform_get_irq(aml_hw->plat));
         aml_hw->plat->ack_irq(aml_hw);
     }
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
     complete_and_exit(&aml_hw->irqhdlr->task_cmpl, 0);
+#else
+    complete(&aml_hw->irqhdlr->task_cmpl);
+#endif
     return 0;
 }
 
@@ -110,7 +127,11 @@ int aml_task_rxdesc(void *data)
             break;
         aml_rxdesc_hdlr(aml_hw);
     }
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
     complete_and_exit(&aml_hw->rxdesc->task_cmpl, 0);
+#else
+    complete(&aml_hw->rxdesc->task_cmpl);
+#endif
 
     return 0;
 }
@@ -136,7 +157,11 @@ int aml_task_txcfm(void *data)
             break;
         aml_txcfm_hdlr(aml_hw);
     }
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
     complete_and_exit(&aml_hw->txcfm->task_cmpl, 0);
+#else
+    complete(&aml_hw->txcfm->task_cmpl);
+#endif
 
     return 0;
 }

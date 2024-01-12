@@ -13,6 +13,10 @@
 #include <linux/ipv6.h>
 #include <net/ip.h>
 #include <net/sock.h>
+#include <linux/version.h>
+#if LINUX_VERSION_CODE > KERNEL_VERSION(6, 0, 0)
+#include <net/sch_generic.h>
+#endif
 #include "aml_defs.h"
 #include "aml_tx.h"
 #include "aml_msg_tx.h"
@@ -2075,7 +2079,11 @@ int aml_tx_cfm_task(void *data)
     }
     if (aml_hw->aml_txcfm_completion_init) {
         aml_hw->aml_txcfm_completion_init = 0;
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
         complete_and_exit(&aml_hw->aml_txcfm_completion, 0);
+#else
+        complete(&aml_hw->aml_txcfm_completion);
+#endif
     }
 
     return 0;
