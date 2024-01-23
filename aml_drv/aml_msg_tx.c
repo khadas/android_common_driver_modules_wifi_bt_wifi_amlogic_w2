@@ -24,6 +24,7 @@
 #include "aml_wq.h"
 #include "aml_sap.h"
 #include "chip_intf_reg.h"
+#include "aml_compat.h"
 
 const struct mac_addr mac_addr_bcst = {{0xFFFF, 0xFFFF, 0xFFFF}};
 
@@ -416,15 +417,15 @@ static int aml_send_msg(struct aml_hw *aml_hw, const void *msg_params,
         return 0;
     }
 #endif
-    if ((aml_hw->state > WIFI_SUSPEND_STATE_NONE || g_pci_shutdown) && (*(msg->param) != MM_SUB_SET_SUSPEND_REQ)
+    if ((aml_hw->state > WIFI_SUSPEND_STATE_NONE || g_pci_msg_suspend) && (*(msg->param) != MM_SUB_SET_SUSPEND_REQ)
         && (*(msg->param) != MM_SUB_SCANU_CANCEL_REQ && (*(msg->param) != MM_SUB_SHUTDOWN))
 #ifdef CONFIG_AML_RECOVERY
         && (!aml_recy_flags_chk(AML_RECY_STATE_ONGOING))
 #endif
 
     ) {
-        printk("driver in suspend, cmd not allow to send, id:%d,aml_hw->state:%d g_pci_shutdown:%d\n",
-            msg->id, aml_hw->state, g_pci_shutdown);
+        printk("driver in suspend, cmd not allow to send, id:%d,aml_hw->state:%d g_pci_msg_suspend:%d\n",
+            msg->id, aml_hw->state, g_pci_msg_suspend);
         kfree(msg);
         return -EBUSY;
     }
@@ -472,6 +473,8 @@ static int aml_send_msg(struct aml_hw *aml_hw, const void *msg_params,
     cmd->reqid   = reqid;
     cmd->a2e_msg = msg;
     cmd->e2a_msg = cfm;
+    if (cmd->id == MM_OTHER_REQ)
+        cmd->mm_sub_id = ((struct mm_other_cmd *)msg_params)->mm_sub_index;
     if (nonblock)
         cmd->flags = AML_CMD_FLAG_NONBLOCK;
     if (reqcfm)
@@ -2108,6 +2111,23 @@ int aml_send_me_set_ps_mode(struct aml_hw *aml_hw, u8 ps_mode)
     return ret;
 }
 
+struct element * aml_get_md_ie(struct aml_vif *vif, struct cfg80211_connect_params *sme)
+{
+    if ((sme->auth_type == NL80211_AUTHTYPE_OPEN_SYSTEM) && (vif->sta.ft_assoc_ies)) {
+        /*get mdie*/
+        const struct element *mde, *mde_req;
+        mde_req = cfg80211_find_elem(WLAN_EID_MOBILITY_DOMAIN,
+                                 sme->ie, sme->ie_len);
+        mde = cfg80211_find_elem(WLAN_EID_MOBILITY_DOMAIN,
+                             vif->sta.ft_assoc_ies, vif->sta.ft_assoc_ies_len);
+        if ((!mde_req) && (mde)) {
+            printk("add md ie\n");
+            return mde;
+        }
+    }
+    return NULL;
+}
+
 int aml_send_sm_connect_req(struct aml_hw *aml_hw,
                              struct aml_vif *aml_vif,
                              struct cfg80211_connect_params *sme,
@@ -2115,11 +2135,16 @@ int aml_send_sm_connect_req(struct aml_hw *aml_hw,
 {
     struct sm_connect_req *req;
     int i, ie_len;
+    const struct element *mde = NULL;
 
     AML_DBG(AML_FN_ENTRY_STR);
 
     ie_len = update_connect_req(aml_vif, sme);
 
+    mde = aml_get_md_ie(aml_vif, sme);
+    if (mde) {
+        ie_len += (sizeof(struct element) + mde->datalen);
+    }
     /* Build the SM_CONNECT_REQ message */
     req = aml_msg_zalloc(SM_CONNECT_REQ, TASK_SM, DRV_TASK_ID,
                      (sizeof(struct sm_connect_req) + ie_len));
@@ -2201,6 +2226,12 @@ int aml_send_sm_connect_req(struct aml_hw *aml_hw,
         req->flags |= WPA3_SAE_IN_USE;
     }
     copy_connect_ies(aml_vif, req, sme);
+    if (mde) {
+        u8 * ie = (u8 *)req->ie_buf;
+        ie += req->ie_len;
+        memcpy(ie, mde, (sizeof(struct element) + mde->datalen));
+        req->ie_len += (sizeof(struct element) + mde->datalen);
+    }
 
     /* Set UAPSD queues */
     req->uapsd_queues = aml_mod_params.uapsd_queues;
@@ -3332,9 +3363,10 @@ int aml_send_me_shutdown(struct aml_hw *aml_hw)
 {
     void *shutdown_req = NULL;
     int ret;
-    int count;
+    int count = 0;
     bool msg_recv;
     unsigned int value;
+    printk("%s %d, aml_send_me_shutdown begin \n",__func__, __LINE__);
 
     shutdown_req = aml_priv_msg_zalloc(MM_SUB_SHUTDOWN, 0);
     if (!shutdown_req)
@@ -3350,7 +3382,7 @@ int aml_send_me_shutdown(struct aml_hw *aml_hw)
             msg_recv = value & BIT(21);
         }
         msleep(10);
-        if (count++ > 5) {
+        if (count++ > 100) {
             printk("%s %d, ERROR wait shutdown_ind timeout:%d \n",
                 __func__, __LINE__, msg_recv );
             return ret;
@@ -3670,6 +3702,20 @@ int _aml_enable_wf(struct aml_vif *aml_vif, u32 wfflag)
         return -ENOMEM;
     memset((void *)req, 0,sizeof(struct enable_wf_req));
     req->wfflag= wfflag;
+    /* coverity[leaked_storage] - req will be freed later */
+    return aml_priv_send_msg(aml_hw, req, 0, 0, NULL);
+}
+
+int _aml_fix_txpwr(struct aml_vif *aml_vif, int pwr)
+{
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
+    struct fix_txpwr *req = NULL;
+    printk("_aml_fix_txpwr: 0x%08x\n", pwr);
+    req = aml_priv_msg_zalloc(MM_SUB_FIX_TXPWR, sizeof(struct fix_txpwr));
+    if (!req)
+        return -ENOMEM;
+    memset((void *)req, 0,sizeof(struct fix_txpwr));
+    req->pwr= pwr;
     /* coverity[leaked_storage] - req will be freed later */
     return aml_priv_send_msg(aml_hw, req, 0, 0, NULL);
 }
@@ -4042,18 +4088,28 @@ int _aml_set_pt_calibration(struct aml_vif *aml_vif, int pt_cali_val)
     return aml_priv_send_msg(aml_hw, pt_calibration, 0, 0, NULL);
 }
 
-int aml_send_notify_ip(struct aml_vif *aml_vif,u8_l ip_ver,u8_l*ip_addr)
+int aml_send_notify_ip(struct aml_vif *aml_vif, u8_l ip_ver, u8_l *ip_addr)
 {
-    struct aml_hw *aml_hw = aml_vif->aml_hw;
+    struct aml_hw *aml_hw;
     notify_ip_addr_t *notify_ip_addr;
-    notify_ip_addr =  aml_priv_msg_zalloc( MM_SUB_NOTIFY_IP, sizeof(notify_ip_addr_t));
+
+    if (!aml_vif) {
+        printk("aml vif param invalid\n");
+        return -EINVAL;
+    }
+    aml_hw = aml_vif->aml_hw;
+    notify_ip_addr = aml_priv_msg_zalloc(MM_SUB_NOTIFY_IP, sizeof(notify_ip_addr_t));
     if (!notify_ip_addr) {
         return -ENOMEM;
     }
 
     notify_ip_addr->vif_idx = aml_vif->vif_index;
     notify_ip_addr->ip_ver = ip_ver;
-    memcpy(notify_ip_addr->ipv4_addr,ip_addr,IPV4_ADDR_LEN);
+    if (ip_ver == IPV4_VER) {
+        memcpy(notify_ip_addr->ipv4_addr, ip_addr, IPV4_ADDR_LEN);
+    } else if (ip_ver == IPV6_VER) {
+        memcpy(notify_ip_addr->ipv6_addr, ip_addr, IPV6_ADDR_LEN);
+    }
     /* coverity[leaked_storage] - notify_ip_addr will be freed later */
     return aml_priv_send_msg(aml_hw, notify_ip_addr, 0, 0, NULL);
 }
@@ -4230,5 +4286,26 @@ int _aml_set_la_enable(struct aml_hw *aml_hw, int value)
     return aml_priv_send_msg(aml_hw, la_status, 0, 0, NULL);
 }
 
+int _aml_set_usb_trace_enable(struct aml_hw *aml_hw, int value)
+{
+    int *trace_status = NULL;
 
+    trace_status = aml_priv_msg_zalloc(MM_SUB_SET_USB_TRACE_STATE, sizeof(int));
+    if (!trace_status)
+        return -ENOMEM;
 
+    *trace_status = value;
+
+    return aml_priv_send_msg(aml_hw, trace_status, 0, 0, NULL);
+}
+
+int _aml_putv_trace_switch(struct aml_hw *aml_hw, int value)
+{
+    int *switch_status = NULL;
+    switch_status = aml_priv_msg_zalloc(MM_SUB_SET_PUTV_TRACE_SWITCH, sizeof(int));
+    if (!switch_status)
+        return -ENOMEM;
+
+    *switch_status = value;
+    return aml_priv_send_msg(aml_hw, switch_status, 0, 0, NULL);
+}

@@ -23,6 +23,7 @@ static struct aml_android_cmd aml_android_cmd_tbl[] = {
     AML_ANDROID_CMD(CMDID_P2P_SET_PS, "P2P_SET_PS"),
     AML_ANDROID_CMD(CMDID_SET_AP_WPS_P2P_IE, "SET_AP_WPS_P2P_IE"),
     AML_ANDROID_CMD(CMDID_BTCOEXSCAN, "BTCOEXSCAN"),
+    AML_ANDROID_CMD(CMDID_SETSUSPENDMODE, "SETSUSPENDMODE"),
 };
 
 static int aml_android_cmdstr2id(char *cmdstr)
@@ -33,6 +34,10 @@ static int aml_android_cmdstr2id(char *cmdstr)
         if (!strncasecmp(cmdstr, str, strlen(str)))
             break;
     }
+
+    if (i >= ARRAY_SIZE(aml_android_cmd_tbl))
+        return -1;
+
     return aml_android_cmd_tbl[i].id;
 }
 
@@ -53,6 +58,25 @@ static int aml_android_get_rssi(struct aml_vif *vif, char *cmdstr, int len)
                 ssid_sprintf(vif->sta.assoc_ssid, vif->sta.assoc_ssid_len), rssi);
     }
     return bytes;
+}
+
+static int aml_android_set_suspend_mode(struct aml_vif *vif, char *cmdstr, int len)
+{
+    int skip = strlen("SETSUSPENDMODE") + 1;
+    struct aml_hw *aml_hw = vif->aml_hw;
+    int val;
+    int ret;
+
+    ret = sscanf(cmdstr + skip, "%d", &val);
+    if (ret != 1) {
+        AML_INFO("param error %s\n", cmdstr);
+        return -1;
+    }
+
+    aml_hw->google_cast = val;
+    AML_INFO("set google_cast %d\n", aml_hw->google_cast);
+
+    return 0;
 }
 
 int aml_android_priv_ioctl(struct aml_vif *vif, void __user *data)
@@ -103,6 +127,11 @@ int aml_android_priv_ioctl(struct aml_vif *vif, void __user *data)
 
     AML_INFO("vif idx=%d cmd=%s\n", vif->vif_index, resp);
     id = aml_android_cmdstr2id(resp);
+    if (id == -1) {
+        ret = -EFAULT;
+        goto exit;
+    }
+
     switch (id) {
         case CMDID_RSSI:
             resp_len = aml_android_get_rssi(vif, resp, cmd.total_len);
@@ -115,6 +144,9 @@ int aml_android_priv_ioctl(struct aml_vif *vif, void __user *data)
         case CMDID_P2P_SET_PS:
         case CMDID_SET_AP_WPS_P2P_IE:
             ret = 0; /* do nothing in these cases */
+            break;
+        case CMDID_SETSUSPENDMODE:
+            aml_android_set_suspend_mode(vif, resp, cmd.total_len);
             break;
         default:
             AML_INFO("not support id=%u\n", id);

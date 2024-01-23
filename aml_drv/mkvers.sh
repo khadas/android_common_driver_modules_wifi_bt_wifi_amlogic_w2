@@ -9,6 +9,8 @@
 
 set -e
 
+export PATH=$PATH:/usr/bin
+
 VERDIR=$(dirname $(readlink -f $0))
 TARGET=$1
 
@@ -17,6 +19,10 @@ DATE_FORMAT="W2.%Y.W%02W.%02w"
 AML_VERS_MOD=$(grep AML_VERS_NUM $VERDIR/Makefile | cut -f2 -d= | sed 's/\s\+$//')
 tmpout=$TARGET.tmp
 cd $VERDIR
+
+if [[ ! -d ../firmware && -f $TARGET ]];then
+	exit 0
+fi
 
 if (svn info . >& /dev/null)
 then

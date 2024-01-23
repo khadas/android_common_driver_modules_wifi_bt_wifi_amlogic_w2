@@ -14,9 +14,15 @@
 #include <linux/sched.h>
 #include <linux/fs.h>
 #include <linux/delay.h>
+#include <net/sock.h>
+#include <net/netlink.h>
+#include "aml_defs.h"
 #include "wifi_w2_shared_mem_cfg.h"
-#include <aml_defs.h>
 #include "share_mem_map.h"
+
+#define TRACE_LEVEL (0x00d25fd8)  //0x00825fd8
+
+#define AML_TRACE_NL_PROTOCOL (28)
 
 #define AML_FW_TRACE_HEADER_LEN 4
 #define AML_FW_TRACE_HEADER_FMT "ts=%12u ID=%8d"
@@ -49,6 +55,26 @@ static int saved_filters_cnt = 0;
 struct log_file_info trace_log_file_info;
 
 extern struct auc_hif_ops g_auc_hif_ops;
+extern struct pci_dev *g_pci_dev;
+
+struct aml_trace_nl_info {
+    struct sock * fw_log_sock;
+    int user_pid;
+    int enable;
+};
+enum {
+    AML_TRACE_FW_LOG_START = 0xFF01,
+    AML_TRACE_FW_LOG_STOP,
+    AML_TRACE_FW_LOG_UPLOAD,
+};
+struct log_nl_msg_info {
+    int msg_type;
+    int msg_len;
+};
+
+struct aml_trace_nl_info g_trace_nl_info;
+
+int aml_send_log_to_user(char *pbuf, uint16_t len, int msg_type);
 
 /**
  * aml_fw_trace_work() - Work function to check for new traces
@@ -149,7 +175,7 @@ int aml_fw_trace_buf_init(struct aml_fw_trace_buf *shared_buf,
 
     /* backward compatibilty with firmware without trace activation */
     if ((ipc->nb_compo >> 16) == AML_FW_TRACE_READY) {
-        shared_buf->nb_compo = ipc->nb_compo & 0xffff;
+        shared_buf->nb_compo = (ipc->nb_compo & 0xffff) + 6;
         shared_buf->compo_table = (uint32_t *)((uint8_t *)(&ipc->offset_compo)
                                                + ipc->offset_compo);
     } else {
@@ -600,11 +626,11 @@ void _aml_fw_trace_dump(struct aml_hw *aml_hw, struct aml_fw_trace_buf *trace_bu
     } else {
         ptr = kmalloc(28*1024, GFP_DMA | GFP_ATOMIC);
         ptr_flag = ptr;
-        aml_log_file_info_init(1, 0);
+        aml_log_file_info_init(1);
         if (aml_bus_type == USB_MODE) {
-            aml_hw->plat->hif_ops->hi_read_sram((unsigned char *)ptr, (unsigned char *)(SYS_TYPE)TRACE_START_ADDR, TRACE_TOTAL_SIZE, USB_EP4);
+            aml_hw->plat->hif_ops->hi_read_sram((unsigned char *)ptr, (unsigned char *)(SYS_TYPE)USB_TRACE_START_ADDR, USB_TRACE_TOTAL_SIZE, USB_EP4);
         } else if (aml_bus_type == SDIO_MODE) {
-            aml_hw->plat->hif_sdio_ops->hi_random_ram_read((unsigned char *)ptr, (unsigned char *)(SYS_TYPE)TRACE_START_ADDR, TRACE_TOTAL_SIZE);
+            aml_hw->plat->hif_sdio_ops->hi_random_ram_read((unsigned char *)ptr, (unsigned char *)(SYS_TYPE)SDIO_TRACE_START_ADDR, SDIO_TRACE_TOTAL_SIZE);
         }
         ptr += *trace_buf->start;
     }
@@ -680,22 +706,51 @@ static uint32_t aml_fw_trace_level_for_read_or_write(struct aml_fw_trace_buf *tr
 {
     struct aml_hif_sdio_ops *hif_ops = &g_hif_sdio_ops;
     struct auc_hif_ops *hif_ops_usb = &g_auc_hif_ops;
+    struct aml_hw *aml_hw;
+    struct aml_plat *aml_plat;
 
     if (mode == TRACE_LEVEL_WRITE) {
-        if (aml_bus_type == USB_MODE) {
-            hif_ops_usb->hi_write_word((TRACE_COMPO_LEVEL + compo_id * 4), level, USB_EP4);
-        } else if (aml_bus_type == SDIO_MODE) {
-            hif_ops->hi_random_word_write((TRACE_COMPO_LEVEL + compo_id * 4), level);
-        } else {
-            trace_buf->compo_table[compo_id] = level;
+        if (compo_id < 14) {
+            if (aml_bus_type == USB_MODE) {
+                hif_ops_usb->hi_write_word((TRACE_COMPO_LEVEL + compo_id * 4), level, USB_EP4);
+            } else if (aml_bus_type == SDIO_MODE) {
+                hif_ops->hi_random_word_write((TRACE_COMPO_LEVEL + compo_id * 4), level);
+            } else {
+                trace_buf->compo_table[compo_id] = level;
+            }
         }
-    } else if (mode == TRACE_LEVEL_READ) {
-        if (aml_bus_type == USB_MODE) {
-            level = hif_ops_usb->hi_read_word(TRACE_COMPO_LEVEL + compo_id * 4, USB_EP4);
-        } else if (aml_bus_type == SDIO_MODE) {
-            level = hif_ops->hi_random_word_read(TRACE_COMPO_LEVEL + compo_id * 4);
-        } else {
-            level = trace_buf->compo_table[compo_id];
+        else {
+            if (aml_bus_type == USB_MODE) {
+                hif_ops_usb->hi_write_word((TRACE_LEVEL + (compo_id - 14) * 4), level, USB_EP4);
+            } else if (aml_bus_type == SDIO_MODE) {
+                hif_ops->hi_random_word_write((TRACE_LEVEL + (compo_id - 14) * 4), level);
+            } else {
+                aml_hw = pci_get_drvdata(g_pci_dev);
+                aml_plat = aml_hw->plat;
+                aml_reg_write(level, aml_plat, 0, ( TRACE_LEVEL + (compo_id - 14) * 4));
+            }
+        }
+    }
+    else if (mode == TRACE_LEVEL_READ) {
+        if (compo_id < 14) {
+            if (aml_bus_type == USB_MODE) {
+                level = hif_ops_usb->hi_read_word(TRACE_COMPO_LEVEL + compo_id * 4, USB_EP4);
+            } else if (aml_bus_type == SDIO_MODE) {
+                level = hif_ops->hi_random_word_read(TRACE_COMPO_LEVEL + compo_id * 4);
+            } else {
+                level = trace_buf->compo_table[compo_id];
+            }
+        }
+        else {
+            if (aml_bus_type == USB_MODE) {
+                level = hif_ops_usb->hi_read_word(TRACE_LEVEL + (compo_id - 14) * 4, USB_EP4);
+            } else if (aml_bus_type == SDIO_MODE) {
+                level = hif_ops->hi_random_word_read(TRACE_LEVEL + (compo_id - 14) * 4);
+            } else {
+                aml_hw = pci_get_drvdata(g_pci_dev);
+                aml_plat = aml_hw->plat;
+                level = aml_reg_read(aml_plat, 0, ( TRACE_LEVEL + (compo_id - 14) * 4));
+            }
         }
         return level;
     }
@@ -760,6 +815,8 @@ size_t aml_fw_trace_level_read(struct aml_fw_trace *trace,
     int i, size;
     char *buf;
 
+    trace_buf->nb_compo = 20;
+
     size = trace_buf->nb_compo * 16;
     buf = kmalloc(size, GFP_KERNEL);
     if (buf == NULL)
@@ -802,7 +859,6 @@ size_t aml_fw_trace_level_write(struct aml_fw_trace *trace,
 {
     struct aml_fw_trace_buf *trace_buf = &trace->buf;
     char *buf, *token, *next;
-
     buf = kmalloc(len + 1, GFP_KERNEL);
     if (buf == NULL)
         return -ENOMEM;
@@ -817,6 +873,8 @@ size_t aml_fw_trace_level_write(struct aml_fw_trace *trace,
         kfree(buf);
         return -ERESTARTSYS;
     }
+
+    trace_buf->nb_compo = 20;
 
     next = buf;
     token = strsep(&next, " \t\n");
@@ -949,10 +1007,9 @@ int aml_fw_trace_restore_filters(struct aml_fw_trace *trace)
     return 0;
 }
 
-int aml_log_file_info_init(int mode, int size)
+int aml_log_file_info_init(int mode)
 {
     int ret = 0;
-    struct file *fp = NULL;
     static int isInit = 0;
 
     if (!isInit) {
@@ -993,28 +1050,9 @@ int aml_log_file_info_init(int mode, int size)
                 break;
             }
         }
-
-        if (size == 1) {
-            trace_log_file_info.file_size_limit = MAX_FILE_SIZE;
-        } else {
-            trace_log_file_info.file_size_limit = FILE_SIZE_UNLIMIT_FLAG;
-        }
-
-        trace_log_file_info.log_file_name = LOG_FILE_NAME;
-        fp = FILE_OPEN(trace_log_file_info.log_file_name, O_CREAT | O_TRUNC, 0644);
-        if (IS_ERR(fp)) {
-            printk("wifi_logger: /%s open failed: PTR_ERR(fp) = %d\n", trace_log_file_info.log_file_name, PTR_ERR(fp));
-            kfree(trace_log_file_info.log_buf);
-            kfree(trace_log_file_info.ptr);
-            trace_log_file_info.log_buf = NULL;;
-            trace_log_file_info.ptr = NULL;
-            ret = -1;
-            break;
-        }
-        FILE_CLOSE(fp, NULL);
-    }while(0);
-
+    } while(0);
     mutex_unlock(&trace_log_file_info.mutex);
+
     return ret;
 }
 void aml_log_file_info_deinit(void)
@@ -1078,6 +1116,7 @@ int aml_trace_log_to_file(uint16_t *trace, uint16_t *trace_limit)
     char str[1824] = {0};
     unsigned int offset = 0;
     size_t str_size;
+    int sock_wr_len = 0;
 
     if (!trace_log_file_info.log_buf)
         goto err;
@@ -1095,33 +1134,137 @@ int aml_trace_log_to_file(uint16_t *trace, uint16_t *trace_limit)
             break;
         }
     }
-
-    file_size = aml_get_file_size(trace_log_file_info.log_file_name);
-    if (file_size < 0) {
-        goto err;
+    if (g_trace_nl_info.enable) {
+        do {
+            if (offset > 16 *1024) {
+                aml_send_log_to_user(trace_log_file_info.log_buf + sock_wr_len, 16 *1024, AML_TRACE_FW_LOG_UPLOAD);
+                sock_wr_len += 16 *1024;
+                offset -= 16 *1024;
+            } else {
+                aml_send_log_to_user(trace_log_file_info.log_buf + sock_wr_len, offset, AML_TRACE_FW_LOG_UPLOAD);
+                sock_wr_len += offset;
+                offset = 0;
+            }
+        } while (offset > 0);
     }
 
-    if (trace_log_file_info.file_size_limit == MAX_FILE_SIZE) {
-        if (file_size + offset <= MAX_FILE_SIZE) {
-            file_mode = O_CREAT | O_RDWR | O_SYNC;
-        } else {
-            file_mode = O_CREAT | O_WRONLY | O_SYNC | O_TRUNC;
-            file_size = 0;
-        }
-    } else {
-        file_mode = O_CREAT | O_RDWR | O_SYNC;
-    }
-
-    fp = FILE_OPEN(trace_log_file_info.log_file_name, file_mode, 0644);
-    if (IS_ERR(fp)) {
-        printk("wifi_logger: /%s open failed: PTR_ERR(fp) = %d\n", trace_log_file_info.log_file_name, PTR_ERR(fp));
-        goto err;
-    }
-
-    fp->f_pos = file_size;
-    FILE_WRITE(fp, trace_log_file_info.log_buf, offset, &fp->f_pos);
-    FILE_CLOSE(fp, NULL);
     return 0;
 err:
     return -1;
+}
+
+// recv msg handl function
+static void aml_recv_netlink(struct sk_buff *skb)
+{
+    struct nlmsghdr *nlh;
+    struct log_nl_msg_info * nl_log_info = NULL;
+    nlh = nlmsg_hdr(skb); // get msg body
+    AML_INFO("kernel rcv msg type: %d, pid: %d, len: %d, flag: %d, seq: %d\n",
+        nlh->nlmsg_type, nlh->nlmsg_pid, nlh->nlmsg_len, nlh->nlmsg_flags, nlh->nlmsg_seq);
+    AML_INFO("receive data from user process: %s", (char *)NLMSG_DATA(nlh));
+
+    nl_log_info = (struct nl_log_info*)NLMSG_DATA(nlh);
+    switch (nl_log_info->msg_type) {
+        case AML_TRACE_FW_LOG_START:
+            g_trace_nl_info.user_pid = nlh->nlmsg_pid;
+            g_trace_nl_info.enable = 1;
+            AML_INFO("user space process (pid: %d) start recv fw log !!!!\n", g_trace_nl_info.user_pid);
+            break;
+        case AML_TRACE_FW_LOG_STOP:
+            g_trace_nl_info.enable = 0;
+            AML_INFO("user space process (pid: %d) stop recv fw log !!!!\n", g_trace_nl_info.user_pid);
+            break;
+        default:
+            AML_INFO("unknown msg (0x%x) from user space process (pid: %d), ignore !!!!\n",
+                nl_log_info->msg_type, g_trace_nl_info.user_pid);
+            break;
+    }
+
+    return;
+}
+
+int aml_log_nl_init(void)
+{
+
+    memset(&g_trace_nl_info, 0, sizeof(struct log_nl_msg_info));
+    struct netlink_kernel_cfg cfg = {
+        .input = aml_recv_netlink,
+    };
+    g_trace_nl_info.fw_log_sock = netlink_kernel_create(&init_net, AML_TRACE_NL_PROTOCOL, &cfg);
+    if (!g_trace_nl_info.fw_log_sock) {
+        AML_INFO("aml trace netlink init failed");
+        return -1;
+    }
+
+    AML_INFO("aml trace netlink init OK!\n");
+    return 0;
+}
+void aml_log_nl_destroy(void)
+{
+    if (g_trace_nl_info.fw_log_sock) {
+        netlink_kernel_release(g_trace_nl_info.fw_log_sock);
+    }
+    AML_INFO("fw log upload socket destroy!!!\n");
+
+    return;
+}
+int aml_send_log_to_user(char *pbuf, uint16_t len, int msg_type)
+{
+    struct sk_buff *nl_skb;
+    struct nlmsghdr *nlh = NULL;   //msg head
+    struct log_nl_msg_info * nl_log_info = NULL;
+    int ret;
+    static int seq_num = 0;
+    int buf_len = NLMSG_SPACE(len + sizeof(struct log_nl_msg_info));
+
+    if (!g_trace_nl_info.fw_log_sock || !g_trace_nl_info.user_pid ||
+        !g_trace_nl_info.enable) {
+        AML_INFO("kernel trace nl sock para invalid , can not upload msg to user\n");
+        return -1;
+    }
+    //create sk_buff
+    nl_skb = nlmsg_new(buf_len, GFP_ATOMIC);
+    if (!nl_skb)
+    {
+        AML_INFO("netlink alloc failure\n");
+        return -1;
+    }
+
+    /* build netlink msg head */
+    nlh = nlmsg_put(nl_skb, 0, 0, AML_TRACE_NL_PROTOCOL, buf_len, 0);
+    if (nlh == NULL)
+    {
+        AML_INFO("nlmsg_put failure\n");
+        nlmsg_free(nl_skb);
+        return -1;
+    }
+    NETLINK_CB(nl_skb).portid = 0;
+    NETLINK_CB(nl_skb).dst_group = 0;
+    nl_log_info = (struct nl_log_info*)nlmsg_data(nlh);
+    nl_log_info->msg_len = len;
+    nl_log_info->msg_type = msg_type;
+    nlh->nlmsg_seq = seq_num++;
+
+    /* copy data and send it */
+    if (pbuf) {
+        memcpy(nlmsg_data(nlh) + sizeof(struct log_nl_msg_info), pbuf, len);
+    }
+    ret = netlink_unicast(g_trace_nl_info.fw_log_sock, nl_skb, g_trace_nl_info.user_pid, 0);
+
+   // AML_INFO("==== kernel upload msg to user result: %d, seq: %d\n", ret, seq_num - 1);
+    return ret;
+
+}
+
+void aml_send_err_info_to_diag(char *pbuf, int len)
+{
+    struct file *fp = NULL;
+    loff_t file_size = 0;
+    unsigned int file_mode;
+
+    mutex_lock(&trace_log_file_info.mutex);
+    if (g_trace_nl_info.enable && len > 0) {
+        aml_send_log_to_user(pbuf, len, AML_TRACE_FW_LOG_UPLOAD);
+    }
+    mutex_unlock(&trace_log_file_info.mutex);
 }

@@ -1393,6 +1393,19 @@ void aml_put_rxdata_back_to_free_list(struct rxdata *rxdata)
 {
     list_add_tail(&rxdata->list, &free_rxdata_list);
 }
+void aml_clear_reorder_list()
+{
+    struct rxdata *rxdata_clear = NULL;
+
+    while (!list_empty(&reorder_list)) {
+        rxdata_clear = list_first_entry(&reorder_list, struct rxdata, list);
+        list_del(&rxdata_clear->list);
+        if (rxdata_clear->skb) {
+            dev_kfree_skb(rxdata_clear->skb);
+        }
+        list_add_tail(&rxdata_clear->list, &free_rxdata_list);
+    }
+}
 
 uint8_t aml_scan_find_already_saved(struct aml_hw *aml_hw, struct sk_buff *skb)
 {
@@ -1861,6 +1874,9 @@ void aml_rx_datarate_monitor(struct rx_desc_head *desc_stat)
 
 }
 
+extern uint8_t rx_need_update;
+extern struct crg_msc_cbw *g_cmd_buf;
+
 void aml_trigger_rst_rxd(struct aml_hw *aml_hw, uint32_t addr_rst)
 {
     uint32_t cmd_buf[2] = {0};
@@ -1909,6 +1925,7 @@ void aml_trigger_rst_rxd(struct aml_hw *aml_hw, uint32_t addr_rst)
         addr_rst |= HOST_RXBUF_ENLARGE_FINSH;
         AML_INFO("expend finsh last_addr = %x, addr_rst = %x", last_addr, addr_rst);
         aml_hw->rx_buf_state &= ~BUFFER_EXPEND_FINSH;
+        aml_hw->rx_buf_state &= ~BUFFER_TX_USED_FLAG;
     }
 
     cmd_buf[0] = 1;
@@ -1916,7 +1933,23 @@ void aml_trigger_rst_rxd(struct aml_hw *aml_hw, uint32_t addr_rst)
 
     if (last_addr != addr_rst) {
         if (aml_bus_type == USB_MODE) {
-            aml_hw->plat->hif_ops->hi_write_sram((unsigned char *)cmd_buf, (unsigned char *)(SYS_TYPE)(CMD_DOWN_FIFO_FDH_ADDR), 8, USB_EP4);
+            rx_need_update++;
+            if (!(aml_hw->rx_buf_state & BUFFER_STATUS) && !(addr_rst & (0x1e000000)) &&
+                (aml_hw->rx_buf_state & FW_BUFFER_NARROW) &&
+                (rx_need_update < 2) &&
+                (aml_hw->recv_pkt_len < aml_hw->rx_buf_len / 4)) { // tx buf 256K
+                g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX]     = UPDATE_FLAG & 0xff;
+                g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 1] = (UPDATE_FLAG >> 8) & 0xff;
+                g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 2] = (UPDATE_FLAG >> 16) & 0xff;
+                g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 3] = (UPDATE_FLAG >> 24) & 0xff;
+
+                g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 4] = cmd_buf[1] & 0xff;
+                g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 5] = (cmd_buf[1] >> 8) & 0xff;
+                g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 6] = (cmd_buf[1] >> 16) & 0xff;
+                g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 7] = (cmd_buf[1] >> 24) & 0xff;
+            } else {
+                aml_hw->plat->hif_ops->hi_write_sram((unsigned char *)cmd_buf, (unsigned char *)(SYS_TYPE)(CMD_DOWN_FIFO_FDH_ADDR), 8, USB_EP4);
+            }
         } else if ((aml_bus_type == SDIO_MODE) && (aml_hw->state == WIFI_SUSPEND_STATE_NONE)) {
             aml_hw->plat->hif_sdio_ops->hi_sram_write((unsigned char*)cmd_buf, (unsigned char *)(SYS_TYPE)(CMD_DOWN_FIFO_FDH_ADDR), 8);
         }
@@ -1926,7 +1959,7 @@ void aml_trigger_rst_rxd(struct aml_hw *aml_hw, uint32_t addr_rst)
 
 void aml_sdio_dynamic_buffer_check(struct aml_hw *aml_hw, struct rxbuf_list *rxbuf_list)
 {
-    if ((aml_hw->rx_buf_state & BUFFER_STATUS) && !aml_hw->la_enable) {
+    if ((aml_hw->rx_buf_state & BUFFER_STATUS) && !aml_hw->la_enable && !aml_hw->trace_enable) {
         if (aml_hw->rx_buf_state & BUFFER_NARROW) {
             printk("%s,%d:reduce fw_new_pos=%x, fw_buf_pos=%x\n", __func__, __LINE__,
                        (aml_hw->fw_new_pos & ~AML_WRAP), (aml_hw->fw_buf_pos & ~AML_WRAP));
@@ -1968,7 +2001,6 @@ void aml_sdio_dynamic_buffer_check(struct aml_hw *aml_hw, struct rxbuf_list *rxb
             printk("%s,%d:enlarge_finsh rx_buf_state = %x\n", __func__, __LINE__, aml_hw->rx_buf_state);
         }
     }
-
     rxbuf_list->rx_buf_end = aml_hw->rx_buf_end;
     rxbuf_list->rx_buf_len = aml_hw->rx_buf_len;
 }
@@ -1994,7 +2026,7 @@ struct rxbuf_list *aml_get_rxbuf_list_from_used_list(struct aml_hw *aml_hw)
 
     spin_lock_bh(&aml_hw->used_list_lock);
     if (!list_empty(&aml_hw->rxbuf_used_list)) {
-        rxbuf_list = list_first_entry(&aml_hw->rxbuf_used_list, struct aml_txbuf, list);
+        rxbuf_list = list_first_entry(&aml_hw->rxbuf_used_list, struct rxbuf_list, list);
         list_del(&rxbuf_list->list);
     }
     spin_unlock_bh(&aml_hw->used_list_lock);
@@ -2008,7 +2040,7 @@ struct rxbuf_list *aml_get_rxbuf_list_from_free_list(struct aml_hw *aml_hw)
 
     spin_lock_bh(&aml_hw->free_list_lock);
     if (!list_empty(&aml_hw->rxbuf_free_list)) {
-        rxbuf_list = list_first_entry(&aml_hw->rxbuf_free_list, struct aml_txbuf, list);
+        rxbuf_list = list_first_entry(&aml_hw->rxbuf_free_list, struct rxbuf_list, list);
         list_del(&rxbuf_list->list);
     }
     spin_unlock_bh(&aml_hw->free_list_lock);
@@ -2072,8 +2104,9 @@ s8 aml_sdio_rxdataind(void *pthis, void *arg)
 
                         temp_list->first_len = need_len;
                         temp_list->second_len = 0;
-                } else {
-                    if (temp_list->rx_buf_end - fw_buf_pos < RX_DESC_SIZE) {
+                        aml_hw->recv_pkt_len = need_len;
+                } else {  // fw_new_pos wrapped around
+                    if (temp_list->rx_buf_end - fw_buf_pos < RX_DESC_SIZE) { // After the last reading, the remaining length of buf is no longer enough to add another rxdesc
                         if (fw_new_pos > RXBUF_START_ADDR) {
                             aml_hw->plat->hif_ops->hi_rx_buffer_read((unsigned char *)temp_list->rxbuf,
                                 (unsigned char *)(unsigned long)RXBUF_START_ADDR, fw_new_pos - RXBUF_START_ADDR, USB_EP4);
@@ -2081,7 +2114,8 @@ s8 aml_sdio_rxdataind(void *pthis, void *arg)
                         }
                         temp_list->first_len = 0;
                         temp_list->second_len = fw_new_pos - RXBUF_START_ADDR;
-                    } else {
+                        aml_hw->recv_pkt_len = temp_list->second_len;
+                    } else {  // Read in two paragraphs
                         aml_hw->plat->hif_ops->hi_rx_buffer_read((unsigned char *)temp_list->rxbuf,
                             (unsigned char *)(unsigned long)fw_buf_pos, temp_list->rx_buf_end - fw_buf_pos, USB_EP4);
 
@@ -2091,6 +2125,7 @@ s8 aml_sdio_rxdataind(void *pthis, void *arg)
 
                         temp_list->first_len = temp_list->rx_buf_end - fw_buf_pos;
                         temp_list->second_len = fw_new_pos - RXBUF_START_ADDR;
+                        aml_hw->recv_pkt_len = temp_list->first_len + temp_list->second_len;
                     }
                 }
             }
@@ -2110,6 +2145,53 @@ s8 aml_sdio_rxdataind(void *pthis, void *arg)
 }
 
 extern struct rx_reorder_info reorder_info[8];
+void aml_sdio_usb_host_reoder_handle(struct aml_hw *aml_hw, struct rx_desc_head* desc_stat,
+    uint32_t reorder_hostid_start, uint32_t reorder_len)
+{
+    struct rxdata *rxdata = NULL;
+    struct rxdata *rxdata_tmp = NULL;
+    int i = 0;
+    int j = 0;
+
+    /* handle reoder timeout packets by e2a msg */
+    for (i = 0; i < 8; i++) {
+        spin_lock_bh(&aml_hw->reoder_lock);
+        if (reorder_info[i].hostid != 0 && reorder_info[i].reorder_len != 0) {
+            desc_stat->status = RX_STAT_FORWARD;
+            for (j = 0; j < (reorder_info[i].reorder_len & 0xFF); ++j) {
+                list_for_each_entry_safe(rxdata, rxdata_tmp, &reorder_list, list) {
+                    if (rxdata->host_id == EXCEPT_HOSTID(reorder_info[i].hostid + j)
+                        && GET_TID(rxdata->package_info) == GET_TID(reorder_info[i].reorder_len)) {
+                        rx_skb_handle(desc_stat, aml_hw, rxdata, NULL);
+                    }
+                }
+            }
+            reorder_info[i].hostid = 0;
+            reorder_info[i].reorder_len = 0;
+        }
+        spin_unlock_bh(&aml_hw->reoder_lock);
+    }
+
+    /* the rxdesc include reorder info, handle reoder packets */
+    if ((reorder_hostid_start != 0) && (reorder_len != 0)) {
+        desc_stat->status = RX_STAT_FORWARD;
+        for (i = 0; i < reorder_len; ++i) {
+            list_for_each_entry_safe(rxdata, rxdata_tmp, &reorder_list, list) {
+                if (rxdata->host_id == (EXCEPT_HOSTID(reorder_hostid_start + i))
+                    && GET_TID(desc_stat->package_info) == GET_TID(rxdata->package_info)) {
+                        rx_skb_handle(desc_stat, aml_hw, rxdata, NULL);
+                }
+            }
+        }
+    }
+
+}
+
+#ifdef CONFIG_SDIO_TX_ENH
+#ifdef SDIO_TX_ENH_DBG
+extern cfm_log cfmlog;
+#endif
+#endif
 
 int aml_rx_task(void *data)
 {
@@ -2120,16 +2202,12 @@ int aml_rx_task(void *data)
     uint32_t reorder_hostid_start = 0;
     uint32_t reorder_len = 0;
     uint32_t *next_fw_pkt = NULL;
-    int i = 0;
-    struct rxdata *rxdata = NULL;
-    struct rxdata *rxdata_tmp = NULL;
     struct sched_param sch_param;
-    static int count = 0;
     struct rxbuf_list *temp_list;
 
     sch_param.sched_priority = 91;
 #ifndef CONFIG_PT_MODE
-    sched_setscheduler(current,SCHED_FIFO,&sch_param);
+    sched_setscheduler(current, SCHED_FIFO, &sch_param);
 #endif
     while (!aml_hw->aml_rx_task_quit) {
         /* wait for work */
@@ -2147,6 +2225,12 @@ int aml_rx_task(void *data)
             aml_hw->host_buf_end = temp_list->rxbuf + temp_list->first_len + temp_list->second_len;
             aml_hw->last_fw_pos = temp_list->rxbuf_data_start;
 
+#ifdef CONFIG_SDIO_TX_ENH
+#ifdef SDIO_TX_ENH_DBG
+            cfmlog.rx_cnt_in_rx++;
+#endif
+#endif
+
             while ((!aml_hw->aml_rx_task_quit) && (aml_hw->host_buf_start < aml_hw->host_buf_end)) {
                 next_fw_pkt = (uint32_t *)(aml_hw->host_buf_start + NEXT_PKT_OFFSET);
                 if (*next_fw_pkt > temp_list->rx_buf_end || *next_fw_pkt < RXBUF_START_ADDR) {
@@ -2155,6 +2239,12 @@ int aml_rx_task(void *data)
                         aml_hw->fw_buf_pos, aml_hw->fw_new_pos, aml_hw->last_fw_pos);
                     break;
                 }
+
+#ifdef CONFIG_SDIO_TX_ENH
+#ifdef SDIO_TX_ENH_DBG
+                cfmlog.mpdu_in_rx++;
+#endif
+#endif
 
                 status_framlen = (uint32_t *)(aml_hw->host_buf_start + RX_STATUS_OFFSET);
                 fram_len = (uint32_t *)(aml_hw->host_buf_start + RX_FRMLEN_OFFSET);
@@ -2176,34 +2266,9 @@ int aml_rx_task(void *data)
                     goto next_handle;
                 }
 
-                if (desc_stat.status == RX_STAT_ALLOC && desc_stat.package_info != 0) {
-                    for (i = 0; i < reorder_info[GET_TID(desc_stat.package_info)].reorder_len; ++i) {
-                        if (reorder_hostid_start == EXCEPT_HOSTID(reorder_info[GET_TID(desc_stat.package_info)].hostid + i)) {
-                            desc_stat.status = RX_STAT_ALLOC | RX_STAT_FORWARD;
-                            count++;
-                        }
-                    }
-                    if (count == reorder_info[GET_TID(desc_stat.package_info)].reorder_len) {
-                        reorder_info[GET_TID(desc_stat.package_info)].reorder_len = 0;
-                        reorder_info[GET_TID(desc_stat.package_info)].hostid = 0;
-                        count = 0;
-                    }
-                }
-
                 rx_skb_handle(&desc_stat, aml_hw, NULL, temp_list->rxbuf + temp_list->first_len);
 
-                if ((reorder_hostid_start != 0) && (reorder_len != 0)) {
-                    desc_stat.status = RX_STAT_FORWARD;
-
-                    for (i = 0; i < reorder_len; ++i) {
-                        list_for_each_entry_safe(rxdata, rxdata_tmp, &reorder_list, list) {
-                            if (rxdata->host_id == (EXCEPT_HOSTID(reorder_hostid_start + i))
-                                && GET_TID(desc_stat.package_info) == GET_TID(rxdata->package_info)) {
-                                    rx_skb_handle(&desc_stat, aml_hw, rxdata, NULL);
-                            }
-                        }
-                    }
-                }
+                aml_sdio_usb_host_reoder_handle(aml_hw, &desc_stat, reorder_hostid_start, reorder_len);
 
         next_handle:
                 if ((temp_list->rx_buf_end - *next_fw_pkt) < RX_DESC_SIZE) {
@@ -2221,6 +2286,12 @@ int aml_rx_task(void *data)
                 }
                 aml_hw->last_fw_pos = *next_fw_pkt;
             }
+
+#ifdef CONFIG_SDIO_TX_ENH
+#ifdef SDIO_TX_ENH_DBG
+            cfmlog.avg_mpdu_in_one_rx = cfmlog.mpdu_in_rx / cfmlog.rx_cnt_in_rx;
+#endif
+#endif
 
             spin_lock(&aml_hw->free_list_lock);
             list_add_tail(&temp_list->list, &aml_hw->rxbuf_free_list);
@@ -2380,8 +2451,8 @@ int aml_last_rx_info(struct aml_hw *priv, struct aml_sta *sta)
         return 0;
     }
 
-    for (i = 0 ; i < rate_stats->size ; i++ ) {
-        if (rate_stats->table[i]) {
+    for (i = 0; i < rate_stats->size; i++) {
+        if (rate_stats->table && rate_stats->table[i]) {
             union aml_rate_ctrl_info rate_config;
             union aml_mcs_index *r;
 

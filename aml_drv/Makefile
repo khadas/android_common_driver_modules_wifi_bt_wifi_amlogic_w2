@@ -1,4 +1,4 @@
-AML_VERS_NUM=v1.6.2_20240119-w2ps driver:beda4cf8a6de13e9965149cf7527141baec80fcd
+AML_VERS_NUM=v1.7.0_2024-01.23-w2 driver:d30ce280548979f24e2afe8fb6ae4af533472268
 #KERNELDIR=/usr/lib/modules/5.8.0-63-generic/build
 PWD=$(shell pwd)
 ifeq ($(ARCH),)
@@ -110,10 +110,13 @@ CONFIG_AML_RX_MINISIZE ?= n
 CONFIG_AML_NAPI ?= y
 
 # Support 4.9 ax
-CONFIG_KERNEL_AX_PATCH ?= n
+ifeq ($(CONFIG_AML_KERNEL_4_9),y)
+CONFIG_KERNEL_AX_PATCH ?= y
+endif
 # } // NEED 4.9 PATCH
 #
 
+CONFIG_SDIO_TX_ENH ?= y
 
 subdir-ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_AML_DEBUGFS
 subdir-ccflags-$(CONFIG_DEBUG_FS) += -DCONFIG_AML_UM_HELPER_DFLT=\"$(CONFIG_AML_UM_HELPER_DFLT)\"
@@ -129,6 +132,7 @@ subdir-ccflags-$(CONFIG_AML_RECOVERY) += -DCONFIG_AML_RECOVERY
 subdir-ccflags-$(CONFIG_AML_RX_MINISIZE) += -DCONFIG_AML_RX_MINISIZE
 subdir-ccflags-$(CONFIG_AML_NAPI) += -DCONFIG_AML_NAPI
 subdir-ccflags-$(CONFIG_KERNEL_AX_PATCH) += -DCONFIG_KERNEL_AX_PATCH
+subdir-ccflags-$(CONFIG_SDIO_TX_ENH) += -DCONFIG_SDIO_TX_ENH
 
 # FW VARS
 subdir-ccflags-y += -DNX_VIRT_DEV_MAX=4

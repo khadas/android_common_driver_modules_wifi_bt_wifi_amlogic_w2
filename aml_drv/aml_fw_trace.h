@@ -17,7 +17,6 @@
 
 #define MAX_FILE_SIZE            (4 * 1024 * 1024)
 #define FILE_SIZE_UNLIMIT_FLAG   0xFFFF
-#define LOG_FILE_NAME            "/data/fw_trace";
 #define TRACE_LEVEL_READ         1
 #define TRACE_LEVEL_WRITE        0
 
@@ -122,11 +121,9 @@ struct aml_fw_trace {
 };
 
 struct log_file_info {
-    long file_size_limit;
     char *log_buf;
     uint16_t *ptr;
     struct mutex mutex;
-    char *log_file_name;
 };
 
 int aml_fw_trace_init(struct aml_fw_trace *trace,
@@ -160,9 +157,10 @@ int aml_fw_trace_config_filters(struct aml_fw_trace_buf *trace_buf,
 
 int aml_fw_trace_save_filters(struct aml_fw_trace *trace);
 int aml_fw_trace_restore_filters(struct aml_fw_trace *trace);
-int aml_log_file_info_init(int mode, int size);
+int aml_log_file_info_init(int mode);
 loff_t aml_get_file_size(const char *filename);
-int aml_trace_log_to_file(uint16_t *trace, uint16_t *trace_limit) ;
+int aml_trace_log_to_file(uint16_t *trace, uint16_t *trace_limit);
+void aml_send_err_info_to_diag(char *pbuf, int len);
 
 /**
  * aml_fw_trace_empty() - Check if shared buffer is empty
@@ -173,5 +171,7 @@ static inline bool aml_fw_trace_empty(struct aml_fw_trace_buf *shared_buf)
 {
     return (*shared_buf->end >= shared_buf->size);
 }
+int aml_log_nl_init(void);
+void aml_log_nl_destroy(void);
 
 #endif /* _AML_FW_TRACE_H_ */

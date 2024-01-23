@@ -29,7 +29,7 @@ void aml_irq_usb_hdlr(struct urb *urb)
 
 irqreturn_t aml_irq_sdio_hdlr(int irq, void *dev_id)
 {
-    if (atomic_read(&g_wifi_pm.bus_suspend_cnt))
+    if (atomic_read(&g_wifi_pm.bus_suspend_cnt) || atomic_read(&g_wifi_pm.is_shut_down))
     {
         return IRQ_HANDLED;
     }
@@ -56,7 +56,7 @@ int aml_irq_task(void *data)
 
     sch_param.sched_priority = 93;
 #ifndef CONFIG_PT_MODE
-    sched_setscheduler(current,SCHED_FIFO,&sch_param);
+    sched_setscheduler(current, SCHED_FIFO, &sch_param);
 #endif
     while (!aml_hw->aml_irq_task_quit) {
         /* wait for work */
@@ -70,11 +70,17 @@ int aml_irq_task(void *data)
         if (aml_hw->aml_irq_task_quit) {
             break;
         }
+
         while (status = aml_hw->plat->ack_irq(aml_hw)) {
             if (aml_hw->aml_irq_task_quit) {
                 break;
             }
             ipc_host_irq(aml_hw->ipc_env, status);
+#ifdef CONFIG_SDIO_TX_ENH
+            /* if irqless is enabled, read irq status once */
+            if (aml_hw->irqless_flag)
+                break;
+#endif
         }
 
         spin_lock_bh(&aml_hw->tx_lock);
@@ -144,7 +150,7 @@ irqreturn_t aml_irq_pcie_hdlr(int irq, void *dev_id)
 {
     struct aml_hw *aml_hw = (struct aml_hw *)dev_id;
 
-    if (atomic_read(&g_wifi_pm.bus_suspend_cnt))
+    if (atomic_read(&g_wifi_pm.bus_suspend_cnt) || atomic_read(&g_wifi_pm.is_shut_down))
     {
         return IRQ_HANDLED;
     }

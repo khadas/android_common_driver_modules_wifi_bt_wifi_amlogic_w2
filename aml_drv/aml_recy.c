@@ -25,6 +25,7 @@
 #include "aml_platform.h"
 #include "aml_main.h"
 #include "aml_scc.h"
+#include "aml_compat.h"
 
 #include "reg_access.h"
 #include "wifi_intf_addr.h"
@@ -41,6 +42,13 @@ extern struct aml_bus_state_detect bus_state_detect;
 extern struct aml_pm_type g_wifi_pm;
 
 extern int g_cali_cfg_done;
+
+static const char *const aml_recy_reason_code2str[RECY_REASON_CODE_MAX] = {
+    [RECY_REASON_CODE_CMD_CRASH]       = "RECY_REASON_CODE_CMD_CRASH",
+    [RECY_REASON_CODE_FW_LINKLOSS]     = "RECY_REASON_CODE_FW_LINKLOSS",
+    [RECY_REASON_CODE_BUS_ERR]         = "RECY_REASON_CODE_BUS_ERR",
+    [RECY_REASON_CODE_TX_TIMEOUT]      = "RECY_REASON_CODE_TX_PKTS_TIMEOUT",
+};
 
 void aml_recy_flags_set(u32 flags)
 {
@@ -252,6 +260,9 @@ int aml_recy_fw_reload_for_usb_sdio(struct aml_hw *aml_hw)
 Try_again:
 
     aml_platform_off(aml_hw, NULL);
+    if (aml_bus_type != PCIE_MODE) {
+        aml_clear_reorder_list();
+    }
     if (aml_bus_type == USB_MODE) {
        bus_state_detect.bus_reset_ongoing = 1;
        aml_usb_reset();
@@ -442,11 +453,6 @@ static int aml_recy_vif_reset(struct aml_hw *aml_hw)
                 AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_P2P_CLIENT) {
                 netif_tx_stop_all_queues(dev);
                 netif_carrier_off(dev);
-                if (aml_vif->sta.ft_assoc_ies) {
-                    kfree(aml_vif->sta.ft_assoc_ies);
-                    aml_vif->sta.ft_assoc_ies = NULL;
-                    aml_vif->sta.ft_assoc_ies_len = 0;
-                }
                 if (aml_vif->sta.ap) {
                     aml_txq_sta_deinit(aml_hw, aml_vif->sta.ap);
                     aml_txq_tdls_vif_deinit(aml_vif);
@@ -565,6 +571,12 @@ int aml_recy_doit(struct aml_hw *aml_hw)
                 | AML_RECY_OPEN_VIF_PROC
                 | AML_RECY_STATE_ONGOING
                 | AML_RECY_CLOSE_VIF_PROC;
+    unsigned char fbuf[64] = {0};
+
+    scnprintf(fbuf, sizeof(fbuf), "recovery reason: 0x%02x(%s)\n", aml_recy->reason, aml_recy_reason_code2str[aml_recy->reason]);
+    AML_INFO("%s", fbuf);
+    if (aml_bus_type != PCIE_MODE)
+        aml_send_err_info_to_diag(fbuf, strlen(fbuf));
 
     if (aml_recy_flags_chk(flags)) {
         RECY_DBG("recy delay by flags: 0x%x\n", aml_recy->flags);
@@ -603,6 +615,9 @@ out:
     atomic_set(&g_wifi_pm.drv_suspend_cnt, 0);
     atomic_set(&g_wifi_pm.is_shut_down, 0);
     aml_hw->state = WIFI_SUSPEND_STATE_NONE;
+    spin_lock_bh(&aml_recy->aml_hw->cmd_mgr.lock);
+    aml_recy->reason = 0;
+    spin_unlock_bh(&aml_recy->aml_hw->cmd_mgr.lock);
     aml_recy_flags_clr(AML_RECY_STATE_ONGOING | AML_RECY_DROP_XMIT_PKT);
 
     return ret;
@@ -627,16 +642,36 @@ static int aml_recy_detection(void)
     if (!aml_recy | !aml_recy->aml_hw)
         return 0;
 
+#ifdef CONFIG_LINUXPC_VERSION
+    // mutex_lock can't run in timer_cb, so pcie does only
+    if (aml_bus_type == PCIE_MODE) {
+        // channel is exception when pc pointer is 0xffffffff, and it can not recover now
+        if (AML_REG_READ(aml_recy->aml_hw->plat, AML_ADDR_MAC_PHY, AML_FW_PC_POINTER) == 0xffffffff) {
+            return 0;
+        }
+    }
+#endif
+
     cmd_mgr = &aml_recy->aml_hw->cmd_mgr;
     spin_lock_bh(&cmd_mgr->lock);
+    if (aml_recy->reason) {
+        spin_unlock_bh(&cmd_mgr->lock);
+        return false;
+    }
     if ((cmd_mgr->state == AML_CMD_MGR_STATE_CRASHED)
         || (aml_recy->link_loss.is_enabled && aml_recy->link_loss.is_requested)) {
+        if (cmd_mgr->state == AML_CMD_MGR_STATE_CRASHED) {
+            aml_recy->reason = RECY_REASON_CODE_CMD_CRASH;
+        } else {
+            aml_recy->reason = RECY_REASON_CODE_FW_LINKLOSS;
+        }
         ret = true;
     }
     if (aml_bus_type != PCIE_MODE) {
         if (!bus_state_detect.bus_reset_ongoing &&
             (bus_state_detect.bus_err == 1)) {
             bus_state_detect.bus_reset_ongoing = 1;
+            aml_recy->reason = RECY_REASON_CODE_BUS_ERR;
             ret = true;
         }
     }

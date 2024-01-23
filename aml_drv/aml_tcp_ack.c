@@ -18,6 +18,7 @@
 #include <net/tcp.h>
 #include "aml_tcp_ack.h"
 #include "aml_tx.h"
+#include "aml_compat.h"
 static void aml_send_tcp_ack(struct aml_tcp_ack_tx *tx_info)
 {
     u8 tid = 0;
@@ -198,7 +199,8 @@ static int aml_tcp_sess_find(struct aml_tcp_sess_mgr *ack_mgr,
     return ret;
 }
 
-static int aml_get_tcp_ack_info(struct tcphdr *tcphdr, int tcp_tot_len)
+static int aml_get_tcp_ack_info(struct tcphdr *tcphdr, int tcp_tot_len,
+                                        unsigned short *win_scale)
 {
     int type = 1;
     int len = tcphdr->doff * 4;
@@ -231,6 +233,8 @@ static int aml_get_tcp_ack_info(struct tcphdr *tcphdr, int tcp_tot_len)
                 case TCPOPT_TIMESTAMP:
                     break;
                 case TCPOPT_WINDOW:
+                    if (*ptr < 15)
+                        *win_scale = (1 << (*ptr));
                     break;
                 default:
                     type = 2;
@@ -246,7 +250,7 @@ static int aml_get_tcp_ack_info(struct tcphdr *tcphdr, int tcp_tot_len)
 }
 
 static int aml_check_tcp_ack_type(unsigned char *data,
-                                  struct aml_pkt_info *msg)
+                                  struct aml_pkt_info *msg,unsigned short *win_scale)
 {
     int ret;
     int ip_hdr_len;
@@ -266,10 +270,14 @@ static int aml_check_tcp_ack_type(unsigned char *data,
     temp = (unsigned char *)(iphdr) + ip_hdr_len;
     tcphdr = (struct tcphdr *)temp;
     /*only tcp ack flag*/
-    if (temp[13] != 0x10)
+    if (temp[13] != 0x10) {
+        /*get win scale from SYNC ACK*/
+        if (temp[13] == 0x12)
+            ret = aml_get_tcp_ack_info(tcphdr, tcp_tot_len,win_scale);
         return 0;
+    }
     tcp_tot_len = ntohs(iphdr->tot_len) - ip_hdr_len;
-    ret = aml_get_tcp_ack_info(tcphdr, tcp_tot_len);
+    ret = aml_get_tcp_ack_info(tcphdr, tcp_tot_len,win_scale);
 
     if (ret > 0) {
         msg->saddr = iphdr->saddr;
@@ -277,6 +285,7 @@ static int aml_check_tcp_ack_type(unsigned char *data,
         msg->source = tcphdr->source;
         msg->dest = tcphdr->dest;
         msg->seq = ntohl(tcphdr->ack_seq);
+        msg->win = ntohs(tcphdr->window);
     }
 
     return ret;
@@ -353,12 +362,15 @@ void aml_tcp_delay_ack_init(struct aml_hw *aml_hw)
     spin_lock_init(&ack_mgr->lock);
     atomic_set(&ack_mgr->max_drop_cnt, MAX_DROP_TCP_ACK_CNT);
     atomic_set(&ack_mgr->max_timeout, MAX_TCP_ACK_TIMEOUT);
-    atomic_set(&ack_mgr->dynamic_adjust, 1);
+    atomic_set(&ack_mgr->dynamic_adjust, 0);
 
     if (aml_bus_type != PCIE_MODE) {
         atomic_set(&ack_mgr->enable, 1);
         atomic_set(&ack_mgr->dynamic_adjust, 0);
-        atomic_set(&ack_mgr->max_drop_cnt, MAX_DROP_TCP_ACK_CNT_SDIO);
+        if (aml_bus_type == USB_MODE)
+            atomic_set(&ack_mgr->max_drop_cnt, MAX_DROP_TCP_ACK_CNT_USB);
+        else
+            atomic_set(&ack_mgr->max_drop_cnt, MAX_DROP_TCP_ACK_CNT_SDIO);
     }
 
     ack_mgr->last_time = jiffies;
@@ -373,6 +385,10 @@ void aml_tcp_delay_ack_init(struct aml_hw *aml_hw)
         timer_setup(&tcp_info->timer, aml_tcp_ack_timeout, 0);
     }
     atomic_set(&ack_mgr->enable, 1);
+
+    ack_mgr->ack_winsize = MIN_WIN;
+    ack_mgr->win_scale = 1;
+
 }
 
 void aml_tcp_delay_ack_deinit(struct aml_hw *aml_hw)
@@ -488,6 +504,8 @@ int aml_filter_tx_tcp_ack(struct net_device *dev,
 {
     int ret = 0;
     int index, type;
+    unsigned short win_scale = 0;
+    unsigned int win = 0;
     struct aml_vif *aml_vif = netdev_priv(dev);
     struct aml_hw *aml_hw = aml_vif->aml_hw;
     struct aml_pkt_info pkt_info;
@@ -503,14 +521,26 @@ int aml_filter_tx_tcp_ack(struct net_device *dev,
 
     aml_tcp_sess_ageout(ack_mgr);
     /*type 0:not tcp ack,1:tcp ack,2:tcp ack with other info*/
-    type = aml_check_tcp_ack_type(skb->data, &pkt_info);
+    type = aml_check_tcp_ack_type(skb->data, &pkt_info,&win_scale);
+    if (win_scale && (ack_mgr->win_scale != win_scale))
+        ack_mgr->win_scale = win_scale;
     if (!type)
         return 0;
 
     index = aml_tcp_sess_find(ack_mgr, &pkt_info);
     if (index >= 0) {
         tcp_info = ack_mgr->tcp_info + index;
+
+        if ((ack_mgr->win_scale != 0) && (tcp_info->win_scale != ack_mgr->win_scale)) {
+            write_seqlock_bh(&tcp_info->seqlock);
+            tcp_info->win_scale = ack_mgr->win_scale;
+            write_sequnlock_bh(&tcp_info->seqlock);
+        }
+
         if (type > 0) {
+            win = tcp_info->win_scale * pkt_info.win;
+            if (win < (ack_mgr->ack_winsize * SIZE_KB))
+                type = 2;
             ret = aml_replace_tcp_ack(skb, ack_mgr, tcp_info, &pkt_info, type);
         }
         return ret;
@@ -528,6 +558,7 @@ int aml_filter_tx_tcp_ack(struct net_device *dev,
         tcp_info->busy = 1;
         tcp_info->last_time = jiffies;
         tcp_info->drop_cnt = atomic_read(&ack_mgr->max_drop_cnt);
+        tcp_info->win_scale = ack_mgr->win_scale;
         tcp_info->sta = sta;
         tcp_info->aml_vif = aml_vif;
         if (!timer_pending(&tcp_info->timer))

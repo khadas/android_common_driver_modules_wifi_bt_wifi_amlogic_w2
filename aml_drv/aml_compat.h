@@ -318,12 +318,14 @@ enum {
 
 #define aml_cfg80211_change_iface(wiphy, dev, type, params) \
     aml_cfg80211_change_iface(wiphy, dev, type, u32 *flags, params)
+
+#define nla_parse(tb, maxtype, head, len, policy )       \
+    nla_parse(tb, maxtype, head, len, policy)
+
 #endif
 #define CCFS0(vht) vht->center_freq_seg1_idx
 #define CCFS1(vht) vht->center_freq_seg2_idx
 
-#define nla_parse(tb, maxtype, head, len, policy, extack)       \
-    nla_parse(tb, maxtype, head, len, policy)
 
 struct cfg80211_roam_info {
 	struct ieee80211_channel *channel;
@@ -341,7 +343,11 @@ struct cfg80211_roam_info {
 
 #else // 4.12
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
 #define CCFS0(vht) vht->center_freq_seg0_idx
+#else
+#define CCFS0(vht) vht->center_freq_seg1_idx
+#endif
 #define CCFS1(vht) vht->center_freq_seg1_idx
 #endif // 4.12
 

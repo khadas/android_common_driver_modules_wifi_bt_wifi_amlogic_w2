@@ -16,6 +16,7 @@
 #include "aml_defs.h"
 
 extern unsigned char g_pci_shutdown;
+extern unsigned char g_pci_msg_suspend;
 int aml_send_reset(struct aml_hw *aml_hw);
 int aml_send_start(struct aml_hw *aml_hw);
 int aml_send_version_req(struct aml_hw *aml_hw, struct mm_version_cfm *cfm);
@@ -240,5 +241,8 @@ int aml_txq_unexpection(struct net_device *dev);
 void cfg80211_to_aml_chan(const struct cfg80211_chan_def *chandef, struct mac_chan_op *chan);
 int aml_send_set_buf_state_req(struct aml_hw *aml_hw, int buf_state);
 int _aml_set_la_capture(struct aml_vif *aml_vif, u32 bus1, u32 bus2);
+int _aml_fix_txpwr(struct aml_vif *aml_vif, int pwr);
+int _aml_set_usb_trace_enable(struct aml_hw *aml_hw, int value);
+int _aml_putv_trace_switch(struct aml_hw *aml_hw, int value);
 
 #endif /* _AML_MSG_TX_H_ */

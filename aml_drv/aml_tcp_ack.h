@@ -16,12 +16,15 @@
 
 #define AML_TCP_SESS_NUM  128
 #define MAX_TCP_ACK_LEN 200
-#define MAX_DROP_TCP_ACK_CNT  12
-#define MAX_DROP_TCP_ACK_CNT_SDIO  3
+#define MAX_DROP_TCP_ACK_CNT  24
+#define MAX_DROP_TCP_ACK_CNT_SDIO  24
+#define MAX_DROP_TCP_ACK_CNT_USB  10
 #define TCK_SESS_TIMEOUT_TIME 5000
-#define MAX_TCP_ACK_TIMEOUT 60 //ms
+#define MAX_TCP_ACK_TIMEOUT 30 //ms
 
-#define MIN_WIN 256
+#define MIN_WIN 96
+#define SIZE_KB 1024
+
 #define AML_U32_BEFORE(a, b) ((__s32)((__u32)a - (__u32)b) <= 0)
 
 struct aml_tcp_ack_tx {
@@ -37,6 +40,7 @@ struct aml_pkt_info {
     u32 saddr;
     u32 daddr;
     u32 seq;
+    u16 win;
 };
 
 struct aml_tcp_sess_info {
@@ -44,6 +48,7 @@ struct aml_tcp_sess_info {
     u8 busy;
     /*tcp drop count*/
     u8 drop_cnt;
+    u16 win_scale;
     seqlock_t seqlock;
     unsigned long last_time;
     /*tcp session ageout time*/
@@ -72,6 +77,8 @@ struct aml_tcp_sess_mgr {
     spinlock_t lock;
     struct aml_hw *aml_hw;
     struct aml_tcp_sess_info tcp_info[AML_TCP_SESS_NUM];
+    unsigned int ack_winsize;
+    unsigned short win_scale;
 };
 
 void aml_tcp_delay_ack_deinit(struct aml_hw *aml_hw);

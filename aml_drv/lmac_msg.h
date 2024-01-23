@@ -392,10 +392,13 @@ enum priv_e2a_tag {
     PRIV_EFUSE_GET_RESULT,
     PRIV_DHCP_OFFLOAD_IND,
     PRIV_SDIO_USB_REORD_INFO_IND,
+    PRIV_TRAFFIC_BUSY_IND,
     PRIV_SCC_CONFLICT_CFM,
     PRIV_FT_AUTH_RSP_TIMEOUT_IND,
     PRIV_CSI_STATUS_COM_CFM,
     PRIV_CSI_STATUS_SP_CFM,
+    PRIV_SCANU_RESULT_IND,
+    PRIV_COEX_STOP_RESTORE_TXQ_IND,
     PRIV_SUB_E2A_MAX,
 };
 
@@ -446,6 +449,9 @@ enum mm_sub_a2e_tag {
     MM_SUB_SET_LA_CAPTURE,
     MM_SUB_SET_LA_STATE,
     MM_SUB_SHUTDOWN,
+    MM_SUB_FIX_TXPWR,
+    MM_SUB_SET_USB_TRACE_STATE,
+    MM_SUB_SET_PUTV_TRACE_SWITCH,
     /// the MAX
     MM_SUB_A2E_MAX,
     /// New members cannot be added below
@@ -1043,6 +1049,12 @@ struct mm_channel_pre_switch_ind
 {
     /// Index of the channel context we will switch to
     u8_l chan_index;
+};
+
+struct coex_stop_restore_txq_ind
+{
+    //wifi is if get time from bt;
+    u8_l wifi_inactive_flag;
 };
 
 /// Structure containing the parameters of the @ref MM_CONNECTION_LOSS_IND message.
@@ -1939,6 +1951,8 @@ struct me_rc_stats_cfm
     struct rc_rate_stats rate_stats[RC_MAX_N_SAMPLE + 1];
     /// Throughput - Max number of RC samples, plus one for the HE TB statistics
     u32_l tp[RC_MAX_N_SAMPLE + 1];
+    uint16_t lower_rate_cfg;
+    uint16_t upper_rate_cfg;
 };
 
 /// Structure containing the parameters of the @ref ME_RC_SET_RATE_REQ message.
@@ -3134,6 +3148,11 @@ struct enable_wf_req
     u32_l wfflag;
 };
 
+struct fix_txpwr
+{
+    s32_l pwr;
+};
+
 struct get_efuse_req
 {
     u32_l addr;
@@ -3247,7 +3266,7 @@ typedef struct
     unsigned char ip_ver;
     unsigned char ipv4_addr[IPV4_ADDR_LEN];
     unsigned char ipv6_addr[IPV6_ADDR_LEN];
-}notify_ip_addr_t;
+} notify_ip_addr_t;
 
 typedef struct
 {

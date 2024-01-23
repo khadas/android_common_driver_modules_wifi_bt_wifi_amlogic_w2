@@ -40,7 +40,7 @@ static void cmd_dump(const struct aml_cmd *cmd)
     if (cmd->id != ME_TRAFFIC_IND_REQ) { \
         printk("[%-20.20s %4d] cmd tkn[%d]  flags:%04x  result:%3d  cmd:%4d-%-24s - reqcfm(%4d-%-s)\n", \
                __func__, __LINE__,  \
-               cmd->tkn, cmd->flags, cmd->result, cmd->id, AML_ID2STR(cmd->id), \
+               cmd->tkn, cmd->flags, cmd->result, cmd->id, cmd->id == MM_OTHER_REQ ? AML_MM_OTHER_CMD2STR(cmd) : AML_ID2STR(cmd->id), \
                cmd->reqid, (((cmd->flags & AML_CMD_FLAG_REQ_CFM) && \
                (cmd->reqid != (lmac_msg_id_t)-1)) ? AML_ID2STR(cmd->reqid) : "none")); \
     } \
@@ -57,6 +57,13 @@ static void cmd_complete(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
     cmd_mgr->queue_sz--;
 
     CMD_PRINT(cmd);
+
+    /*recovery happen when aml open, but AML_DEV_STARTED is not set*/
+    if ((cmd->id == MM_START_REQ) && (cmd->reqid == MM_START_CFM)) {
+        struct aml_hw *aml_hw = container_of(cmd_mgr, struct aml_hw, cmd_mgr);
+        set_bit(AML_DEV_STARTED, &aml_hw->flags);
+    }
+
     cmd->flags |= AML_CMD_FLAG_DONE;
     if (cmd->flags & AML_CMD_FLAG_NONBLOCK) {
         kfree(cmd);
@@ -77,7 +84,7 @@ int aml_msg_task(void *data)
 
     sch_param.sched_priority = 91;
 #ifndef CONFIG_PT_MODE
-    sched_setscheduler(current,SCHED_RR,&sch_param);
+    sched_setscheduler(current, SCHED_RR, &sch_param);
 #endif
     while (!aml_hw->aml_msg_task_quit) {
         if (down_interruptible(&aml_hw->aml_msg_sem) != 0) {
@@ -275,11 +282,9 @@ static int cmd_mgr_queue(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
                 }
             }
 #endif
-            if (vif != NULL) {
-                for (i = 0; i < CMD_CRASH_FW_PC_NUM; i++) {
-                    AML_INFO("fw_pc:%08x\n", aml_read_reg(vif->ndev, AML_FW_PC_POINTER));
-                    mdelay(100);
-                }
+            for (i = 0; i < CMD_CRASH_FW_PC_NUM; i++) {
+                AML_INFO("fw_pc:%08x\n", AML_REG_READ(aml_hw->plat, AML_ADDR_MAC_PHY, AML_FW_PC_POINTER));
+                mdelay(100);
             }
         }
         #endif
@@ -337,11 +342,6 @@ static int cmd_mgr_llind(struct aml_cmd_mgr *cmd_mgr, struct aml_cmd *cmd)
         }
     }
     aml_spin_unlock(&cmd_mgr->lock);
-
-#ifdef CONFIG_LINUXPC_VERSION
-    if (defer_push == true)
-        msleep(200);
-#endif
 
     return 0;
 }

@@ -30,7 +30,7 @@
 #define AML_HWQ_ALL_ACS_BIT ( BIT(AML_HWQ_BK) | BIT(AML_HWQ_BE) |    \
                                BIT(AML_HWQ_VI) | BIT(AML_HWQ_VO) )
 
-#define AML_TX_LIFETIME_MS             100
+#define AML_TX_LIFETIME_MS             1000
 #define AML_TX_MAX_RATES               NX_TX_MAX_RATES
 
 

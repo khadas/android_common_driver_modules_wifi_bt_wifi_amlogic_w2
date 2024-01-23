@@ -237,17 +237,30 @@ int aml_scc_change_beacon_ht_ie(struct wiphy *wiphy, struct net_device *dev, str
             case NL80211_CHAN_WIDTH_20:
             case NL80211_CHAN_WIDTH_40:
                 vhtop->chan_width = 0;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)
                 vhtop->center_freq_seg0_idx = 0;
                 vhtop->center_freq_seg1_idx = 0;
+#else
+                vhtop->center_freq_seg1_idx = 0;
+                vhtop->center_freq_seg2_idx = 0;
+#endif
             break;
             case NL80211_CHAN_WIDTH_80:
             case NL80211_CHAN_WIDTH_160:
             case NL80211_CHAN_WIDTH_80P80:
                 vhtop->chan_width = 1;
                 if (target_chdef.center_freq1)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)
                     vhtop->center_freq_seg0_idx = aml_ieee80211_freq_to_chan(target_chdef.center_freq1, target_chdef.chan->band);
+#else
+                    vhtop->center_freq_seg1_idx = aml_ieee80211_freq_to_chan(target_chdef.center_freq1, target_chdef.chan->band);
+#endif
                 if (target_chdef.center_freq2)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)
                     vhtop->center_freq_seg1_idx = aml_ieee80211_freq_to_chan(target_chdef.center_freq2, target_chdef.chan->band);
+#else
+                    vhtop->center_freq_seg2_idx = aml_ieee80211_freq_to_chan(target_chdef.center_freq2, target_chdef.chan->band);
+#endif
             break;
         }
     }
@@ -723,8 +736,8 @@ void aml_scc_check_chan_conflict(struct aml_hw *aml_hw)
                     chan_width_trace[target_chdef.width]);
 
                 if (!(list_empty(&vif->ap.sta_list)) && scc_use_csa) {
-                    struct aml_sta *sta;
-                    list_for_each_entry(sta, &vif->ap.sta_list, list) {
+                    struct aml_sta *sta, *tmp;
+                    list_for_each_entry_safe(sta, tmp, &vif->ap.sta_list, list) {
                         if (sta->valid) {
                             int ret;
                             aml_ps_bh_enable(aml_hw, sta, 1);//we always consider peer is sleep

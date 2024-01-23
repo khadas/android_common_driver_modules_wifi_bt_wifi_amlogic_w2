@@ -40,6 +40,10 @@
 //rename IRQ FOR USB OR SDIO
 #define IPC_A2E_MSG_IND CO_BIT(4)
 #define DEBUG_MSGE2A_BUF_CNT       130
+#define USB_AMSDU_BUF_LEN (4620)
+#define TRAFFIC_CPU_FLAG           BIT(0)
+#define TRAFFIC_SCAN_FLAG          BIT(1)
+
 
 enum aml_dev_flag {
     AML_DEV_RESTARTING,
@@ -111,6 +115,8 @@ struct aml_tx_cfmed {
 #define TX_BUF_CNT    127
 #define TX_LIST_CNT   64
 #define TXDESC_WRITE_ONCE_CNT  32
+#define USB_TXCMD_CARRY_RXRD_START_INDEX 401
+#define UPDATE_FLAG 0x11223344
 
 
 static const u32 aml_tx_pattern = 0xCAFEFADE;
@@ -135,8 +141,6 @@ static const u32 aml_tx_pattern = 0xCAFEFADE;
 
 #define TX_AC_BUF_SIZE 0x4dc8 //19912
 
-#define TRACE_TOTAL_SIZE    0x6400
-#define TRACE_MAX_SIZE      0x2400
 #define CIRCLE_Subtract(a,b,l)  \
     (((a) >= (b)) ? ((a) - (b)):((l)+(a)-(b)))
 

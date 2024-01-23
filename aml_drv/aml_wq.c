@@ -107,6 +107,9 @@ static void aml_wq_doit(struct work_struct *work)
                 aml_alloc_global_rx_rate(aml_hw, aml_wq);
                 break;
 #endif
+            case AML_WQ_IPV6:
+                aml_send_notify_ip(aml_wq->aml_vif, IPV6_VER, aml_wq->data);
+                break;
             default:
                 AML_INFO("wq type(%d) unknown", aml_wq->id);
                 break;

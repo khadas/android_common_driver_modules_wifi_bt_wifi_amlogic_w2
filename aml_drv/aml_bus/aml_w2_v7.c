@@ -245,6 +245,24 @@ static void aml_v7_platform_deinit(struct aml_plat_pci *aml_plat_pci)
     kfree(aml_plat_pci);
 }
 
+/* aml w2 wifi/bt Recommend PCIe 1.0 */
+void aml_pcie_speed_check(struct pci_dev *dev)
+{
+    u32 lnksta;
+    enum pci_bus_speed pci_speed;
+
+    pcie_capability_read_word(dev, PCI_EXP_LNKSTA, &lnksta);
+
+    pci_speed = lnksta & PCI_EXP_LNKSTA_CLS;
+    printk("%s:%d pcie link speed is %s\n", __func__, __LINE__,
+        (pci_speed == PCI_EXP_LNKSTA_CLS_2_5GB) ? "PCI_EXP_LNKSTA_CLS_2_5GB" :
+        ((pci_speed == PCI_EXP_LNKSTA_CLS_5_0GB) ? "PCI_EXP_LNKSTA_CLS_5_0GB" : "OTHER"));
+
+    if (pci_speed != PCI_EXP_LNKSTA_CLS_2_5GB)
+        printk("%s:%d WARNING ===> pcie link speed is NOT PCI_EXP_LNKSTA_CLS_2_5GB !!!\n", __func__, __LINE__);
+}
+
+
 int aml_v7_platform_init(struct pci_dev *pci_dev, struct aml_plat_pci **aml_plat_pci)
 {
     struct aml_v7 *aml_v7;
@@ -354,6 +372,7 @@ int aml_v7_platform_init(struct pci_dev *pci_dev, struct aml_plat_pci **aml_plat
     ipc_basic_address = aml_v7->pci_bar4_vaddr + PCIE_BAR4_TABLE2_OFFSET; // bar4 table2 0x60800000
     (*aml_plat_pci)->deinit = aml_v7_platform_deinit;
 
+    aml_pcie_speed_check(pci_dev);
     return 0;
 
   out_bar4:

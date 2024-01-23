@@ -18,10 +18,6 @@
 #include "wifi_w2_shared_mem_cfg.h"
 #include "aml_static_buf.h"
 
-#define FW_BUFFER_STATUS   (BIT(20) | BIT(21))
-#define FW_BUFFER_NARROW   BIT(20)
-#define FW_BUFFER_EXPAND   BIT(21)
-
 #define BUFFER_STATUS           (BIT(0) | BIT(1))
 #define BUFFER_NARROW           BIT(0)
 #define BUFFER_EXPAND           BIT(1)
@@ -29,6 +25,7 @@
 #define BUFFER_NOTIFY           BIT(3)
 #define BUFFER_WRAP             BIT(4)
 #define BUFFER_EXPEND_FINSH     BIT(5)
+#define BUFFER_TX_USED_FLAG     BIT(6)
 
 #define RXDESC_CNT_READ_ONCE 32
 
@@ -276,6 +273,7 @@ void aml_rxdata_deinit(void);
 void aml_scan_clear_scan_res(struct aml_hw *aml_hw);
 void aml_scan_rx(struct aml_hw *aml_hw, struct hw_rxhdr *hw_rxhdr, struct sk_buff *skb);
 void aml_rxbuf_list_init(struct aml_hw *aml_hw);
+void aml_clear_reorder_list();
 
 #ifndef CONFIG_AML_DEBUGFS
 void aml_dealloc_global_rx_rate(struct aml_hw *aml_hw, struct aml_sta *sta);

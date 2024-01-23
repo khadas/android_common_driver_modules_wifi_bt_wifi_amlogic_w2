@@ -10,6 +10,7 @@
 #define W2u_VENDOR_AMLOGIC_EFUSE 0x1B8E
 #define W2u_PRODUCT_A_AMLOGIC_EFUSE 0x0601
 #define W2u_PRODUCT_B_AMLOGIC_EFUSE 0x0641
+#define USB_TXCMD_CARRY_RXRD_INDEX 401
 
 /*auc--amlogic usb common*/
 struct auc_hif_ops {

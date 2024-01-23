@@ -23,7 +23,11 @@ extern struct aml_bus_state_detect bus_state_detect;
 extern struct aml_pm_type g_wifi_pm;
 extern void auc_w2_ops_init(void);
 extern void extern_wifi_set_enable(int is_on);
-
+/*for bluetooth get read/write point*/
+int bt_wt_ptr = 0;
+int bt_rd_ptr = 0;
+/*co-exist flag for bt/wifi mode*/
+int coex_flag = 0;
 static int auc_probe(struct usb_interface *interface, const struct usb_device_id *id)
 {
     g_udev = usb_get_dev(interface_to_usbdev(interface));
@@ -63,16 +67,20 @@ static int auc_suspend(struct usb_interface *interface,pm_message_t state)
 {
     int cnt = 0;
 
-    while (atomic_read(&g_wifi_pm.drv_suspend_cnt) == 0)
+    if (atomic_read(&g_wifi_pm.wifi_enable))
     {
-        msleep(50);
-        cnt++;
-        if (cnt > 40)
+        while (atomic_read(&g_wifi_pm.drv_suspend_cnt) == 0)
         {
-            PRINT("wifi suspend fail \n");
-            return -1;
+            msleep(50);
+            cnt++;
+            if (cnt > 40)
+            {
+                PRINT("wifi suspend fail \n");
+                return -1;
+            }
         }
     }
+
     atomic_set(&g_wifi_pm.bus_suspend_cnt, 1);
     PRINT("---------aml_usb suspend-------\n");
     return 0;
@@ -88,17 +96,20 @@ static int auc_resume(struct usb_interface *interface)
 extern lp_shutdown_func g_lp_shutdown_func;
 void auc_shutdown(struct device *dev)
 {
+    //Mask interrupt reporting to the host
+    atomic_set(&g_wifi_pm.is_shut_down, 2);
+
     // Notify fw to enter shutdown mode
     if (g_lp_shutdown_func != NULL)
     {
         g_lp_shutdown_func();
     }
 
-    atomic_set(&g_wifi_pm.is_shut_down, 1);
-
     //notify fw shutdown
     //notify bt wifi will go shutdown
     auc_write_word_by_ep_for_wifi(RG_AON_A55, auc_read_word_by_ep_for_wifi(RG_AON_A55, USB_EP4)|BIT(28) ,USB_EP4);
+
+    atomic_set(&g_wifi_pm.is_shut_down, 1);
 }
 
 static const struct usb_device_id auc_devices[] =
@@ -228,3 +239,6 @@ EXPORT_SYMBOL(auc_driver_insmoded);
 EXPORT_SYMBOL(auc_wifi_in_insmod);
 EXPORT_SYMBOL(auc_usb_mutex);
 EXPORT_SYMBOL(g_usb_after_probe);
+EXPORT_SYMBOL(bt_wt_ptr);
+EXPORT_SYMBOL(bt_rd_ptr);
+EXPORT_SYMBOL(coex_flag);

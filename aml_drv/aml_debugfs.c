@@ -22,7 +22,7 @@
 #include "aml_radar.h"
 #include "aml_tx.h"
 
-extern int aml_set_fwlog_cmd(struct net_device *dev, int mode, int size);
+extern int aml_set_fwlog_cmd(struct net_device *dev, int mode);
 
 #ifdef CONFIG_AML_SOFTMAC
 static ssize_t aml_dbgfs_stats_read(struct file *file,
@@ -398,7 +398,7 @@ int aml_dbgfs_txq_vif(char *buf, size_t size, struct aml_vif *aml_vif,
 {
     int res, idx = 0;
     struct aml_txq *txq;
-    struct aml_sta *aml_sta;
+    struct aml_sta *aml_sta, *tmp;
 
 #ifdef CONFIG_AML_FULLMAC
     res = scnprintf(&buf[idx], size, VIF_HDR, aml_vif->vif_index, aml_vif->ndev->name);
@@ -444,7 +444,7 @@ int aml_dbgfs_txq_vif(char *buf, size_t size, struct aml_vif *aml_vif,
             size -= res;
         }
 
-        list_for_each_entry(aml_sta, &aml_vif->ap.sta_list, list) {
+        list_for_each_entry_safe(aml_sta, tmp, &aml_vif->ap.sta_list, list) {
             res = aml_dbgfs_txq_sta(&buf[idx], size, aml_sta, aml_hw);
             idx += res;
             size -= res;
@@ -900,7 +900,7 @@ static ssize_t aml_dbgfs_fw_trace_read(struct file *file,
     if (aml_bus_type != PCIE_MODE) {
         struct net_device *dev = ltrace->aml_hw->vif_table[0]->ndev;
         printk("please disable the firewall(setenforce 0),sdio and usb trace_log are saved in /data/trace_log.txt\n");
-        return aml_set_fwlog_cmd(dev, 1, 0);
+        return aml_set_fwlog_cmd(dev, 1);
     }
 
     return aml_fw_trace_read(ltrace->trace, &ltrace->lbuf,
@@ -2037,9 +2037,9 @@ static ssize_t aml_dbgfs_last_rx_read(struct file *file,
                      sta->mac_addr[3], sta->mac_addr[4], sta->mac_addr[5]);
 
     // Display Statistics
-    for (i = 0 ; i < rate_stats->size ; i++ )
+    for (i = 0; i < rate_stats->size; i++)
     {
-        if (rate_stats->table[i]) {
+        if (rate_stats->table && rate_stats->table[i]) {
             union aml_rate_ctrl_info rate_config;
             u64 percent = div_u64(rate_stats->table[i] * 1000, rate_stats->cpt);
             u64 p;
@@ -2452,6 +2452,26 @@ static ssize_t aml_dbgfs_tko_config_write(struct file *file,
 DEBUGFS_WRITE_FILE_OPS(tko_config);
 #endif
 
+void aml_dbgfs_fw_trace_create(struct aml_hw *aml_hw)
+{
+    static int is_init = 0;
+
+    if (is_init) {
+        return;
+    }
+    if (!aml_fw_trace_init(&aml_hw->debugfs.fw_trace,
+                            aml_ipc_fw_trace_desc_get(aml_hw))) {
+        DEBUGFS_ADD_FILE(fw_trace, aml_hw->debugfs.dir_diags, S_IWUSR | S_IRUSR);
+        if (aml_hw->debugfs.fw_trace.buf.nb_compo)
+            DEBUGFS_ADD_FILE(fw_trace_level, aml_hw->debugfs.dir_diags, S_IWUSR | S_IRUSR);
+        is_init = 1;
+    } else {
+        aml_hw->debugfs.fw_trace.buf.data = NULL;
+    }
+err:
+    printk("create trace dbgfs fail");
+}
+
 int aml_dbgfs_register(struct aml_hw *aml_hw, const char *name)
 {
 #ifdef CONFIG_AML_SOFTMAC
@@ -2513,6 +2533,7 @@ int aml_dbgfs_register(struct aml_hw *aml_hw, const char *name)
         goto err;
     DEBUGFS_ADD_FILE(fw_dbg, dir_diags, S_IWUSR | S_IRUSR);
 
+    aml_debugfs->dir_diags = dir_diags;
     if (!aml_fw_trace_init(&aml_hw->debugfs.fw_trace,
                             aml_ipc_fw_trace_desc_get(aml_hw))) {
         DEBUGFS_ADD_FILE(fw_trace, dir_diags, S_IWUSR | S_IRUSR);

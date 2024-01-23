@@ -222,10 +222,11 @@ enum aml_txq_flags {
     AML_TXQ_STOP_VIF_PS  = BIT(4),
     AML_TXQ_STOP_CHAN    = BIT(5),
     AML_TXQ_STOP_MU_POS  = BIT(6),
+    AML_TXQ_NDEV_FLOW_CTRL = BIT(7),
+    AML_TXQ_STOP_COEX_INACTIVE = BIT(8),
     AML_TXQ_STOP         = (AML_TXQ_STOP_FULL | AML_TXQ_STOP_CSA |
                              AML_TXQ_STOP_STA_PS | AML_TXQ_STOP_VIF_PS |
-                             AML_TXQ_STOP_CHAN) ,
-    AML_TXQ_NDEV_FLOW_CTRL = BIT(7),
+                             AML_TXQ_STOP_CHAN | AML_TXQ_STOP_COEX_INACTIVE) ,
 };
 
 
@@ -268,7 +269,7 @@ enum aml_txq_flags {
  */
 struct aml_txq {
     u16 idx;
-    u8 status;
+    u16 status;
     s8 credits;
     u8 pkt_sent;
     u8 pkt_pushed[CONFIG_USER_MAX];

@@ -241,16 +241,21 @@ static void  aml_sdio_remove(struct sdio_func *func)
 {
     int ret = 0;
     int cnt = 0;
-    while (atomic_read(&g_wifi_pm.drv_suspend_cnt) == 0)
+
+    if (atomic_read(&g_wifi_pm.wifi_enable))
     {
-        msleep(50);
-        cnt++;
-        if (cnt > 40)
+        while (atomic_read(&g_wifi_pm.drv_suspend_cnt) == 0)
         {
-            printk("wifi suspend fail \n");
-            return -1;
+            msleep(50);
+            cnt++;
+            if (cnt > 40)
+            {
+                printk("wifi suspend fail \n");
+                return -1;
+            }
         }
     }
+
     if (host_suspend_req != NULL)
         ret = host_suspend_req(device);
     else
@@ -282,6 +287,9 @@ void aml_sdio_shutdown(struct device *device)
         return;
     }
 
+    //Mask interrupt reporting to the host
+    atomic_set(&g_wifi_pm.is_shut_down, 2);
+
     //send msg only once
     if (g_lp_shutdown_func != NULL)
     {
@@ -291,8 +299,24 @@ void aml_sdio_shutdown(struct device *device)
     //notify fw shutdown
     //notify bt wifi will go shutdown
     aml_sdio_random_word_write(RG_AON_A55, aml_sdio_random_word_read(RG_AON_A55) | BIT(28));
+
+    //prevrnt msg_send & reg read_write
+    atomic_set(&g_wifi_pm.is_shut_down, 1);
 }
 
+bool aml_sdio_block_bus_opt(void)
+{
+    if (atomic_read(&g_wifi_pm.is_shut_down) == 1)
+    {
+       ERROR_DEBUG_OUT("fw shut down(%d) , do not read/write now!\n",
+       atomic_read(&g_wifi_pm.is_shut_down));
+       return true;
+    }
+    else
+    {
+       return false;
+    }
+}
 static SIMPLE_DEV_PM_OPS(aml_sdio_pm_ops, aml_sdio_pm_suspend,
                      aml_sdio_pm_resume);
 

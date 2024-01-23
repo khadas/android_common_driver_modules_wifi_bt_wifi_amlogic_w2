@@ -83,7 +83,7 @@ struct aml_cmd {
     char *e2a_msg;
     u32 tkn;
     u16 flags;
-
+    u16 mm_sub_id;
     struct completion complete;
     u32 result;
     #ifdef CONFIG_AML_FHOST

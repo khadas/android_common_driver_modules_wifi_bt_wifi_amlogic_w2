@@ -104,6 +104,13 @@ static int _aml_sdio_request_byte(unsigned char func_num,
 int aml_sdio_self_define_domain_write8(int addr, unsigned char data)
 {
     int ret = 0;
+    bool sdio_bus_block = false;
+
+    sdio_bus_block = aml_sdio_block_bus_opt();
+    if (sdio_bus_block)
+    {
+       return 0;
+    }
 
     ret =  _aml_sdio_request_byte(SDIO_FUNC1, SDIO_WRITE, addr, &data);
     return ret;
@@ -113,6 +120,13 @@ int aml_sdio_self_define_domain_write8(int addr, unsigned char data)
 unsigned char aml_sdio_self_define_domain_read8(int addr)
 {
     unsigned char sramdata;
+    bool sdio_bus_block = false;
+
+    sdio_bus_block = aml_sdio_block_bus_opt();
+    if (sdio_bus_block)
+    {
+       return 0;
+    }
 
     _aml_sdio_request_byte(SDIO_FUNC1, SDIO_READ, addr, &sramdata);
     return sramdata;
@@ -124,6 +138,13 @@ int aml_sdio_bottom_write(unsigned char func_num, unsigned int addr, void *buf, 
 {
     void *kmalloc_buf;
     int result;
+    bool sdio_bus_block = false;
+
+    sdio_bus_block = aml_sdio_block_bus_opt();
+    if (sdio_bus_block)
+    {
+       return 0;
+    }
 
     ASSERT(func_num != SDIO_FUNC0);
     ASSERT(g_func_kmalloc_buf);
@@ -142,7 +163,7 @@ int aml_sdio_bottom_write(unsigned char func_num, unsigned int addr, void *buf, 
     result = _aml_sdio_request_buffer(func_num, incr_addr, SDIO_WRITE, addr, kmalloc_buf, len);
 
     AML_BT_WIFI_MUTEX_OFF();
-    if (result && !bus_state_detect.bus_err) {
+    if (result && !bus_state_detect.bus_err && (atomic_read(&g_wifi_pm.is_shut_down) == 0)) {
         if (bus_state_detect.is_drv_load_finished) {
             bus_state_detect.bus_err = 1;
             ERROR_DEBUG_OUT("sdio bus error(%d), will do reovery later\n", result);
@@ -160,6 +181,13 @@ int aml_sdio_bottom_read(unsigned char func_num, int addr, void *buf, size_t len
     int result;
     int align_len = 0;
     unsigned char scat_use = func_num & (1 << 8);
+    bool sdio_bus_block = false;
+
+    sdio_bus_block = aml_sdio_block_bus_opt();
+    if (sdio_bus_block)
+    {
+       return 0;
+    }
 
     func_num &= 0xf;
     ASSERT(func_num != SDIO_FUNC0);
@@ -204,7 +232,7 @@ int aml_sdio_bottom_read(unsigned char func_num, int addr, void *buf, size_t len
     }
 
     AML_BT_WIFI_MUTEX_OFF();
-    if (result && !bus_state_detect.bus_err) {
+    if (result && !bus_state_detect.bus_err && (atomic_read(&g_wifi_pm.is_shut_down) == 0)) {
         if (bus_state_detect.is_drv_load_finished) {
             bus_state_detect.bus_err = 1;
             ERROR_DEBUG_OUT("sdio bus error(%d), will do reovery later\n", result);
@@ -577,6 +605,13 @@ int aml_sdio_scat_req_rw(struct amlw_hif_scatter_req *scat_req)
     //unsigned int reg_data = 0;
 
     int result = SDIOH_API_RC_FAIL;
+    bool sdio_bus_block = false;
+
+    sdio_bus_block = aml_sdio_block_bus_opt();
+    if (sdio_bus_block)
+    {
+       return 0;
+    }
 
     ASSERT(scat_req != NULL);
     if (scat_req->req & HIF_WRITE)

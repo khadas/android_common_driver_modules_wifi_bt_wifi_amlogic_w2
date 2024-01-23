@@ -18,6 +18,7 @@
 #include "reg_ipc_app.h"
 #include "wifi_top_addr.h"
 #include "sg_common.h"
+#include "aml_rps.h"
 #ifdef CONFIG_AML_SOFTMAC
 #define FW_STR  "lmac"
 #elif defined CONFIG_AML_FULLMAC
@@ -969,7 +970,7 @@ void aml_txbuf_list_init(struct aml_hw *aml_hw)
     spin_lock_init(&aml_hw->tx_buf_lock);
     spin_lock_init(&aml_hw->tx_desc_lock);
     spin_lock_init(&aml_hw->rx_lock);
-    spin_lock_init(&aml_hw->buf_end_lock);
+    spin_lock_init(&aml_hw->reoder_lock);
     spin_lock_init(&aml_hw->buf_start_lock);
 
     spin_lock_init(&aml_hw->free_list_lock);
@@ -997,6 +998,16 @@ void aml_tx_cfmed_list_init(struct aml_hw *aml_hw)
     INIT_LIST_HEAD(&aml_hw->tx_cfmed_list);
 }
 
+#ifdef CONFIG_SDIO_TX_ENH
+void aml_tx_cfm_param_init(struct aml_hw *aml_hw)
+{
+    memset(&aml_hw->txcfm_param, 0, sizeof(txcfm_param_t));
+    aml_hw->txcfm_param.dyn_en = 1;
+    aml_hw->txcfm_param.read_blk = 6;
+    aml_hw->txcfm_param.read_thresh = TXCFM_THRESH;
+    spin_lock_init(&aml_hw->txcfm_rd_lock);
+}
+#endif
 
 void aml_scan_results_list_init(struct aml_hw *aml_hw)
 {
@@ -1149,6 +1160,11 @@ void aml_host_send_stop_tx_to_fw(struct aml_hw *aml_hw)
     }
 }
 
+#ifdef CONFIG_SDIO_TX_ENH
+#ifdef SDIO_TX_ENH_DBG
+block_log blog = {0};
+#endif
+#endif
 int aml_tx_task(void *data)
 {
     struct aml_hw *aml_hw = (struct aml_hw *)data;
@@ -1183,7 +1199,7 @@ int aml_tx_task(void *data)
 
     sch_param.sched_priority = 91;
 #ifndef CONFIG_PT_MODE
-    sched_setscheduler(current,SCHED_FIFO,&sch_param);
+    sched_setscheduler(current, SCHED_FIFO, &sch_param);
 #endif
     while (!aml_hw->aml_tx_task_quit) {
         /* wait for work */
@@ -1216,9 +1232,17 @@ int aml_tx_task(void *data)
         spin_lock_bh(&aml_hw->tx_desc_lock);
         list_for_each_entry_safe(sw_txhdr, next, &aml_hw->tx_desc_save, list) {
             txdesc_host = &sw_txhdr->desc;
-            if (aml_bus_type == USB_MODE)
+            if (aml_bus_type == USB_MODE) {
+                #ifdef CONFIG_AML_USB_LARGE_PAGE
+                frame_tot_len = 0;
+                for (i = 0; i < txdesc_host->api.host.packet_cnt; i++) {
+                    frame_tot_len += txdesc_host->api.host.packet_len[i];
+                }
+                page_num = 1;
+                #else
                 page_num = sw_txhdr->desc.api.host.packet_cnt; //the total of amsdu
-            else {
+                #endif
+            } else {
                 frame_tot_len = 0;
 
                 for (i = 0; i < txdesc_host->api.host.packet_cnt; i++) {
@@ -1229,6 +1253,17 @@ int aml_tx_task(void *data)
 
             if (((page_num + 1)  <= aml_hw->g_tx_param.tx_page_free_num)
                 && ((aml_hw->g_tx_param.tot_page_num + page_num <= aml_hw->g_tx_param.tx_page_once) || (aml_hw->g_tx_param.tot_page_num == 0))) {
+#ifdef CONFIG_SDIO_TX_ENH
+#ifdef SDIO_TX_ENH_DBG
+                if (blog.block_begin != 0) {
+                    blog.block_end = jiffies_to_usecs(jiffies);
+                    blog.total_block += blog.block_end - blog.block_begin;
+                    blog.block_begin = 0;
+                    blog.avg_block = blog.total_block/blog.block_cnt;
+                }
+                blog.unblock_page += page_num;
+#endif
+#endif
 
                 ASSERT(aml_hw->g_tx_param.scat_req != NULL);
 
@@ -1236,6 +1271,13 @@ int aml_tx_task(void *data)
                 spin_lock_bh(&aml_hw->tx_buf_lock);
                 aml_hw->g_tx_param.tx_page_free_num -= page_num;
                 spin_unlock_bh(&aml_hw->tx_buf_lock);
+
+#ifdef CONFIG_SDIO_TX_ENH
+#ifdef SDIO_TX_ENH_DBG
+                blog.tx_tot_cnt++;
+#endif
+#endif
+
                 if (aml_bus_type == SDIO_MODE) {
 
                     if (sw_txhdr->desc.api.host.flags & TXU_CNTRL_AMSDU) {
@@ -1248,6 +1290,16 @@ int aml_tx_task(void *data)
 
                         memcpy(frm + TXDESC_OFFSET, txdesc_host, sizeof(*txdesc_host));
                         amsdu_len = sw_txhdr->frame_len + SDIO_TXHEADER_LEN;
+#ifdef CONFIG_SDIO_TX_ENH
+#ifdef SDIO_TX_ENH_DBG
+                        blog.tx_amsdu_cnt++;
+                        if (txdesc_host->api.host.packet_cnt < 6)
+                            blog.amsdu_num[txdesc_host->api.host.packet_cnt - 1]++;
+                        else
+                            blog.amsdu_num[5]++;
+#endif
+#endif
+
                         if (frame_tot_len + SDIO_TXHEADER_LEN + SDIO_FRAME_TAIL_LEN >= 4096) {
                             txamsdu = aml_get_free_tx_amsdu_buf(aml_hw);
                             memset(txamsdu->amsdu_buf, 0, AMSDU_BUF_MAX);
@@ -1302,6 +1354,51 @@ int aml_tx_task(void *data)
                         dynabuf_id = (dynabuf_id + 1) % 256;
                     }
                 } else {
+#ifdef CONFIG_AML_USB_LARGE_PAGE
+                    frm = (unsigned char *)sw_txhdr->skb->data + sizeof(struct aml_txhdr);
+                    memcpy(frm, txdesc_host, sizeof(*txdesc_host));
+                    amsdu_len = sw_txhdr->frame_len + sizeof(struct txdesc_host);
+                    if (sw_txhdr->desc.api.host.flags & TXU_CNTRL_AMSDU) {
+                        struct aml_amsdu_txhdr *amsdu_txhdr, *tmp;
+
+                        txamsdu = aml_get_free_tx_amsdu_buf(aml_hw);
+                        if (txamsdu != NULL) {
+                            memset(txamsdu->amsdu_buf, 0, AMSDU_BUF_MAX);
+                            memcpy(txamsdu->amsdu_buf, frm, amsdu_len);
+                            list_for_each_entry_safe(amsdu_txhdr, tmp, &sw_txhdr->amsdu.hdrs, list) {
+                                msdu_len = amsdu_txhdr->msdu_len + 14 + amsdu_txhdr->pad;
+                                frm = amsdu_txhdr->skb->data + sizeof(*amsdu_txhdr) + sizeof(struct ethhdr);
+                                memcpy(txamsdu->amsdu_buf + amsdu_len, frm, msdu_len);
+                                amsdu_len += msdu_len;
+                            }
+                            aml_hw->g_tx_param.scat_req->scat_list[aml_hw->g_tx_param.mpdu_num].packet = txamsdu->amsdu_buf;
+
+                        } else {
+                            amsdu_dynabuf[dynabuf_id] = kzalloc(USB_AMSDU_BUF_LEN, GFP_ATOMIC);
+                            memcpy(amsdu_dynabuf[dynabuf_id], frm, amsdu_len);
+
+                            list_for_each_entry_safe(amsdu_txhdr, tmp, &sw_txhdr->amsdu.hdrs, list) {
+                                msdu_len = amsdu_txhdr->msdu_len + 14 + amsdu_txhdr->pad;
+                                frm = (unsigned char *)amsdu_txhdr->skb->data + sizeof(*amsdu_txhdr) + sizeof(struct ethhdr);
+                                memcpy(amsdu_dynabuf[dynabuf_id] + amsdu_len, frm, msdu_len);
+                                amsdu_len += msdu_len;
+                            }
+                            aml_hw->g_tx_param.scat_req->scat_list[aml_hw->g_tx_param.mpdu_num].packet = amsdu_dynabuf[dynabuf_id];
+                            dynabuf_id = (dynabuf_id + 1) % 256;
+                        }
+                    } else {
+                        aml_hw->g_tx_param.scat_req->scat_list[aml_hw->g_tx_param.mpdu_num].packet = frm;
+                    }
+                    if (amsdu_len > 4620)
+                        printk("%s amsdu_len exceeding buf size, amsdu_len:%d\n", __func__, amsdu_len);
+                    aml_hw->g_tx_param.scat_req->scat_list[aml_hw->g_tx_param.mpdu_num].len = ALIGN(amsdu_len, 4);
+                    aml_hw->g_tx_param.scat_req->scat_list[aml_hw->g_tx_param.mpdu_num].page_num = 1; //a packet consume one page mostly
+                    aml_hw->g_tx_param.scat_req->scat_count++;
+                    aml_hw->g_tx_param.scat_req->len += aml_hw->g_tx_param.scat_req->scat_list[aml_hw->g_tx_param.mpdu_num].len;
+                    //printk("%s, skb=%p, hostid=%x\n",  __func__, sw_txhdr->skb, txdesc_host->api.host.hostid);
+                    //printk("frame_len=%x,len=%x, scat_count=%x, hostid=%x, Reserve=%x\n", sw_txhdr->frame_len,scat_req->scat_list[mpdu_num].len, scat_req->scat_count, tx_option->hostid, tx_option->Reserve);
+                    aml_hw->g_tx_param.mpdu_num++;
+#else
                     frm = (unsigned char *)sw_txhdr->skb->data + sizeof(struct aml_txhdr);
                     memcpy(frm, txdesc_host, sizeof(*txdesc_host));
                     aml_hw->g_tx_param.scat_req->scat_list[aml_hw->g_tx_param.mpdu_num].len = ALIGN(sw_txhdr->frame_len+sizeof(struct txdesc_host), 4);
@@ -1312,7 +1409,7 @@ int aml_tx_task(void *data)
                     //printk("%s, skb=%p, hostid=%x\n",  __func__, sw_txhdr->skb, txdesc_host->api.host.hostid);
                     //printk("frame_len=%x,len=%x, scat_count=%x, hostid=%x, Reserve=%x\n", sw_txhdr->frame_len,scat_req->scat_list[mpdu_num].len, scat_req->scat_count, tx_option->hostid, tx_option->Reserve);
                     aml_hw->g_tx_param.mpdu_num++;
-    #ifdef CONFIG_AML_AMSDUS_TX
+                    #ifdef CONFIG_AML_AMSDUS_TX
                     if (txdesc_host->api.host.flags & TXU_CNTRL_AMSDU) {
                         struct aml_amsdu_txhdr *amsdu_txhdr, *tmp;
                         list_for_each_entry_safe(amsdu_txhdr, tmp, &sw_txhdr->amsdu.hdrs, list) {
@@ -1338,9 +1435,26 @@ int aml_tx_task(void *data)
                             aml_hw->g_tx_param.mpdu_num++;
                         }
                     }
+                    #endif
+#endif
                 }
-#endif /* CONFIG_AML_AMSDUS_TX */
             } else {
+#ifdef CONFIG_SDIO_TX_ENH
+#ifdef SDIO_TX_ENH_DBG
+                if (blog.last_hostid != txdesc_host->api.host.hostid) {
+                    if (blog.block_begin) {
+                        printk("SHOULD NOT HAPPEN");
+                    }
+                    blog.block_begin = jiffies_to_usecs(jiffies);
+                    blog.block_cnt++;
+                    blog.last_hostid = txdesc_host->api.host.hostid;
+                    blog.block_rate = 1000 * page_num/(blog.unblock_page + page_num);
+                    blog.tot_blk_rate += blog.block_rate;
+                    blog.avg_blk_rate = blog.tot_blk_rate/blog.block_cnt;
+                    blog.unblock_page = 0;
+                }
+#endif
+#endif
                 break;
             }
 
@@ -1349,6 +1463,14 @@ int aml_tx_task(void *data)
         spin_unlock_bh(&aml_hw->tx_desc_lock);
 
         if (aml_hw->g_tx_param.tot_page_num) {
+#ifdef CONFIG_SDIO_TX_ENH
+#ifdef SDIO_TX_ENH_DBG
+            blog.send_cnt++;
+            blog.page_total += aml_hw->g_tx_param.tot_page_num;
+            blog.avg_page = blog.page_total/blog.send_cnt;
+#endif
+#endif
+
             if (aml_bus_type == SDIO_MODE) {
                 aml_hw->plat->hif_sdio_ops->hi_send_frame(aml_hw->g_tx_param.scat_req);
                 for (i = 0; i < dynabuf_id; i++) {
@@ -1356,11 +1478,20 @@ int aml_tx_task(void *data)
                         kfree(amsdu_dynabuf[i]);
                     }
                 }
-                aml_set_free_tx_amsdu_buf(aml_hw);
                 dynabuf_id = 0;
             } else {
                 aml_hw->plat->hif_ops->hi_send_frame(aml_hw->g_tx_param.scat_req);
+                #ifdef CONFIG_AML_USB_LARGE_PAGE
+                for (i = 0; i < dynabuf_id; i++) {
+                    if (amsdu_dynabuf[i]) {
+                        kfree(amsdu_dynabuf[i]);
+                    }
+                }
+                dynabuf_id = 0;
+                #endif
             }
+
+            aml_set_free_tx_amsdu_buf(aml_hw);
             aml_hw->g_tx_param.mpdu_num = 0;
             aml_hw->g_tx_param.tot_page_num = 0;
         }
@@ -1419,11 +1550,11 @@ void aml_sdio_ipc_txdesc_push(struct aml_hw *aml_hw, struct aml_sw_txhdr *sw_txh
     txdesc_host->ctrl.hwq = hw_queue;
     txdesc_host->api.host.hostid = ipc_host_tx_host_ptr_to_id(aml_hw->ipc_env, skb);
     txdesc_host->ready = 0xFFFFFFFF;
-    if (!txdesc_host->api.host.hostid) {
+
+    if (unlikely(!txdesc_host->api.host.hostid)) {
         dev_err(aml_hw->dev, "No more tx_hostid available \n");
         return;
     }
-    //printk("%s,%d, hw_queue=%d\n", __func__, __LINE__, txdesc_host->ctrl.hwq);
 
     spin_lock_bh(&aml_hw->tx_desc_lock);
     list_add_tail(&sw_txhdr->list, &aml_hw->tx_desc_save);
@@ -1442,7 +1573,8 @@ void aml_pci_ipc_txdesc_push(struct aml_hw *aml_hw, struct aml_sw_txhdr *sw_txhd
     txdesc_host->ctrl.hwq = hw_queue;
     txdesc_host->api.host.hostid = ipc_host_tx_host_ptr_to_id(aml_hw->ipc_env, skb);
     txdesc_host->ready = 0xFFFFFFFF;
-    if (!txdesc_host->api.host.hostid) {
+
+    if (unlikely(!txdesc_host->api.host.hostid)) {
         dev_err(aml_hw->dev, "No more tx_hostid available \n");
         return;
     }
@@ -1459,7 +1591,11 @@ void aml_ipc_txdesc_push(struct aml_hw *aml_hw, struct aml_sw_txhdr *sw_txhdr,
     if (aml_bus_type != PCIE_MODE) {
         aml_sdio_ipc_txdesc_push(aml_hw, sw_txhdr, skb, hw_queue);
     } else {
-        aml_pci_ipc_txdesc_push(aml_hw, sw_txhdr, skb, hw_queue);
+        if (g_pci_shutdown) {
+            AML_INFO("pci shutdown");
+        }
+        else
+            aml_pci_ipc_txdesc_push(aml_hw, sw_txhdr, skb, hw_queue);
     }
 }
 
@@ -1641,6 +1777,118 @@ static u8 aml_msg_process(struct aml_hw *aml_hw, struct ipc_e2a_msg *msg, struct
     return ret;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0)
+void aml_traffic_busy_msg(struct aml_hw *aml_hw,struct ipc_e2a_msg *msg1,struct ipc_e2a_msg *msg2)
+{
+    struct traffic_busy *host_cpu1 = NULL;
+    struct traffic_busy *host_cpu2 = NULL;
+    struct traffic_busy *msg_param = NULL;
+    u32 msgcnt = 0;
+    struct aml_vif *aml_vif;
+
+    if (aml_bus_type == PCIE_MODE) {
+        if (msg1->pattern == IPC_MSGE2A_VALID_PATTERN) {
+            msgcnt = ((msg1->dummy_src_id << 16) | msg1->dummy_dest_id);
+            if (msgcnt != aml_hw->ipc_env->msgbuf_cnt + 1) {
+                printk("error:fw msg cnt[%u],host last msg cnt[%u],msg id=0x%x,msgidx=%d\n",msgcnt,aml_hw->ipc_env->msgbuf_cnt,msg1->id,aml_hw->ipc_env->msgbuf_idx);
+                return ;
+            }
+            if (msg1->id == PRIV_TRAFFIC_BUSY_IND) {
+                msg_param = (struct traffic_busy *) msg1->param;
+                if (msg_param->td_flag == TRAFFIC_CPU_FLAG) {
+                    host_cpu1 = (struct traffic_busy *)msg1->param;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
+                    if (host_cpu1->traffic_busy_flag)
+                        aml_cpufreq_boost_update(aml_hw);
+                    else
+                        aml_cpufreq_boost_remove(aml_hw);
+#endif
+                }   else if (msg_param->td_flag == TRAFFIC_SCAN_FLAG) {
+                    /*tx or rx has traffic*/
+                    if (msg_param->traffic_busy_flag == 1)
+                        aml_hw->traffic_busy = 1;
+                    else
+                        aml_hw->traffic_busy = 0;
+                }
+            }
+        }
+    } else {
+        if (msg1->pattern == IPC_MSGE2A_VALID_PATTERN) {
+            host_cpu1 = (struct traffic_busy *)msg1->param;
+
+            if (msg1->id == PRIV_TRAFFIC_BUSY_IND) {
+                msg_param = (struct traffic_busy *) msg1->param;
+                if (msg_param->td_flag == TRAFFIC_CPU_FLAG) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
+                    if (host_cpu1->traffic_busy_flag)
+                        aml_cpufreq_boost_update(aml_hw);
+                    else
+                        aml_cpufreq_boost_remove(aml_hw);
+#endif
+                }   else if (msg_param->td_flag == TRAFFIC_SCAN_FLAG) {
+                    /*tx or rx has traffic*/
+                    if (msg_param->traffic_busy_flag == 1) {
+
+                        list_for_each_entry(aml_vif, &aml_hw->vifs, list) {
+                            if (!aml_vif->up || aml_vif->ndev == NULL) {
+                                  continue;
+                            }
+                            if (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_STATION ||
+                                AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_P2P_CLIENT) {
+#ifndef CONFIG_LINUXPC_VERSION
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0)
+                            aml_rps_cpus_disable(aml_vif->ndev);
+#endif
+#endif
+                            }
+                        }
+                        aml_hw->traffic_busy = 1;
+                    }
+                    else
+                        aml_hw->traffic_busy = 0;
+                }
+            }
+        }
+        if (msg2->pattern == IPC_MSGE2A_VALID_PATTERN) {
+            host_cpu2 = (struct traffic_busy *)msg2->param;
+
+            if (msg2->id == PRIV_TRAFFIC_BUSY_IND) {
+                msg_param = (struct traffic_busy *) msg2->param;
+                if (msg_param->td_flag == TRAFFIC_CPU_FLAG) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
+                    if (host_cpu2->traffic_busy_flag)
+                        aml_cpufreq_boost_update(aml_hw);
+                    else
+                        aml_cpufreq_boost_remove(aml_hw);
+#endif
+                }  else if (msg_param->td_flag == TRAFFIC_SCAN_FLAG) {
+                    /*tx or rx has traffic*/
+                    if (msg_param->traffic_busy_flag == 1) {
+
+                        list_for_each_entry(aml_vif, &aml_hw->vifs, list) {
+                            if (!aml_vif->up || aml_vif->ndev == NULL) {
+                                  continue;
+                            }
+                            if (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_STATION ||
+                                AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_P2P_CLIENT) {
+#ifndef CONFIG_LINUXPC_VERSION
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0)
+                            aml_rps_cpus_disable(aml_vif->ndev);
+#endif
+#endif
+                            }
+                        }
+                        aml_hw->traffic_busy = 1;
+                    }
+                    else
+                        aml_hw->traffic_busy = 0;
+                }
+            }
+        }
+    }
+    return;
+}
+#endif
 
 /**
  * aml_msgind() - IRQ handler callback for %IPC_IRQ_E2A_MSG
@@ -1688,6 +1936,43 @@ static u8 aml_msgind(void *pthis, void *arg)
     } else {
         msg1 = buf->addr;
     }
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0)
+
+    aml_traffic_busy_msg(aml_hw,msg1,msg2);
+
+#endif
+
+#ifdef CONFIG_LINUXPC_VERSION
+    {
+        int len;
+        struct ipc_e2a_msg msg_pc;
+
+        // check: fw msg is ready
+        if (AML_REG_READ(aml_hw->plat, AML_ADDR_MAC_PHY, UBUNTU_SYNC_ADDR) != UBUNTU_SYNC_PATTERN
+            || aml_hw->ipc_env == NULL || aml_hw->ipc_env->shared == NULL) {
+            return -1;
+        }
+
+        // get msg len and copy it
+        len = aml_hw->ipc_env->shared->msg_e2a_buf.param_len;
+        // align len, the "8" is offsetof(struct ipc_e2a_msg, param)
+        len = len & 0x3 ? (len & ~0x3) + 4 + 8 : len + 8;
+        if (len <= sizeof(struct ipc_e2a_msg))
+            memcpy(&msg_pc, &(aml_hw->ipc_env->shared->msg_e2a_buf), len);
+        else {
+            printk("error %s %d\n", __func__, __LINE__);
+            return -1;
+        }
+
+        //indicate that host has read mem
+        AML_REG_WRITE(0, aml_hw->plat, AML_ADDR_MAC_PHY, UBUNTU_SYNC_ADDR);
+
+        aml_msg_process(aml_hw, &msg_pc, buf);
+
+        return 0;
+    }
+#endif
 
     /* Look for pattern which means that this hostbuf has been used for a MSG */
     if (msg1->pattern == IPC_MSGE2A_VALID_PATTERN) {
@@ -1965,6 +2250,7 @@ int aml_traceind(void *pthis, int mode)
     uint16_t *ptr_limit = NULL;
     uint16_t *ptr_flag = NULL;
     int ret = 0;
+    uint32_t trace_max_size = 0;
 
 #ifdef CONFIG_AML_DEBUGFS
     mutex_lock(&trace_log_file_info.mutex);
@@ -1975,20 +2261,22 @@ int aml_traceind(void *pthis, int mode)
     ptr_flag = trace_log_file_info.ptr;
 #endif
     if (aml_bus_type == USB_MODE) {
-        aml_hw->plat->hif_ops->hi_read_sram((unsigned char *)ptr_flag, (unsigned char *)(SYS_TYPE)TRACE_START_ADDR, TRACE_TOTAL_SIZE, USB_EP4);
+        aml_hw->plat->hif_ops->hi_read_sram((unsigned char *)ptr_flag, (unsigned char *)(SYS_TYPE)USB_TRACE_START_ADDR, USB_TRACE_TOTAL_SIZE, USB_EP4);
         end = aml_hw->plat->hif_ops->hi_read_word((unsigned long)&(aml_hw->ipc_env->shared->trace_end), USB_EP4);
+        trace_max_size = USB_TRACE_MAX_SIZE;
     } else if (aml_bus_type == SDIO_MODE) {
-        aml_hw->plat->hif_sdio_ops->hi_random_ram_read((unsigned char *)ptr_flag, (unsigned char *)(SYS_TYPE)TRACE_START_ADDR, TRACE_TOTAL_SIZE);
+        aml_hw->plat->hif_sdio_ops->hi_random_ram_read((unsigned char *)ptr_flag, (unsigned char *)(SYS_TYPE)SDIO_TRACE_START_ADDR, SDIO_TRACE_TOTAL_SIZE);
         end = aml_hw->plat->hif_sdio_ops->hi_random_word_read((unsigned long)&(aml_hw->ipc_env->shared->trace_end));
+        trace_max_size = SDIO_TRACE_MAX_SIZE;
     }
 
     if (mode) {
-        if (end >= (TRACE_MAX_SIZE >> 1)) {
+        if (end >= (trace_max_size >> 1)) {
             ptr_limit = ptr_flag + end;
             flag_end = end;
         } else {
             if (flag_end) {
-                ptr_limit = ptr_flag + TRACE_MAX_SIZE;
+                ptr_limit = ptr_flag + trace_max_size;
                 ptr_flag = ptr_flag + flag_end;
             }
         }
@@ -2289,7 +2577,7 @@ uint32_t aml_read_reg(struct net_device *dev,uint32_t reg_addr)
     if (aml_bus_type == PCIE_MODE) {
         map_address = aml_pci_get_map_address(dev, reg_addr);
         if (map_address) {
-            return readl(map_address);
+            return aml_pci_readl(map_address);
         }
     } else {
         struct aml_vif *aml_vif = netdev_priv(dev);

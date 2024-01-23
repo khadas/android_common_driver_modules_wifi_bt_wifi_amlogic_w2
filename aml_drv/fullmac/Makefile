@@ -40,37 +40,41 @@ CONFIG_AML_LA ?= n
 #CSA mode scc
 CONIG_AML_CSA_MODE ?= y
 
+#usb large page
+CONFIG_AML_USB_LARGE_PAGE ?= y
+
 obj-m := w2.o
-w2-y := aml_msg_tx.o        \
-        aml_msg_rx.o        \
-        aml_utils.o         \
-        aml_cmds.o          \
-        aml_irqs.o          \
-        aml_cfg.o           \
-        aml_strs.o          \
+w2-y := ../aml_msg_tx.o        \
+        ../aml_msg_rx.o        \
+        ../aml_utils.o         \
+        ../aml_cmds.o          \
+        ../aml_irqs.o          \
+        ../aml_cfg.o           \
+        ../aml_strs.o          \
         aml_rx.o            \
         aml_tx.o            \
-        aml_txq.o           \
+        ../aml_txq.o           \
         aml_main.o          \
-        aml_mod_params.o    \
+        ../aml_mod_params.o    \
         aml_mesh.o          \
-        aml_platform.o      \
-        aml_dini.o          \
-        ipc_host.o          \
+        ../aml_platform.o      \
+        ../aml_dini.o          \
+        ../ipc_host.o          \
         aml_tdls.o          \
-        hal_desc.o          \
-        aml_prealloc.o      \
-        aml_regdom.o        \
-        aml_android.o       \
-        aml_iwpriv_cmds.o   \
-        aml_p2p.o           \
-        aml_scc.o           \
-        aml_wq.o            \
-        aml_recy.o          \
-        aml_tcp_ack.o       \
-        aml_task.o          \
-        aml_rps.o           \
-        aml_sap.o
+        ../hal_desc.o          \
+        ../aml_prealloc.o      \
+        ../aml_regdom.o        \
+        ../aml_android.o       \
+        ../aml_iwpriv_cmds.o   \
+        ../aml_p2p.o           \
+        ../aml_scc.o           \
+        ../aml_wq.o            \
+        ../aml_recy.o		\
+        ../aml_tcp_ack.o          \
+        ../aml_task.o          \
+        ../aml_rps.o           \
+        ../aml_sap.o           \
+        ../aml_mdns_offload.o
 
 obj-m += w2_comm.o
 w2_comm-objs := \
@@ -83,13 +87,13 @@ w2_comm-objs := \
         ../aml_bus/aml_static_buf.o \
         ../aml_bus/w2_usb.o
 
-w2-$(CONFIG_AML_RADAR)       += aml_radar.o
-w2-$(CONFIG_DEBUG_FS)         += aml_debugfs.o
-w2-$(CONFIG_DEBUG_FS)         += aml_fw_dump.o
-w2-$(CONFIG_DEBUG_FS)         += aml_fw_trace.o
-w2-$(CONFIG_NL80211_TESTMODE) += aml_testmode.o
-w2-$(CONFIG_AML_BFMER)       += aml_bfmer.o
-w2-$(CONFIG_AML_MUMIMO_TX)   += aml_mu_group.o
+w2-$(CONFIG_AML_RADAR)       += ../aml_radar.o
+w2-$(CONFIG_DEBUG_FS)         += ../aml_debugfs.o
+w2-$(CONFIG_DEBUG_FS)         += ../aml_fw_dump.o
+w2-$(CONFIG_DEBUG_FS)         += ../aml_fw_trace.o
+w2-$(CONFIG_NL80211_TESTMODE) += ../aml_testmode.o
+w2-$(CONFIG_AML_BFMER)       += ../aml_bfmer.o
+w2-$(CONFIG_AML_MUMIMO_TX)   += ../aml_mu_group.o
 
 ccflags-y := -DCONFIG_AML_FULLMAC
 ifneq ($(CUR_DIR),)
@@ -113,6 +117,7 @@ ccflags-$(CONFIG_AML_MUMIMO_TX) += -DCONFIG_AML_MUMIMO_TX
 ccflags-$(CONFIG_AML_SUSPEND) += -DCONFIG_AML_SUSPEND
 ccflags-$(CONFIG_AML_LA) += -DCONFIG_AML_LA
 ccflags-$(CONIG_AML_CSA_MODE) += -DCONIG_AML_CSA_MODE
+ccflags-$(CONFIG_AML_USB_LARGE_PAGE) += -DCONFIG_AML_USB_LARGE_PAGE
 
 ifeq ($(CONFIG_AML_MUMIMO_TX), y)
 ccflags-y += -DCONFIG_USER_MAX=2
@@ -155,10 +160,11 @@ ifeq ($(shell test $(VERSION) -lt 4 -a "$(CONFIG_VENDOR_AML)" = y ; echo $$?),0)
 ccflags-y += -DCONFIG_VENDOR_AML_VHT_NO80
 endif
 
-#quiet_cmd_genvers = GENVERSION $@
-#      cmd_genvers = ($(if $(KBUILD_EXTMOD),,$(srctree)/)$(src)/../mkvers.sh aml_version_gen.h $@)
+build_dir = $(if $(KBUILD_EXTMOD),,$(srctree)/)$(src)/..
+quiet_cmd_genvers = GENVERSION $@
+      cmd_genvers = ($(build_dir)/mkvers.sh $(build_dir)/aml_version_gen.h $@)
 
-#$(obj)/aml_main.o: $(obj)/aml_version_gen.h
+$(obj)/aml_main.o: $(obj)/aml_version_gen.h
 
 # To avoid always regenerating aml_version_gen.h (i.e. depend on FORCE), add
 # dependency on all object (which already include dependency on headers files).
@@ -166,7 +172,7 @@ endif
 # dependency, so instead add dependency only on aml_main.c. This will fail to
 # regenerate aml_version_gen.h if dependency of only aml_main.c is changed.
 # This is OK as, currently, the only such dependency is aml_version.h
-#$(obj)/aml_version_gen.h: $(addprefix $(obj)/,$(filter-out aml_main.o, $(aml_fdrv-y))) $(src)/aml_main.c
-#	$(call cmd,genvers)
+$(obj)/aml_version_gen.h: $(addprefix $(obj)/,$(filter-out aml_main.o, $(aml_fdrv-y))) $(src)/aml_main.c
+	$(call cmd,genvers)
 
-#clean-files := aml_version_gen.h
+clean-files := aml_version_gen.h

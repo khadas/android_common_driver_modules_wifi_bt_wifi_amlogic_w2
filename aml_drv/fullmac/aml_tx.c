@@ -341,9 +341,11 @@ u16 aml_select_txq(struct aml_vif *aml_vif, struct sk_buff *skb)
     struct wireless_dev *wdev = &aml_vif->wdev;
     struct aml_sta *sta = NULL;
     struct aml_txq *txq;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0)
     struct netdev_queue *netq;
     int queue_index = 0, count = 0;
     struct Qdisc *q;
+#endif
     u16 netdev_queue;
     bool tdls_mgmgt_frame = false;
 
@@ -376,13 +378,13 @@ u16 aml_select_txq(struct aml_vif *aml_vif, struct sk_buff *skb)
     case NL80211_IFTYPE_AP:
     case NL80211_IFTYPE_P2P_GO:
     {
-        struct aml_sta *cur;
+        struct aml_sta *cur, *tmp;
         struct ethhdr *eth = (struct ethhdr *)skb->data;
 
         if (is_multicast_ether_addr(eth->h_dest)) {
             sta = aml_hw->sta_table + aml_vif->ap.bcmc_index;
         } else {
-            list_for_each_entry(cur, &aml_vif->ap.sta_list, list) {
+            list_for_each_entry_safe(cur, tmp, &aml_vif->ap.sta_list, list) {
                 if (!memcmp(cur->mac_addr, eth->h_dest, ETH_ALEN)) {
                     sta = cur;
                     break;
@@ -466,6 +468,7 @@ u16 aml_select_txq(struct aml_vif *aml_vif, struct sk_buff *skb)
 
         txq = aml_txq_sta_get(sta, skb->priority, aml_hw);
         netdev_queue = txq->ndev_idx;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0)
         queue_index = netdev_queue;
         queue_index = netdev_cap_txqueue(aml_vif->ndev, queue_index);
         netq = netdev_get_tx_queue(aml_vif->ndev, queue_index);
@@ -480,6 +483,7 @@ u16 aml_select_txq(struct aml_vif *aml_vif, struct sk_buff *skb)
             count ++;
             rcu_read_lock_bh();
         }
+#endif
     }
     else if (sta)
     {
@@ -961,6 +965,12 @@ static bool aml_amsdu_add_subframe(struct aml_hw *aml_hw, struct sk_buff *skb,
     /* Adjust the maximum number of MSDU allowed in A-MSDU */
     aml_adjust_amsdu_maxnb(aml_hw);
 
+#ifdef CONFIG_AML_USB_LARGE_PAGE
+    if (aml_bus_type == USB_MODE) {
+        aml_hw->mod_params->amsdu_maxnb = 3; // USB limits the number of AMSDU aggregations, which can be sent in one BUF
+        //printk("%s txq->id:%d, txq->amsdu_len:%d\n", __func__, txq->idx, txq->amsdu_len);
+    }
+#endif
     /* immediately return if amsdu are not allowed for this sta */
     if (!txq->amsdu_len || aml_hw->mod_params->amsdu_maxnb < 2 ||
         !aml_amsdu_is_aggregable(skb)
@@ -1014,7 +1024,6 @@ static bool aml_amsdu_add_subframe(struct aml_hw *aml_hw, struct sk_buff *skb,
         if (len1 + AMSDU_PADDING(len1) + len2 > txq->amsdu_len)
             /* not enough space to aggregate those two buffers */
             goto end;
-
         /* Add subframe header.
            Note: Fw will take care of adding AMDSU header for the first
            subframe while generating 802.11 MAC header */
@@ -1172,6 +1181,10 @@ static void aml_amsdu_update_len(struct aml_hw *aml_hw, struct aml_txq *txq,
 
     if (amsdu_len >= txq->amsdu_len) {
         txq->amsdu_len = amsdu_len;
+#ifdef CONFIG_AML_USB_LARGE_PAGE
+        if (aml_bus_type == USB_MODE)
+            txq->amsdu_len = MIN(txq->amsdu_len, USB_AMSDU_BUF_LEN);
+#endif
         return;
     }
 
@@ -1207,9 +1220,12 @@ static void aml_amsdu_update_len(struct aml_hw *aml_hw, struct aml_txq *txq,
         }
 
         txq->amsdu_len = amsdu_len;
+#ifdef CONFIG_AML_USB_LARGE_PAGE
+        if (aml_bus_type == USB_MODE)
+            txq->amsdu_len = MIN(txq->amsdu_len, USB_AMSDU_BUF_LEN);
+#endif
     }
 }
-
 #endif /* CONFIG_AML_AMSDUS_TX */
 
 bool aml_filter_sp_data_frame(struct sk_buff *skb, struct aml_vif *aml_vif, AML_SP_STATUS_E sp_status)
@@ -1861,6 +1877,14 @@ int aml_start_mgmt_xmit(struct aml_vif *vif, struct aml_sta *sta,
 
     return 0;
 }
+
+#ifdef CONFIG_SDIO_TX_ENH
+#ifdef SDIO_TX_ENH_DBG
+cfm_log cfmlog = {0};
+#endif
+#endif
+extern int bt_wt_ptr;
+extern int bt_rd_ptr;
 extern struct aml_bus_state_detect bus_state_detect;
 int aml_update_tx_cfm(void *pthis)
 {
@@ -1868,6 +1892,10 @@ int aml_update_tx_cfm(void *pthis)
     struct tx_sdio_usb_cfm_tag *read_cfm;
     int actual_length  = 0;
     int ret = 0;
+#ifdef CONFIG_SDIO_TX_ENH
+    unsigned int blk_size = 512;
+#endif
+
     read_cfm = aml_hw->read_cfm;
 
 #ifdef CONFIG_AML_RECOVERY
@@ -1878,17 +1906,126 @@ int aml_update_tx_cfm(void *pthis)
 #endif
     if (aml_bus_type == USB_MODE) {
 
-        ret = usb_bulk_msg(aml_hw->plat->usb_dev, usb_rcvbulkpipe(aml_hw->plat->usb_dev, USB_EP5), (void *)read_cfm, sizeof(struct tx_sdio_usb_cfm_tag) * SRAM_TXCFM_CNT, &actual_length, 100);
+        ret = usb_bulk_msg(aml_hw->plat->usb_dev, usb_rcvbulkpipe(aml_hw->plat->usb_dev, USB_EP5), (void *)read_cfm, sizeof(struct tx_sdio_usb_cfm_tag) * (SRAM_TXCFM_CNT+1), &actual_length, 100);
+        bt_rd_ptr = *((char *)read_cfm + sizeof(struct tx_sdio_usb_cfm_tag) * SRAM_TXCFM_CNT);
+        bt_wt_ptr = *((char *)read_cfm + sizeof(struct tx_sdio_usb_cfm_tag) * SRAM_TXCFM_CNT + 4);
         if (ret)
             printk("usb bulk failed actual len is %d\n",actual_length);
     } else if (aml_bus_type == SDIO_MODE) {
-        aml_hw->plat->hif_sdio_ops->hi_sram_read((unsigned char *)read_cfm,
+#ifdef CONFIG_SDIO_TX_ENH
+        if (aml_hw->txcfm_param.dyn_en) {
+            uint32_t pushed_occupy_blk = 0;
+            pushed_occupy_blk = aml_hw->txcfm_param.hostid_pushed / TAGS_IN_SDIO_BLK;
+            pushed_occupy_blk += (aml_hw->txcfm_param.hostid_pushed % TAGS_IN_SDIO_BLK) ? 1 : 0;
+            if (pushed_occupy_blk > aml_hw->txcfm_param.read_blk)
+                aml_hw->txcfm_param.read_blk = pushed_occupy_blk;
+
+            /* make sure the read blocks should not be out of TXCFM sharemem range */
+            /* reset txcfm reading as more cfm tags in fw */
+            if (aml_hw->txcfm_param.start_blk + aml_hw->txcfm_param.read_blk > 6) {
+                aml_hw->txcfm_param.thresh_cnt = 0;
+                aml_hw->txcfm_param.read_blk = 6;
+                aml_hw->txcfm_param.start_blk  = 0;
+            }
+
+            aml_hw->plat->hif_sdio_ops->hi_sram_read((unsigned char *)(&aml_hw->read_cfm[aml_hw->txcfm_param.start_blk*TAGS_IN_SDIO_BLK]),
+                (unsigned char *)(SRAM_TXCFM_START_ADDR + aml_hw->txcfm_param.start_blk * blk_size), aml_hw->txcfm_param.read_blk * blk_size);
+
+#ifdef SDIO_TX_ENH_DBG
+            cfmlog.cfm_read_cnt++;
+            cfmlog.cfm_read_blk_cnt += aml_hw->txcfm_param.read_blk;
+            cfmlog.start_blk = aml_hw->txcfm_param.start_blk;
+            cfmlog.read_blk = aml_hw->txcfm_param.read_blk;
+#endif
+        } else {
+            aml_hw->plat->hif_sdio_ops->hi_sram_read((unsigned char *)(read_cfm),
+                (unsigned char *)SRAM_TXCFM_START_ADDR, sizeof(struct tx_sdio_usb_cfm_tag) * SRAM_TXCFM_CNT);
+        }
+#else
+        aml_hw->plat->hif_sdio_ops->hi_sram_read((unsigned char *)(read_cfm),
             (unsigned char *)SRAM_TXCFM_START_ADDR, sizeof(struct tx_sdio_usb_cfm_tag) * SRAM_TXCFM_CNT);
+#endif
     }
 
     up(&aml_hw->aml_txcfm_sem);
     return 0;
 }
+
+
+#ifdef CONFIG_SDIO_TX_ENH
+void txcfm_analyze_handler(struct aml_hw *aml_hw, uint32_t cur_tags, uint32_t pre_tags, uint32_t txcfm_idx)
+{
+    uint32_t relative_idx = (txcfm_idx + 1) % TAGS_IN_SDIO_BLK;
+    uint32_t cur_blk_idx = (txcfm_idx) / TAGS_IN_SDIO_BLK;
+    uint32_t left_tag_num = TAGS_IN_SDIO_BLK - relative_idx;
+    uint32_t occupy_blk = 0;
+
+    if (aml_bus_type != SDIO_MODE)
+        return;
+
+    spin_lock_bh(&aml_hw->txcfm_rd_lock);
+    if (cur_tags <= pre_tags) {
+        aml_hw->txcfm_param.thresh_cnt++;
+
+        /* suppose the txcfm reading are in a stable state, adjust txcfm reading blocks */
+        if (aml_hw->txcfm_param.thresh_cnt == TXCFM_THRESH) {
+            aml_hw->txcfm_param.thresh_cnt = 0;
+
+            if (left_tag_num >= cur_tags) {
+                /* if left tags number is enough per current txcfm tags, only need read one block */
+                aml_hw->txcfm_param.start_blk = cur_blk_idx;
+                aml_hw->txcfm_param.read_blk = 1;
+            } else {
+                /* calculate the occupy blocks per current txcfm tag numbers */
+                occupy_blk = cur_tags / TAGS_IN_SDIO_BLK;
+                occupy_blk += (left_tag_num != 0) ? 1 : 0;
+                occupy_blk += (cur_tags % TAGS_IN_SDIO_BLK) ? 1 : 0;
+                if (cur_blk_idx + occupy_blk < 6) {
+                    /* use predicted occupy blocks for the next txcfm reading */
+                    aml_hw->txcfm_param.start_blk = cur_blk_idx;
+                    aml_hw->txcfm_param.read_blk = occupy_blk;
+                } else {
+                    /* if predicted occupy blocks will over TXCFM sharemem range, reset to read all */
+                    aml_hw->txcfm_param.start_blk = 0;
+                    aml_hw->txcfm_param.read_blk = 6;
+                    aml_hw->txcfm_param.thresh_cnt = 0;
+                }
+            }
+        } else {
+            aml_hw->txcfm_param.start_blk = cur_blk_idx;
+            if (aml_hw->txcfm_param.start_blk + aml_hw->txcfm_param.read_blk > 6) {
+                /* if last read blocks will over TXCFM sharemem range, reset to read all */
+                aml_hw->txcfm_param.start_blk = 0;
+                aml_hw->txcfm_param.read_blk = 6;
+            } else {
+                /* calculate the occupy blocks per current txcfm tag numbers */
+                occupy_blk = cur_tags / TAGS_IN_SDIO_BLK;
+                occupy_blk += (left_tag_num != 0) ? 1 : 0;
+                occupy_blk += (cur_tags % TAGS_IN_SDIO_BLK) ? 1 : 0;
+                if (occupy_blk > aml_hw->txcfm_param.read_blk) {
+                    if (aml_hw->txcfm_param.start_blk + occupy_blk > 6) {
+                        /* if predicted occupy blocks will over TXCFM sharemem range, reset to read all */
+                        aml_hw->txcfm_param.start_blk = 0;
+                        aml_hw->txcfm_param.read_blk = 6;
+                    } else {
+                        /* need enlarge read blocks if txcfm_read_blk is small */
+                        aml_hw->txcfm_param.start_blk = cur_blk_idx;
+                        aml_hw->txcfm_param.read_blk = occupy_blk;
+                    }
+                }
+            }
+        }
+    } else {
+        /* reset txcfm reading as current handled tags are larged than previous one */
+        aml_hw->txcfm_param.thresh_cnt = 0;
+        aml_hw->txcfm_param.read_blk = 6;
+        aml_hw->txcfm_param.start_blk  = 0;
+    }
+
+    aml_hw->txcfm_param.pre_tag = cur_tags;
+    spin_unlock_bh(&aml_hw->txcfm_rd_lock);
+}
+#endif
 
 int aml_tx_cfm_task(void *data)
 {
@@ -1927,12 +2064,19 @@ int aml_tx_cfm_task(void *data)
 
         spin_lock_bh(&aml_hw->tx_lock);
         read_cfm = aml_hw->read_cfm;
+
+#ifdef CONFIG_SDIO_TX_ENH
+#ifdef SDIO_TX_ENH_DBG
+        cfmlog.cfm_rx_cnt++;
+        cfmlog.cfm_num = 0;
+#endif
+#endif
+
         for (i = 0; i < SRAM_TXCFM_CNT; i++, drv_txcfm_idx = (drv_txcfm_idx + 1) % SRAM_TXCFM_CNT) {
             if (aml_hw->aml_txcfm_task_quit) {
                 break;
             }
             aml_hw->ipc_env->txcfm_idx = drv_txcfm_idx;
-
             cfm_data = read_cfm[drv_txcfm_idx];
             cfm.credits = cfm_data.credits;
             cfm.ampdu_size = cfm_data.ampdu_size;
@@ -1944,8 +2088,30 @@ int aml_tx_cfm_task(void *data)
             cfm.hostid = (u32_l)cfm_data.hostid;
             skb = ipc_host_tx_host_id_to_ptr_for_sdio_usb(aml_hw->ipc_env, cfm.hostid);
 
+#ifdef CONFIG_SDIO_TX_ENH
+            if (!skb) {
+                if (aml_hw->txcfm_param.dyn_en)
+                    txcfm_analyze_handler(aml_hw, i, aml_hw->txcfm_param.pre_tag, drv_txcfm_idx);
+
+                #ifdef SDIO_TX_ENH_DBG
+                cfmlog.drv_txcfm_idx = drv_txcfm_idx;
+                #endif
+
+                break;
+            }
+#else
             if (!skb)
                 break;
+#endif
+
+#ifdef CONFIG_SDIO_TX_ENH
+            if (aml_bus_type == SDIO_MODE)
+                aml_hw->txcfm_param.hostid_pushed--;
+#ifdef SDIO_TX_ENH_DBG
+            cfmlog.cfm_num++;
+            cfmlog.hostid_pushed = aml_hw->txcfm_param.hostid_pushed;
+#endif
+#endif
 
             sw_txhdr = ((struct aml_txhdr *)skb->data)->sw_hdr;
             txq = sw_txhdr->txq;
@@ -1957,16 +2123,28 @@ int aml_tx_cfm_task(void *data)
                 }
                 page_num = howmanypage(frame_tot_len + SDIO_DATA_OFFSET + SDIO_FRAME_TAIL_LEN, SDIO_PAGE_LEN);
             } else {
+                #ifdef CONFIG_AML_USB_LARGE_PAGE
+                page_num = 1;
+                #else
                 page_num = sw_txhdr->desc.api.host.packet_cnt ;
+                #endif
             }
             spin_lock_bh(&aml_hw->tx_buf_lock);
             aml_hw->g_tx_param.tx_page_free_num += page_num;
 
+#ifdef CONFIG_SDIO_TX_ENH
+#ifdef SDIO_TX_ENH_DBG
+            cfmlog.cfm_page += page_num;
+#endif
+#endif
+
             max_dyna_num = (aml_bus_type == SDIO_MODE) ? SDIO_DYNA_PAGE_NUM : USB_DYNA_PAGE_NUM;
-            if (dyna_page == max_dyna_num)
+            if (dyna_page == max_dyna_num) {
                 aml_hw->g_tx_param.tx_page_free_num += dyna_page;
+                aml_hw->rx_buf_state |= BUFFER_TX_USED_FLAG;
+            }
             else {
-                if (aml_hw->la_enable)
+                if (aml_hw->la_enable || aml_hw->trace_enable)
                     aml_hw->g_tx_param.tx_page_free_num -= dyna_page;
             }
 
@@ -2061,10 +2239,10 @@ int aml_tx_cfm_task(void *data)
 
 #endif /* CONFIG_AML_AMSDUS_TX */
 
-        if (aml_bus_type == PCIE_MODE) {
-            aml_ipc_buf_a2e_release(aml_hw, &sw_txhdr->ipc_data);
-        }
-        aml_tx_statistic(sw_txhdr->aml_vif, txq, cfm.status, sw_txhdr->frame_len);
+            if (aml_bus_type == PCIE_MODE) {
+                aml_ipc_buf_a2e_release(aml_hw, &sw_txhdr->ipc_data);
+            }
+            aml_tx_statistic(sw_txhdr->aml_vif, txq, cfm.status, sw_txhdr->frame_len);
 
             kmem_cache_free(aml_hw->sw_txhdr_cache, sw_txhdr);
             if (aml_bus_type == SDIO_MODE) {
@@ -2075,6 +2253,16 @@ int aml_tx_cfm_task(void *data)
 
             consume_skb(skb);
         }
+
+#ifdef CONFIG_SDIO_TX_ENH
+#ifdef SDIO_TX_ENH_DBG
+        /* tx cfm statistic */
+        cfmlog.total_cfm += cfmlog.cfm_num;
+        cfmlog.avg_cfm = cfmlog.total_cfm/cfmlog.cfm_rx_cnt;
+        cfmlog.avg_cfm_page = cfmlog.cfm_page/cfmlog.cfm_rx_cnt;
+#endif
+#endif
+
         spin_unlock_bh(&aml_hw->tx_lock);
     }
     if (aml_hw->aml_txcfm_completion_init) {

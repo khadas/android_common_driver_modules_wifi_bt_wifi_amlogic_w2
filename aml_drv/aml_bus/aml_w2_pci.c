@@ -25,6 +25,8 @@ struct aml_plat_pci *g_aml_plat_pci;
 unsigned char g_pci_driver_insmoded;
 unsigned char g_pci_after_probe;
 unsigned char g_pci_shutdown;
+unsigned char g_pci_msg_suspend;
+
 extern struct aml_pm_type g_wifi_pm;
 
 uint32_t aml_pci_read_for_bt(int base, u32 offset);
@@ -97,17 +99,22 @@ static int aml_pci_suspend(struct pci_dev *pdev, pm_message_t state)
     int ret;
     int cnt = 0;
 
-    while (atomic_read(&g_wifi_pm.drv_suspend_cnt) == 0)
+    if (atomic_read(&g_wifi_pm.wifi_enable))
     {
-        msleep(50);
-        cnt++;
-        if (cnt > 40)
+        while (atomic_read(&g_wifi_pm.drv_suspend_cnt) == 0)
         {
-            printk("wifi suspend fail \n");
-            return -1;
+            msleep(50);
+            cnt++;
+            if (cnt > 40)
+            {
+                printk("wifi suspend fail \n");
+                return -1;
+            }
         }
     }
+
     g_pcie_suspend = 1;
+    atomic_set(&g_wifi_pm.bus_suspend_cnt, 1);
     printk("%s\n", __func__);
     //aml_suspend_dump_cfgregs(bus, "BEFORE_EP_SUSPEND");
     pci_save_state(pdev);
@@ -117,8 +124,8 @@ static int aml_pci_suspend(struct pci_dev *pdev, pm_message_t state)
     if (ret) {
         ERROR_DEBUG_OUT("pci_set_power_state error %d\n", ret);
     }
-    atomic_set(&g_wifi_pm.bus_suspend_cnt, 1);
-
+    //Delay 100ms to ensure ltssm enters L1 completion, delaying PCIe PHY power-off.
+    usleep_range(100000, 120000);
     printk("%s ok exit\n", __func__);
     //aml_suspend_dump_cfgregs(bus, "AFTER_EP_SUSPEND");
     return ret;
@@ -162,7 +169,10 @@ extern lp_shutdown_func g_lp_shutdown_func;
 
 static void aml_pci_shutdown(struct pci_dev *pdev)
 {
-    g_pci_shutdown = 1;
+    printk("%s %d, aml_pci_shutdown begin \n",__func__, __LINE__);
+
+    //Mask interrupt reporting to the host
+    atomic_set(&g_wifi_pm.is_shut_down, 2);
 
     // Notify fw to enter shutdown mode
     if (g_lp_shutdown_func != NULL)
@@ -173,6 +183,7 @@ static void aml_pci_shutdown(struct pci_dev *pdev)
     //notify fw shutdown
     //notify bt wifi will go shutdown
     aml_pci_write_for_bt(aml_pci_read_for_bt(AML_ADDR_AON, RG_AON_A55) | BIT(28), AML_ADDR_AON, RG_AON_A55);
+    g_pci_shutdown = 1;
 
     if (pci_is_enabled(pdev))
     {
@@ -199,6 +210,7 @@ int aml_pci_insmod(void)
     err = pci_register_driver(&aml_pci_drv);
     g_pci_driver_insmoded = 1;
     g_pci_shutdown = 0;
+    g_pci_msg_suspend = 0;
 
     if (err) {
         printk("failed to register pci driver: %d \n", err);
@@ -299,12 +311,32 @@ static u8* aml_pci_get_address_for_bt(struct aml_plat_pci *aml_plat, int addr_na
 #endif //CONFIG_AML_FPGA_PCIE
 }
 
+u32 aml_pci_readl(u8* addr)
+{
+    if (g_pci_shutdown)
+    {
+        printk("pci readl err\n");
+        return 0;
+    }
+    else
+        return readl(addr);
+}
+
+void aml_pci_writel(u32 data, u8* addr)
+{
+    if (!g_pci_shutdown)
+        writel(data, addr);
+    else
+        printk("pci_writel err\n");
+    return;
+}
+
 uint32_t aml_pci_read_for_bt(int base, u32 offset)
 {
     u8 *addr;
     addr = aml_pci_get_address_for_bt(g_aml_plat_pci, base, offset);
 
-    return readl(addr);
+    return aml_pci_readl(addr);
 }
 
 void aml_pci_write_for_bt(u32 val, int base, u32 offset)
@@ -312,9 +344,11 @@ void aml_pci_write_for_bt(u32 val, int base, u32 offset)
     u8 *addr;
     addr = aml_pci_get_address_for_bt(g_aml_plat_pci, base, offset);
 
-    writel(val, addr);
+    aml_pci_writel(val, addr);
 }
 
+EXPORT_SYMBOL(aml_pci_readl);
+EXPORT_SYMBOL(aml_pci_writel);
 EXPORT_SYMBOL(aml_pci_read_for_bt);
 EXPORT_SYMBOL(aml_pci_write_for_bt);
 
@@ -324,6 +358,8 @@ EXPORT_SYMBOL(g_aml_plat_pci);
 EXPORT_SYMBOL(g_pci_driver_insmoded);
 EXPORT_SYMBOL(g_pci_after_probe);
 EXPORT_SYMBOL(g_pci_shutdown);
+EXPORT_SYMBOL(g_pci_msg_suspend);
+
 #ifndef CONFIG_AML_FPGA_PCIE
 EXPORT_SYMBOL(pcie_ep_addr_range);
 #endif

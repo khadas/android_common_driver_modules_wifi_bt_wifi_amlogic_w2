@@ -16,6 +16,7 @@
 #include "aml_msg_tx.h"
 #include "aml_wq.h"
 #include "reg_ipc_app.h"
+#include "aml_compat.h"
 
 /******************************************************************************
  * Utils functions
@@ -667,12 +668,19 @@ void aml_show_tx_msg(struct aml_hw *aml_hw,struct aml_wq *aml_wq)
     aml_get_txq(vif->ndev);
     aml_txq_unexpection(vif->ndev);
 }
+#ifdef CONFIG_AML_RECOVERY
+extern struct aml_recy *aml_recy;
+#endif
 static bool aml_txq_drop_ap_vif_old_traffic(struct aml_vif *vif)
 {
-    struct aml_sta *sta;
+    struct aml_sta *sta, *tmp;
     unsigned long timeout = (((unsigned long)vif->ap.bcn_interval) * HZ * 3) >> 10;
     bool pkt_queued = false;
     bool pkt_dropped = false;
+#ifdef CONFIG_AML_RECOVERY
+    struct aml_wq *aml_wq;
+    enum aml_wq_type type = AML_WQ_RECY;
+#endif
 
     // Should never be needed but still check VIF queues
     aml_txq_drop_old_traffic(aml_txq_vif_get(vif, NX_BCMC_TXQ_TYPE),
@@ -693,16 +701,40 @@ static bool aml_txq_drop_ap_vif_old_traffic(struct aml_vif *vif)
             memcpy(aml_wq->data, vif, sizeof(struct aml_vif));
             aml_wq_add(vif->aml_hw, aml_wq);
         }
+
+#ifdef CONFIG_AML_RECOVERY
+        spin_lock_bh(&aml_recy->aml_hw->cmd_mgr.lock);
+        if (!aml_recy->reason) {
+            aml_wq = aml_wq_alloc(1);
+            if (!aml_wq) {
+                AML_INFO("alloc wq out of memory");
+            } else {
+                aml_recy->reason = RECY_REASON_CODE_TX_TIMEOUT;
+                aml_wq->id = AML_WQ_RECY;
+                memcpy(aml_wq->data, &type, 1);
+                aml_wq_add(aml_recy->aml_hw, aml_wq);
+           }
+        }
+        spin_unlock_bh(&aml_recy->aml_hw->cmd_mgr.lock);
+#endif
     }
-    list_for_each_entry(sta, &vif->ap.sta_list, list) {
-        struct aml_txq *txq;
-        int tid;
-        foreach_sta_txq_safe(sta, txq, tid, vif->aml_hw) {
-            pkt_queued |= aml_txq_drop_old_traffic(txq, vif->aml_hw,
+
+    spin_lock_bh(&vif->vif_lock);
+    /* protect union struct vif->ap.sta_list was overwritten
+     * by vif->sta.ap = NULL when aml_cfg80211_change_iface
+     */
+    if (&vif->ap.sta_list) {
+        list_for_each_entry_safe(sta, tmp, &vif->ap.sta_list, list) {
+            struct aml_txq *txq;
+            int tid;
+            foreach_sta_txq_safe(sta, txq, tid, vif->aml_hw) {
+                pkt_queued |= aml_txq_drop_old_traffic(txq, vif->aml_hw,
                                                     timeout * sta->listen_interval,
                                                     &pkt_dropped);
+            }
         }
     }
+    spin_unlock_bh(&vif->vif_lock);
 
     return pkt_queued;
 }
@@ -720,6 +752,10 @@ static bool aml_txq_drop_sta_vif_old_traffic(struct aml_vif *vif)
     struct aml_txq *txq;
     bool pkt_queued = false, pkt_dropped = false;
     int tid;
+#ifdef CONFIG_AML_RECOVERY
+    struct aml_wq *aml_wq;
+    enum aml_wq_type type = AML_WQ_RECY;
+#endif
 
     if (vif->tdls_status == TDLS_LINK_ACTIVE) {
         txq = aml_txq_vif_get(vif, NX_UNK_TXQ_TYPE);
@@ -734,13 +770,13 @@ static bool aml_txq_drop_sta_vif_old_traffic(struct aml_vif *vif)
     }
 
     if (vif->sta.ap) {
-        spin_lock_bh(&vif->ap_lock);
+        spin_lock_bh(&vif->vif_lock);
         foreach_sta_txq_safe(vif->sta.ap, txq, tid, vif->aml_hw) {
             pkt_queued |= aml_txq_drop_old_traffic(txq, vif->aml_hw,
                                                     AML_TXQ_MAX_QUEUE_JIFFIES,
                                                     &pkt_dropped);
         }
-        spin_unlock_bh(&vif->ap_lock);
+        spin_unlock_bh(&vif->vif_lock);
     }
 
     if (pkt_dropped) {
@@ -756,10 +792,24 @@ static bool aml_txq_drop_sta_vif_old_traffic(struct aml_vif *vif)
             memcpy(aml_wq->data, vif, sizeof(struct aml_vif));
             aml_wq_add(vif->aml_hw, aml_wq);
         }
+#ifdef CONFIG_AML_RECOVERY
+        spin_lock_bh(&aml_recy->aml_hw->cmd_mgr.lock);
+        if (!aml_recy->reason) {
+            aml_wq = aml_wq_alloc(1);
+            if (!aml_wq) {
+                AML_INFO("alloc wq out of memory");
+            } else {
+                aml_recy->reason = RECY_REASON_CODE_TX_TIMEOUT;
+                aml_wq->id = AML_WQ_RECY;
+                memcpy(aml_wq->data, &type, 1);
+                aml_wq_add(aml_recy->aml_hw, aml_wq);
+           }
+        }
+        spin_unlock_bh(&aml_recy->aml_hw->cmd_mgr.lock);
+#endif
     }
     return pkt_queued;
 }
-
 /**
  * aml_txq_cleanup_timer_cb - callack for TXQ cleaup timer
  * Used to prevent pkt to accumulate in TXQ. The main use case is for AP
@@ -1086,12 +1136,12 @@ void aml_txq_vif_for_each_sta(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
     case NL80211_IFTYPE_MESH_POINT:
     case NL80211_IFTYPE_P2P_GO:
     {
-        struct aml_sta *sta;
-        spin_lock_bh(&aml_vif->sta_lock);
-        list_for_each_entry(sta, &aml_vif->ap.sta_list, list) {
+        struct aml_sta *sta, *tmp;
+        spin_lock_bh(&aml_vif->vif_lock);
+        list_for_each_entry_safe(sta, tmp, &aml_vif->ap.sta_list, list) {
             f(sta, reason, aml_hw);
         }
-        spin_unlock_bh(&aml_vif->sta_lock);
+        spin_unlock_bh(&aml_vif->vif_lock);
         break;
     }
     default:
@@ -1556,8 +1606,7 @@ static bool aml_txq_mac80211_dequeue(struct aml_hw *aml_hw,
  * @return true if txq no longer have buffer ready after the ones returned.
  *         false otherwise
  */
-static
-bool aml_txq_get_skb_to_push(struct aml_hw *aml_hw, struct aml_hwq *hwq,
+static bool aml_txq_get_skb_to_push(struct aml_hw *aml_hw, struct aml_hwq *hwq,
                               struct aml_txq *txq, int user,
                               struct sk_buff_head *sk_list_push)
 {
@@ -1775,7 +1824,7 @@ void aml_hwq_process(struct aml_hw *aml_hw, struct aml_hwq *hwq)
             /* txq not empty,
                - To avoid starving need to process other txq in the list
                - For better aggregation, need to send "as many consecutive
-               pkt as possible" for he same txq
+               pkt as possible" for the same txq
                ==> Add counter to trigger txq switch
             */
             if (txq->pkt_sent > hwq->size) {
@@ -1828,18 +1877,12 @@ void aml_hwq_process(struct aml_hw *aml_hw, struct aml_hwq *hwq)
  */
 void aml_hwq_process_all(struct aml_hw *aml_hw)
 {
-    struct aml_txq *txq, *next;
     int id;
 
     aml_mu_group_sta_select(aml_hw);
 
     for (id = ARRAY_SIZE(aml_hw->hwq) - 1; id >= 0 ; id--) {
         if (aml_hw->hwq[id].need_processing) {
-            list_for_each_entry_safe(txq, next, &aml_hw->hwq[id].list, sched_list) {
-                if (skb_queue_empty(&txq->sk_list)) {
-                    AML_INFO("txq queue skb list empty");
-                }
-            }
             aml_hwq_process(aml_hw, &aml_hw->hwq[id]);
         }
     }
@@ -1898,16 +1941,16 @@ int aml_txq_is_empty(struct aml_vif *aml_vif, struct aml_sta *aml_sta)
     int tid;
     int i;
 
-    spin_lock_bh(&aml_vif->ap_lock);
+    spin_lock_bh(&aml_vif->vif_lock);
     foreach_sta_txq_safe(aml_sta, txq, tid, aml_vif->aml_hw) {
         for (i = 0; i < CONFIG_USER_MAX ; i++) {
             if (txq->pkt_pushed[i]) {
-                spin_unlock_bh(&aml_vif->ap_lock);
+                spin_unlock_bh(&aml_vif->vif_lock);
                 return 0;
             }
         }
     }
-    spin_unlock_bh(&aml_vif->ap_lock);
+    spin_unlock_bh(&aml_vif->vif_lock);
 
     return 1;
 }

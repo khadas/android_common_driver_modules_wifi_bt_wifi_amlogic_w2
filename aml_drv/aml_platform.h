@@ -52,6 +52,9 @@
 
 #define AML_FCU_FW_NAME                "fcuram.bin"
 #define MAC_SRAM_BASE 0x00a10000
+#define UBUNTU_PC_VERSION   0xA1B2C3D4  // indicate ubuntu pc + w2
+#define UBUNTU_SYNC_PATTERN 0x4D3C2B1A
+#define UBUNTU_SYNC_ADDR    0x00a10018
 #define REG_OF_SYNC_RSSI (MAC_SRAM_BASE + 0x14)
 #define REG_OF_VENDOR_ID (MAC_SRAM_BASE + 0x4)
 
@@ -163,6 +166,8 @@ enum aml_platform_addr {
 };
 extern unsigned int aml_bus_type;
 extern char * aml_wifi_get_bus_type(void);
+extern u32 aml_pci_readl(u8* addr);
+extern void aml_pci_writel(u32 data, u8* addr);
 
 struct aml_hw;
 
@@ -204,9 +209,15 @@ struct aml_plat {
     u8 priv[0] __aligned(sizeof(void *));
 };
 
+struct traffic_busy
+{
+    uint8_t traffic_busy_flag;
+    uint8_t td_flag;
+};
 
-#define AML_ADDR(plat, base, offset)           \
-    plat->get_address(plat, base, offset)
+
+#define AML_ADDR(plat, base, offset)  (plat->get_address(plat, base, offset))
+
 
 #ifdef CONFIG_AML_POWER_SAVE_MODE
 /*RG_AON_A53 BIT(14) prevent fw goto sleep ,*/
@@ -214,9 +225,9 @@ static inline void aml_prevent_fw_sleep(struct aml_plat *plat, uint32_t sleep_pr
 {
     uint32_t sleep_prevent;
 
-    sleep_prevent = readl(plat->get_address(plat, AML_ADDR_AON, RG_AON_A53));
+    sleep_prevent = aml_pci_readl(AML_ADDR(plat, AML_ADDR_AON, RG_AON_A53));
     sleep_prevent |= sleep_prevent_type;
-    writel(sleep_prevent, plat->get_address(plat, AML_ADDR_AON, RG_AON_A53));
+    aml_pci_writel(sleep_prevent, AML_ADDR(plat, AML_ADDR_AON, RG_AON_A53));
 }
 
 /*RG_AON_A53 BIT(14) prevent fw goto sleep ,*/
@@ -224,9 +235,9 @@ static inline void aml_allow_fw_sleep(struct aml_plat *plat, uint32_t sleep_allo
 {
     uint32_t sleep_allowed;
 
-    sleep_allowed = readl(plat->get_address(plat, AML_ADDR_AON, RG_AON_A53));
+    sleep_allowed = aml_pci_readl(AML_ADDR(plat, AML_ADDR_AON, RG_AON_A53));
     sleep_allowed &= (~sleep_allow_type);
-    writel(sleep_allowed, plat->get_address(plat, AML_ADDR_AON, RG_AON_A53));
+    aml_pci_writel(sleep_allowed, AML_ADDR(plat, AML_ADDR_AON, RG_AON_A53));
 }
 
 static inline void aml_wait_fw_wake(struct aml_plat *plat)
@@ -234,17 +245,18 @@ static inline void aml_wait_fw_wake(struct aml_plat *plat)
     uint32_t fw_status = 0;
     uint32_t loop = 20000;
 
-    fw_status = readl(plat->get_address(plat, AML_ADDR_AON, RG_AON_A54));
+    fw_status = aml_pci_readl(AML_ADDR(plat, AML_ADDR_AON, RG_AON_A54));
 
     while ((fw_status == PS_DOZE) && (loop-- > 0))
     {
-        fw_status = readl(plat->get_address(plat, AML_ADDR_AON, RG_AON_A54));
+        fw_status = aml_pci_readl(AML_ADDR(plat, AML_ADDR_AON, RG_AON_A54));
         udelay(10);
         if (loop == 0)
             return;
     }
 }
 #endif
+
 
 static inline u32 aml_reg_read(struct aml_plat *plat, u32 base, u32 offset)
 {
@@ -259,16 +271,16 @@ static inline u32 aml_reg_read(struct aml_plat *plat, u32 base, u32 offset)
     } else {
 #ifdef CONFIG_AML_POWER_SAVE_MODE
         if (offset == RG_AON_A54) {
-            return readl(plat->get_address(plat, base, offset));
+            return aml_pci_readl(AML_ADDR(plat, base, offset));
     }
 
             aml_prevent_fw_sleep(plat, PS_READ_WRITE_REG);
             aml_wait_fw_wake(plat);
-            reg_value = readl(plat->get_address(plat, base, offset));
+            reg_value = aml_pci_readl(AML_ADDR(plat, base, offset));
             aml_allow_fw_sleep(plat, PS_READ_WRITE_REG);
             return reg_value;
 #else
-        return readl(plat->get_address(plat, base, offset));
+        return aml_pci_readl(AML_ADDR(plat, base, offset));
 #endif
         }
 
@@ -283,16 +295,16 @@ static inline void aml_reg_write(u32 val, struct aml_plat *plat, u32 base, u32 o
     } else {
 #ifdef CONFIG_AML_POWER_SAVE_MODE
         if (offset == RG_AON_A54) {
-            writel(val, plat->get_address(plat, base, offset));
+            aml_pci_writel(val, AML_ADDR(plat, base, offset));
     }
         else {
             aml_prevent_fw_sleep(plat, PS_READ_WRITE_REG);
             aml_wait_fw_wake(plat);
-            writel(val, plat->get_address(plat, base, offset));
+            aml_pci_writel(val, AML_ADDR(plat, base, offset));
             aml_allow_fw_sleep(plat, PS_READ_WRITE_REG);
     }
 #else
-    writel(val, plat->get_address(plat, base, offset));
+    aml_pci_writel(val, AML_ADDR(plat, base, offset));
 #endif
     }
 }
@@ -351,5 +363,7 @@ int aml_plat_lmac_load(struct aml_plat *aml_plat);
 void aml_plat_mpif_sel(struct aml_plat *aml_plat);
 int aml_sdio_create_thread(struct aml_hw *aml_hw);
 void aml_sdio_destroy_thread(struct aml_hw *aml_hw);
+int aml_cpufreq_boost_update(struct aml_hw *aml_hw);
+int aml_cpufreq_boost_remove(struct aml_hw *aml_hw);
 
 #endif /* _AML_PLAT_H_ */

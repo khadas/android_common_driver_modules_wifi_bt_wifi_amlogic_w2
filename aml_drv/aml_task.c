@@ -18,25 +18,16 @@
 
 #ifdef CONFIG_AML_USE_TASK
 
-#if 0
-#define AML_TASK_FUNC(data, name, func) do { \
-    struct aml_hw *aml_hw = (struct aml_hw *)data; \
-    struct sched_param param = {0};   \
-    param.sched_priority = AML_TASK_PRI; \
-    sched_setscheduler(current, SCHED_FIFO, &param); \
-    while (!aml_hw->name->task_quit) { \
-        if (down_interruptible(&aml_hw->name->task_sem) != 0) break; \
-        if (aml_hw->name->task_quit) break; \
-        func(aml_hw); \
-    } \
-    complete_and_exit(&aml_hw->name->task_cmpl, 0); \
-} while (0);
-#else
-/* use set_user_nice() priority(100) to alleviate preempt cpu loading */
+/* use set_user_nice(x, nice) priority to alleviate
+ * preempt cpu loading:
+ *  PR  = 20 + nice
+ * where nice range is -20 to 19
+ * PR = 0 to 39 which is same as 100 to 139.
+ * */
 #if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
 #define AML_TASK_FUNC(data, name, func) do { \
     struct aml_hw *aml_hw = (struct aml_hw *)data; \
-    set_user_nice(current, 0); \
+    set_user_nice(current, 5); \
     while (!aml_hw->name->task_quit) { \
         if (down_interruptible(&aml_hw->name->task_sem) != 0) break; \
         if (aml_hw->name->task_quit) break; \
@@ -55,7 +46,6 @@
     } \
     complete(&aml_hw->name->task_cmpl); \
 } while (0);
-#endif
 #endif
 
 #define AML_TASK_INIT(aml_hw, name)  do { \
@@ -92,7 +82,8 @@ int aml_task_irqhdlr(void *data)
             enable_irq(aml_platform_get_irq(aml_hw->plat));
             break;
         }
-        if (aml_hw->irqhdlr->task_quit) break;
+        if (aml_hw->irqhdlr->task_quit)
+            break;
         while ((status = ipc_host_get_status(aml_hw->ipc_env))) {
             ipc_host_irq_ext(aml_hw->ipc_env, status);
         }
@@ -136,36 +127,6 @@ int aml_task_rxdesc(void *data)
     return 0;
 }
 
-void aml_txcfm_hdlr(struct aml_hw *aml_hw)
-{
-    ipc_host_txcfm_handler(aml_hw->ipc_env);
-}
-
-int aml_task_txcfm(void *data)
-{
-    struct aml_hw *aml_hw = (struct aml_hw *)data;
-    struct sched_param param = {0};
-
-    param.sched_priority = AML_TASK_PRI;
-#ifndef CONFIG_PT_MODE
-    sched_setscheduler(current, SCHED_FIFO, &param);
-#endif
-    while (!aml_hw->txcfm->task_quit) {
-        if (down_interruptible(&aml_hw->txcfm->task_sem) != 0)
-            break;
-        if (aml_hw->txcfm->task_quit)
-            break;
-        aml_txcfm_hdlr(aml_hw);
-    }
-#if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
-    complete_and_exit(&aml_hw->txcfm->task_cmpl, 0);
-#else
-    complete(&aml_hw->txcfm->task_cmpl);
-#endif
-
-    return 0;
-}
-
 void aml_task_init(struct aml_hw *aml_hw)
 {
     if (aml_bus_type != PCIE_MODE)
@@ -174,7 +135,6 @@ void aml_task_init(struct aml_hw *aml_hw)
     AML_INFO("aml task init");
     AML_TASK_INIT(aml_hw, irqhdlr);
     AML_TASK_INIT(aml_hw, rxdesc);
-    AML_TASK_INIT(aml_hw, txcfm);
 }
 
 void aml_task_deinit(struct aml_hw *aml_hw)
@@ -185,6 +145,5 @@ void aml_task_deinit(struct aml_hw *aml_hw)
     AML_INFO("aml task deinit");
     AML_TASK_DEINIT(aml_hw, irqhdlr);
     AML_TASK_DEINIT(aml_hw, rxdesc);
-    AML_TASK_DEINIT(aml_hw, txcfm);
 }
 #endif

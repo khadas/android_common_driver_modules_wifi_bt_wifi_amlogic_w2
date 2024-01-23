@@ -25,13 +25,15 @@
 #define BYTE_IN_LINE (9)
 
 #define ICCM_ROM
+#define USB_TXCMD_CARRY_RXRD_START_INDEX 401
+uint8_t rx_need_update = 0;
 
 #define WIFI_TOP (0xa07000)
 #define RG_WIFI_RST_CTRL (WIFI_TOP + 0x00)
 
 #define WIFI_READ_CMD   0
 #define BT_READ_CMD     1
-
+#define WRITE_SRAM_DATA_LEN 477
 extern struct auc_hif_ops g_auc_hif_ops;
 extern struct aml_hwif_usb g_hwif_usb;
 extern struct usb_device *g_udev;
@@ -64,6 +66,30 @@ void auc_build_cbw(struct crg_msc_cbw *cbw_buf,
     cbw_buf->cdb[3] = cdb4; //read or write data length
 }
 
+void auc_build_cbw_add_data(struct crg_msc_cbw *cbw_buf,
+                               unsigned char dir,
+                               unsigned int len,
+                               unsigned char cdb1,
+                               unsigned int cdb2,
+                               unsigned long cdb3,
+                               SYS_TYPE cdb4,unsigned char *data)
+{
+    cbw_buf->sig = AML_SIG_CBW;
+    cbw_buf->tag = 0x5da729a0;
+    cbw_buf->data_len = len;
+    cbw_buf->flag = dir; //direction
+    cbw_buf->len = 16; //command length
+    cbw_buf->lun = 0;
+
+    cbw_buf->cdb[0] = cdb1;
+    cbw_buf->cdb[1] = cdb2; // read or write addr
+    cbw_buf->cdb[2] = (unsigned int)(unsigned long)cdb3;
+    cbw_buf->cdb[3] = cdb4; //read or write data length
+    memcpy(cbw_buf->resv + 1, (unsigned char *) data, len);
+    /*in case call cmd and data mode but fw call cmd+data stage*/
+    cbw_buf->resv[479] = cbw_buf->resv[480] = 0xFF;
+}
+
 int auc_bulk_msg(struct usb_device *usb_dev, unsigned int pipe,
     void *data, int len, int *actual_length, int timeout)
 {
@@ -75,6 +101,12 @@ int auc_bulk_msg(struct usb_device *usb_dev, unsigned int pipe,
         return -ENOMEM;
     }
 #endif
+    if (atomic_read(&g_wifi_pm.is_shut_down) == 1) {
+        ERROR_DEBUG_OUT("fw shut down(%d) , do not read/write now!\n",
+            atomic_read(&g_wifi_pm.is_shut_down));
+        return -ENOMEM;
+    }
+
 #ifdef CONFIG_AML_RECOVERY
     if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
         ERROR_DEBUG_OUT("bus reset is ongoing(bus err:%d, reset on going: %d:), do not read/write now!\n",
@@ -536,7 +568,7 @@ int auc_write_reg_by_ep(unsigned int addr, unsigned int value, unsigned int len,
     USB_BEGIN_LOCK();
     auc_build_cbw(g_cmd_buf, AML_XFER_TO_DEVICE, 0, CMD_WRITE_REG, addr, value, len);
     /* cmd stage */
-    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, ep),(void *)g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
+    ret = auc_bulk_msg(udev, (unsigned int)usb_sndbulkpipe(udev, ep),(void *) g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
     if (ret) {
         ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d, ep: %d, addr: 0x%x, len: %d, value: 0x%x\n", ret, ep, addr, len, value);
         USB_END_LOCK();
@@ -595,6 +627,7 @@ unsigned int auc_read_reg_by_ep(unsigned int addr, unsigned int len, unsigned in
     return reg_data;
 }
 
+extern int coex_flag;
 void auc_write_sram_by_ep(unsigned char *pdata, unsigned int addr, unsigned int len, unsigned int ep)
 {
     int ret = 0;
@@ -603,37 +636,54 @@ void auc_write_sram_by_ep(unsigned char *pdata, unsigned int addr, unsigned int 
     unsigned char *kmalloc_buf = NULL;
 
     USB_BEGIN_LOCK();
-    auc_build_cbw(g_cmd_buf, AML_XFER_TO_DEVICE, len, CMD_WRITE_SRAM, addr, 0, len);
-    /* cmd stage */
-    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, ep), (void*)g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
-    if (ret) {
-        ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d, ep: %d, addr: 0x%x, len: %d\n", ret, ep, addr, len);
-        ERROR_DEBUG_OUT("usb command transmit fail,g_cmd_buf->add is %d,len is %d\n",addr,len);
-        USB_END_LOCK();
-        return;
-    }
+    if (coex_flag && len < WRITE_SRAM_DATA_LEN) {
+        auc_build_cbw_add_data(g_cmd_buf, AML_XFER_TO_DEVICE, len, CMD_WRITE_SRAM, addr, 0, len,pdata);
+        /* cmd stage */
+        ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, ep), (void*)g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
+        if (ret) {
+            ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d, ep: %d, addr: 0x%x, len: %d\n", ret, ep, addr, len);
+            ERROR_DEBUG_OUT("usb command transmit fail,g_cmd_buf->add is %d,len is %d\n", addr, len);
+            USB_END_LOCK();
+            return;
+        }
+        g_cmd_buf->resv[479] = g_cmd_buf->resv[480] = 0;
+    } else {
+        auc_build_cbw(g_cmd_buf, AML_XFER_TO_DEVICE, len, CMD_WRITE_SRAM, addr, 0, len);
+        /* cmd stage */
+        ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, ep), (void*)g_cmd_buf, sizeof(*g_cmd_buf), &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
+        if (ret) {
+            ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d, ep: %d, addr: 0x%x, len: %d\n", ret, ep, addr, len);
+            ERROR_DEBUG_OUT("usb command transmit fail,g_cmd_buf->add is %d,len is %d\n", addr, len);
+            USB_END_LOCK();
+            return;
+        }
 
-    kmalloc_buf = (unsigned char *)ZMALLOC(len, "usb_write_sram", GFP_DMA | GFP_ATOMIC);//virt_to_phys(fwICCM);
-    if (kmalloc_buf == NULL)
-    {
-        ERROR_DEBUG_OUT("kmalloc buf fail, ep: %d, addr: 0x%x, len: %d\n", ep, addr, len);
-        USB_END_LOCK();
-        return;
-    }
+        kmalloc_buf = (unsigned char *)ZMALLOC(len, "usb_write_sram", GFP_DMA | GFP_ATOMIC);//virt_to_phys(fwICCM);
+        if (kmalloc_buf == NULL)
+        {
+            ERROR_DEBUG_OUT("kmalloc buf fail, ep: %d, addr: 0x%x, len: %d\n", ep, addr, len);
+            USB_END_LOCK();
+            return;
+        }
 
-    memcpy(kmalloc_buf, pdata, len);
-    /* data stage */
-    ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, ep), (void *)kmalloc_buf, len, &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
-    if (ret) {
-        ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d, ep: %d,  addr: 0x%x, len: %d\n", ret, ep, addr, len);
+        memcpy(kmalloc_buf, pdata, len);
+        /* data stage */
+        ret = auc_bulk_msg(udev, usb_sndbulkpipe(udev, ep), (void *)kmalloc_buf, len, &actual_length, AML_USB_CONTROL_MSG_TIMEOUT);
+        if (ret) {
+            ERROR_DEBUG_OUT("Failed to usb_bulk_msg, ret %d, ep: %d,  addr: 0x%x, len: %d\n", ret, ep, addr, len);
+            FREE(kmalloc_buf, "usb_read_sram");
+            USB_END_LOCK();
+            return;
+        }
         FREE(kmalloc_buf, "usb_read_sram");
-        USB_END_LOCK();
-        return;
     }
 
-    FREE(kmalloc_buf, "usb_read_sram");
+    if (addr == CMD_DOWN_FIFO_FDH_ADDR) {
+        rx_need_update = 0;
+        g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 1] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 2] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 3] = 0;
+        g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 4] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 5] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 6] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_START_INDEX + 7] = 0;
+    }
     USB_END_LOCK();
-
 }
 
 void auc_read_sram_by_ep(unsigned char *pdata, unsigned int addr, unsigned int len, unsigned int ep, unsigned int mode)
@@ -656,7 +706,6 @@ void auc_read_sram_by_ep(unsigned char *pdata, unsigned int addr, unsigned int l
     }
 
     if (g_auc_kmalloc_buf) {
-        memset(g_auc_kmalloc_buf, 0, WLAN_AML_SDIO_SIZE);
         kmalloc_buf = g_auc_kmalloc_buf;
     } else {
         kmalloc_buf = (unsigned char *)ZMALLOC(len, "usb_read_sram", GFP_DMA|GFP_ATOMIC);
@@ -1040,6 +1089,9 @@ void aml_usb_build_tx_packet_info(struct crg_msc_cbw *cbw_buf, unsigned char cdb
             }
         }
     }
+
+    if (rx_need_update != 0)
+        rx_need_update = 0;
 }
 int w2_usb_send_packet(struct amlw_hif_scatter_req * scat_req)
 {
@@ -1151,6 +1203,9 @@ int w2_usb_send_frame(struct amlw_hif_scatter_req * pframe)
         USB_END_LOCK();
         return 1;
     }
+
+    g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX + 1] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX + 2] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX + 3] = 0;
+    g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX + 4] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX + 5] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX + 6] = g_cmd_buf->resv[USB_TXCMD_CARRY_RXRD_INDEX + 7] = 0;
     w2_usb_send_packet(pframe);
 
     w2_usb_scat_complete(pframe);
@@ -1438,4 +1493,5 @@ int start_wifi(void)
 
 EXPORT_SYMBOL(wifi_fw_download);
 EXPORT_SYMBOL(start_wifi);
+EXPORT_SYMBOL(rx_need_update);
 

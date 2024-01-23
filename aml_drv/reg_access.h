@@ -213,6 +213,7 @@
 #endif
 
 extern u8 * ipc_basic_address;
+extern unsigned char g_pci_shutdown;
 
 __INLINE u32 reg_ipc_app_rd(void *env, unsigned int INDEX)
 {
@@ -223,9 +224,8 @@ __INLINE u32 reg_ipc_app_rd(void *env, unsigned int INDEX)
     } else if (aml_bus_type == SDIO_MODE) {
         return aml_hw->plat->hif_sdio_ops->hi_random_word_read((unsigned long)(IPC_BASIC_ADDRESS + 4 * INDEX));
     } else {
-        return (*(volatile u32*)(ipc_basic_address + 4*(INDEX)));
+        return aml_pci_readl(ipc_basic_address + 4*(INDEX));
     }
-
 }
 
 __INLINE void reg_ipc_app_wr(void *env, unsigned int INDEX, u32 value)
@@ -237,7 +237,7 @@ __INLINE void reg_ipc_app_wr(void *env, unsigned int INDEX, u32 value)
     } else if (aml_bus_type == SDIO_MODE) {
         aml_hw->plat->hif_sdio_ops->hi_random_word_write((unsigned long)(IPC_BASIC_ADDRESS + 4 * INDEX), value);
     } else {
-        (*(volatile u32*)(ipc_basic_address + 4*(INDEX)) = value);
+        aml_pci_writel(value, ipc_basic_address + 4*(INDEX));
     }
 }
 

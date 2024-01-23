@@ -43,6 +43,15 @@
 
 #define AML_AGCCNTL_ADDR            0x00C0B390
 
+enum aml_recy_reason {
+    RECY_REASON_CODE_CMD_CRASH = 1,
+    RECY_REASON_CODE_FW_LINKLOSS,
+    RECY_REASON_CODE_BUS_ERR,
+    RECY_REASON_CODE_TX_TIMEOUT,
+    //THE MAX
+    RECY_REASON_CODE_MAX,
+};
+
 struct aml_recy_assoc_info {
     u8 bssid[ETH_ALEN];
     u8 prev_bssid[ETH_ALEN];
@@ -77,6 +86,7 @@ struct aml_recy {
     u32 flags;
     u8 reconnect_rest;
     u8 ps_state;
+    u8 reason;
     struct aml_recy_link_loss link_loss;
     struct aml_hw *aml_hw;
     struct aml_recy_assoc_info assoc_info;

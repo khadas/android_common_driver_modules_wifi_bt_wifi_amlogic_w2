@@ -71,7 +71,7 @@
 
 // WIFI_CALI_VERSION must be consistent with the version field in "/vendor/firmware/"
 // After updating the parameters, it must be modified at the same time.
-#define WIFI_CALI_VERSION   (11)
+#define WIFI_CALI_VERSION   (15)
 #define WIFI_CALI_FILENAME  "aml_wifi_rf.txt"
 
 #define STRUCT_BUFF_LEN   252
@@ -89,6 +89,10 @@
 #define AML_AP_VIF_IDX          1
 #define AML_P2P_VIF_IDX         1
 #define AML_P2P_DEVICE_VIF_IDX  2
+
+#define AML_CONNECTING   BIT(0)
+#define AML_DISCONNECTING   BIT(1)
+#define AML_GETTING_IP   BIT(2)
 
 enum wifi_module_sn {
       MODULE_ITON = 0X1,
@@ -316,6 +320,8 @@ struct aml_vif {
     spinlock_t ap_lock;
     spinlock_t sta_lock; // for AP or GO interface
     unsigned char ipv4_addr[IPV4_ADDR_LEN];
+    /* protect union sta/ap content */
+    spinlock_t vif_lock;
     union
     {
         struct
@@ -331,6 +337,7 @@ struct aml_vif {
             u8 cancel_scan_cfm;
             u8 assoc_ssid[MAC_SSID_LEN];
             int assoc_ssid_len;
+            u8 connect_flags;
         } sta;
         struct
         {
@@ -540,6 +547,72 @@ struct aml_stats {
     int amsdus_rx[64];
 };
 
+#ifdef CONFIG_SDIO_TX_ENH
+#define SDIO_TX_ENH_DBG
+#ifdef SDIO_TX_ENH_DBG
+typedef struct {
+    /* block status to record the time between adjacent 2 tx download */
+    uint32_t block_cnt;
+    uint32_t block_begin;
+    uint32_t block_end;
+    uint32_t total_block;
+    uint32_t avg_block;
+    /* page usage status to record average tx pages for once tx page download */
+    uint32_t send_cnt;
+    uint32_t page_total;
+    uint32_t avg_page;
+    /* block ratio, used to log ratio the pending pages in once tx page download */
+    uint32_t block_rate;
+    uint32_t tot_blk_rate;
+    uint32_t avg_blk_rate;
+    uint32_t unblock_page;
+    uint32_t last_hostid;
+
+    /* amsdu_cnt to record the amsdu number distribution */
+    uint32_t tx_tot_cnt;
+    uint32_t tx_amsdu_cnt;
+    uint32_t amsdu_num[6];
+} block_log;
+
+typedef struct {
+    /* cfm status to record average txcfm tags handling */
+    uint32_t cfm_rx_cnt;
+    uint32_t cfm_num;
+    uint32_t avg_cfm;
+    uint32_t total_cfm;
+    uint32_t avg_cfm_page;
+    uint32_t cfm_page;
+
+    /* txcfm sharemem copy counter */
+    uint32_t cfm_read_cnt;
+    uint32_t cfm_read_blk_cnt;
+
+    /* rx status to record rx counter and mpdu numbers */
+    uint32_t rx_cnt_in_rx;
+    uint32_t mpdu_in_rx;
+    uint32_t avg_mpdu_in_one_rx;
+
+    uint32_t hostid_pushed;
+    uint32_t start_blk;
+    uint32_t read_blk;
+    uint32_t drv_txcfm_idx;
+} cfm_log;
+#endif
+
+typedef struct {
+#define TAGS_IN_SDIO_BLK    (32)
+#define TXCFM_THRESH        (3)
+    uint32_t dyn_en;
+    uint32_t read_thresh;
+    uint32_t pre_tag;
+    uint32_t thresh_cnt;
+    /* the starting index in txcfm sharemem SDIO blocks occupied */
+    uint32_t start_blk;
+    /* the SDIO blocks need to be read from txcfm sharemem */
+    uint32_t read_blk;
+    uint32_t hostid_pushed;
+} txcfm_param_t;
+#endif
 
 // maximum number of TX frame per RoC
 #define NX_ROC_TX 5
@@ -632,6 +705,7 @@ enum suspend_ind_state {
 #define WOW_FILTER_OPTION_4WAYHS BIT(4)
 #define WOW_FILTER_OPTION_DISCONNECT BIT(5)
 #define WOW_FILTER_OPTION_GTK_ERROR BIT(6)
+#define WOW_FILTER_OPTION_GOOGLE_CAST_EN BIT(7)
 struct tx_task_param {
     u32 tx_page_free_num;
     u32 tx_page_tot_num;
@@ -740,7 +814,7 @@ struct aml_hw {
     u8 monitor_vif;
     enum wifi_suspend_state state;
     u8 suspend_ind;
-    u8 is_connectting;
+    u8 google_cast;
 
     // Stations
     struct aml_sta *sta_table;
@@ -754,6 +828,7 @@ struct aml_hw {
     struct cfg80211_scan_request *scan_request;
     struct aml_radar radar;
     int show_switch_info;
+
     // TX path
     spinlock_t tx_lock;
 #ifdef CONFIG_AML_PREALLOC_BUF_STATIC
@@ -781,13 +856,14 @@ struct aml_hw {
     uint32_t fw_new_pos;
     uint32_t fw_buf_pos;
     uint32_t last_fw_pos;
+    uint32_t recv_pkt_len;
     uint32_t dynabuf_stop_tx;
     uint32_t send_tx_stop_to_fw;
     uint8_t *host_buf;
     uint8_t *host_buf_start;
     uint8_t *host_buf_end;
     uint8_t *rx_host_switch_addr;
-    spinlock_t buf_end_lock;
+    spinlock_t reoder_lock;
     spinlock_t buf_start_lock;
     struct assoc_info rx_assoc_info;
 
@@ -809,18 +885,16 @@ struct aml_hw {
     // IRQ
     struct tasklet_struct task;
 
-    // TASKs
+    // Tasks
 #ifdef CONFIG_AML_USE_TASK
     struct aml_task *irqhdlr;
     struct aml_task *rxdesc;
-    struct aml_task *txcfm;
-    struct aml_task *misc;
     u32 txcfm_status;
 #endif
 
     struct timer_list sync_trace_timer;
 
-    // workqueue
+    // Workqueue
     spinlock_t wq_lock;
     struct workqueue_struct *wq;
     struct work_struct work;
@@ -848,7 +922,13 @@ struct aml_hw {
     struct aml_ipc_buf unsuprxvecs[IPC_UNSUPRXVECBUF_CNT];
     struct aml_ipc_buf scan_ie;
     struct aml_ipc_buf_pool txcfm_pool;
-    struct tx_sdio_usb_cfm_tag read_cfm[SRAM_TXCFM_CNT];
+#ifdef CONFIG_SDIO_TX_ENH
+    int irqless_flag;
+    spinlock_t txcfm_rd_lock;
+    txcfm_param_t txcfm_param;
+#endif
+    /*add 16byte for bt read/write point*/
+    struct tx_sdio_usb_cfm_tag read_cfm[SRAM_TXCFM_CNT+1];
 
     struct scan_results *scan_results;
     uint8_t *scanres_payload_buf;
@@ -911,6 +991,7 @@ struct aml_hw {
     struct usb_ctrlrequest *g_cr;
     unsigned char *g_buffer;
     u8 la_enable;
+    u8 trace_enable;
     // Debug FS and stats
     struct aml_debugfs debugfs;
     struct aml_stats *stats;
@@ -926,6 +1007,7 @@ struct aml_hw {
     u8 g_tx_to;
     u8 repush_rxdesc;
     u8 repush_rxbuff_cnt;
+    u8 traffic_busy;
     /*management tcp session*/
     struct aml_tcp_sess_mgr ack_mgr;
 #ifdef CONFIG_AML_NAPI
@@ -940,6 +1022,9 @@ struct aml_hw {
     /*if the skb cnt of pending queue >= napi_pend_pkt_num,append to napi_rx_upload_queue*/
     u8 napi_pend_pkt_num;
 #endif
+    struct freq_qos_request *qos_req;
+    int min_cpu_freq;
+
 };
 
 u8 *aml_build_bcn(struct aml_bcn *bcn, struct cfg80211_beacon_data *new);
@@ -991,6 +1076,9 @@ static inline void aml_spin_unlock(spinlock_t* lock)
     (aml_bus_type == PCIE_MODE) ? spin_unlock(lock) : spin_unlock_bh(lock);
 #endif
 }
+void aml_connect_flags_set(struct aml_vif *aml_vif, u32 flags);
+void aml_connect_flags_clr(struct aml_vif *aml_vif, u32 flags);
+bool aml_connect_flags_chk(struct aml_vif *aml_vif, u32 flags);
 
 void aml_external_auth_enable(struct aml_vif *vif);
 void aml_external_auth_disable(struct aml_vif *vif);

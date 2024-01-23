@@ -80,6 +80,24 @@ typedef struct W2_EFUSE_PARAM
     unsigned char second_offset_power_wf1_5660;
     unsigned char second_offset_power_wf1_5780;
 
+    unsigned char txt_shift_value_wf0_2g_l;
+    unsigned char txt_shift_value_wf0_2g_m;
+    unsigned char txt_shift_value_wf0_2g_h;
+    unsigned char txt_shift_value_wf0_5200;
+    unsigned char txt_shift_value_wf0_5300;
+    unsigned char txt_shift_value_wf0_5530;
+    unsigned char txt_shift_value_wf0_5660;
+    unsigned char txt_shift_value_wf0_5780;
+
+    unsigned char txt_shift_value_wf1_2g_l;
+    unsigned char txt_shift_value_wf1_2g_m;
+    unsigned char txt_shift_value_wf1_2g_h;
+    unsigned char txt_shift_value_wf1_5200;
+    unsigned char txt_shift_value_wf1_5300;
+    unsigned char txt_shift_value_wf1_5530;
+    unsigned char txt_shift_value_wf1_5660;
+    unsigned char txt_shift_value_wf1_5780;
+
     unsigned char pmu_efuse_en;
 
     unsigned char rg_pmu_bucka_efuse_trim_i_osc_vld;
@@ -91,7 +109,7 @@ typedef struct W2_EFUSE_PARAM
     unsigned char rg_ao_hifldo_vosel_vld;
     unsigned char rg_aldo_vo_adj_vld;
     unsigned char rg_bg_tc_adj_vld;
-    unsigned char rg_pmu_bucka_efuse_trim_slp_csp_vld;
+    unsigned char rg_pmu_32k_adj_vld;
     unsigned char rg_pmu_bucka_efuse_trim_iref_vlreg_vld;
     unsigned char rg_pmu_bucka_efuse_trim_iref_vhreg_vld;
     unsigned char rg_pmu_buckd_ton_min_trim_vld;
@@ -115,6 +133,7 @@ typedef struct W2_EFUSE_PARAM
     unsigned char rg_pmu_buckd_cs_gain_ramp;
     unsigned char rg_pmu_buckd_vsel_vh;
     unsigned char rg_pmu_buckd_capslp_ramp;
+    unsigned char rg_pmu_32k_adj;
 }W2_EFUSE_PARAM;
 
 typedef struct Cali_Param
@@ -147,6 +166,11 @@ typedef struct Cali_Param
     unsigned char wf5g_he20_tpwr[12];
     unsigned char wf5g_he40_tpwr[12];
     unsigned char wf5g_he80_tpwr[12];
+    unsigned char wf5g_lch_he_lowrssi_tpwr[6];
+    unsigned char wf5g_mch_he_lowrssi_tpwr[6];
+    unsigned char wf5g_hch_he20_lowrssi_tpwr[6];
+    unsigned char wf5g_hch_he40_lowrssi_tpwr[6];
+    unsigned char wf5g_hch_he80_lowrssi_tpwr[6];
     W2_EFUSE_PARAM w2_efuse_param;
 } Cali_Param;
 
