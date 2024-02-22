@@ -468,7 +468,7 @@ u16 aml_select_txq(struct aml_vif *aml_vif, struct sk_buff *skb)
 
         txq = aml_txq_sta_get(sta, skb->priority, aml_hw);
         netdev_queue = txq->ndev_idx;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0) && LINUX_VERSION_CODE <= KERNEL_VERSION(5, 10, 0))
         queue_index = netdev_queue;
         queue_index = netdev_cap_txqueue(aml_vif->ndev, queue_index);
         netq = netdev_get_tx_queue(aml_vif->ndev, queue_index);

@@ -1,6 +1,6 @@
 #define AML_VERS_REV "d30ce280"
-#define AML_VERS_MOD "v1.7.0_2024-01.23-w2 driver:d30ce280548979f24e2afe8fb6ae4af533472268"
-#define AML_VERS_BANNER "v1.7.0_2024-01.23-w2 driver:d30ce280548979f24e2afe8fb6ae4af533472268"
+#define AML_VERS_MOD "v1.7.1_2024-02.22-w2 driver:d30ce280548979f24e2afe8fb6ae4af533472268"
+#define AML_VERS_BANNER "v1.7.1_2024-02.22-w2 driver:d30ce280548979f24e2afe8fb6ae4af533472268"
 #define AML_DRIVER_COMPILE_INFO "driver compile date: W2.2024.W04.02,driver hash: d30ce280548979f24e2afe8fb6ae4af533472268"
 #define FIRMWARE_INFO "fw compile date: 2024-01-23 16:48:33,fw hash: d30ce280548979f24e2afe8fb6ae4af533472268,fw size: 1843020"
 #define COMMON_INFO "common: last commit: 2024/Jan/6 07:32:52  hash: 8497cbba4b71ee5b90d2ca5616d999533a1f5842"
