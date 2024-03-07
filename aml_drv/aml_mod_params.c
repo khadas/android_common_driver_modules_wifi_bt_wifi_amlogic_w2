@@ -978,11 +978,7 @@ void aml_set_he_capa(struct aml_hw *aml_hw, struct wiphy *wiphy)
                                            dcm_max_ru;
     he_cap->he_cap_elem.phy_cap_info[9] |= IEEE80211_HE_PHY_CAP9_RX_FULL_BW_SU_USING_MU_WITH_COMP_SIGB |
                                            IEEE80211_HE_PHY_CAP9_RX_FULL_BW_SU_USING_MU_WITH_NON_COMP_SIGB |
-                                           #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 17, 0)
                                            IEEE80211_HE_PHY_CAP9_NOMIMAL_PKT_PADDING_16US;
-                                           #else
-                                           IEEE80211_HE_PHY_CAP9_NOMINAL_PKT_PADDING_16US;
-                                           #endif
 
     // Starting from version v31 more HE_ER_SU modulations is supported
     if (__MDM_VERSION(phy_vers) > 30) {
@@ -1197,11 +1193,7 @@ void aml_custregd(struct aml_hw *aml_hw, struct wiphy *wiphy)
     if (!aml_hw->mod_params->custregd)
         return;
 
-#if LINUX_VERSION_CODE <= KERNEL_VERSION(6, 3, 12)
     wiphy->regulatory_flags |= REGULATORY_IGNORE_STALE_KICKOFF;
-#else
-    wiphy->regulatory_flags |= (REGULATORY_WIPHY_SELF_MANAGED >> 1);
-#endif
     wiphy->regulatory_flags |= REGULATORY_WIPHY_SELF_MANAGED;
 
     rtnl_lock();

@@ -1823,31 +1823,29 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
         if ((ret = wifi_fw_download(AML_MAC_FW_USB)))
             return ret;
 
-        if ((ret = start_wifi()))
+        if (ret = start_wifi())
             return ret;
     } else {
         aml_download_wifi_fw_img(AML_MAC_FW_SDIO);
     }
 
     shared_ram = (u8 *)SHARED_RAM_SDIO_START_ADDR;
-    if ((ret = aml_ipc_init(aml_hw, shared_ram, shared_host_rxbuf, shared_host_rxdesc)))
+    if (ret = aml_ipc_init(aml_hw, shared_ram, shared_host_rxbuf, shared_host_rxdesc))
         return ret;
 
-    AML_REG_WRITE(BOOTROM_ENABLE, aml_plat,
-                       AML_ADDR_SYSTEM, SYSCTRL_MISC_CNTL_ADDR);
+    AML_REG_WRITE(BOOTROM_ENABLE, aml_plat, AML_ADDR_SYSTEM, SYSCTRL_MISC_CNTL_ADDR);
 
     //start firmware cpu
     AML_REG_WRITE(0x00070000, aml_plat, AML_ADDR_AON, RG_PMU_A22);
     /* wait for chip ready */
-    while (!(AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, REG_OF_VENDOR_ID)
-            == W2s_VENDOR_AMLOGIC_EFUSE)) {
+    while (!(AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, REG_OF_VENDOR_ID) == W2s_VENDOR_AMLOGIC_EFUSE)) {
         if (bus_state_detect.bus_err) {
             if (aml_hw->plat->disable)
                 aml_hw->plat->disable(aml_hw);
             aml_ipc_deinit(aml_hw);
             return -1;
         }
-            msleep(5);
+        msleep(5);
 
 #ifdef CONFIG_PT_MODE
         {
@@ -1862,7 +1860,6 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
 #endif
     };
 
-    //printk("%s:%d, value %x", __func__, __LINE__, aml_pci_readl(aml_plat->get_address(aml_plat, AML_ADDR_MAC_PHY, 0x00a070b4)));
 #ifndef CONFIG_PT_MODE
 #ifdef CONFIG_AML_DEBUGFS
     aml_fw_trace_config_filters(aml_get_shared_trace_buf(aml_hw),
@@ -1872,8 +1869,7 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
 #endif
 
 #ifndef CONFIG_AML_FHOST
-    if ((ret = aml_check_fw_compatibility(aml_hw)))
-    {
+    if (ret = aml_check_fw_compatibility(aml_hw)) {
         if (aml_hw->plat->disable)
             aml_hw->plat->disable(aml_hw);
         aml_ipc_deinit(aml_hw);
@@ -1892,13 +1888,13 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
     }
 #endif
     if (aml_bus_type == USB_MODE) {
-        aml_hw->g_buffer = ZMALLOC(2 * sizeof(int), "fw_stat",GFP_DMA | GFP_ATOMIC);
+        aml_hw->g_buffer = ZMALLOC(2 * sizeof(int), "fw_stat", GFP_DMA | GFP_ATOMIC);
         if (!aml_hw->g_buffer) {
             ERROR_DEBUG_OUT("malloc fail!\n");
             return -ENOMEM;
         }
 
-        aml_hw->g_cr =  ZMALLOC(sizeof(struct usb_ctrlrequest), "fw_stat",GFP_DMA | GFP_ATOMIC);
+        aml_hw->g_cr = ZMALLOC(sizeof(struct usb_ctrlrequest), "fw_stat", GFP_DMA | GFP_ATOMIC);
         if (!aml_hw->g_cr) {
             FREE(aml_hw->g_buffer, "fw_stat");
             ERROR_DEBUG_OUT("malloc fail!\n");
@@ -1909,7 +1905,7 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
         if (!aml_hw->g_urb) {
             FREE(aml_hw->g_buffer, "fw_stat");
             FREE(aml_hw->g_cr, "fw_stat");
-            ERROR_DEBUG_OUT("error,no urb!\n");
+            ERROR_DEBUG_OUT("error, no urb!\n");
             return -ENOMEM;
         }
     }
@@ -1952,13 +1948,12 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
 #ifdef CONFIG_AML_LA
          aml_hw->g_tx_param.tx_page_free_num = SDIO_TX_PAGE_NUM_LARGE; /* for tx large */
          aml_hw->g_tx_param.tx_page_tot_num = SDIO_TX_PAGE_NUM_LARGE;
-        //aml_hw->g_tx_param.tx_page_free_num = 64; /* for rx large */
 #else
          aml_hw->g_tx_param.tx_page_free_num = SDIO_TX_PAGE_NUM_SMALL;
          aml_hw->g_tx_param.tx_page_tot_num = SDIO_TX_PAGE_NUM_SMALL;
 #endif
         aml_sdio_scatter_reg_init(aml_hw);
-        if ((ret = aml_plat->enable(aml_hw))) {
+        if (ret = aml_plat->enable(aml_hw)) {
             aml_plat->enabled = true;
             aml_platform_off(aml_hw, NULL);
             return ret;
@@ -2027,11 +2022,7 @@ int aml_prealloc_rxbuf_task(void *data)
             spin_unlock_bh(&aml_hw->prealloc_rxbuf_lock);
         }
     }
-#if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
     complete_and_exit(&aml_hw->prealloc_completion, 0);
-#else
-    complete(&aml_hw->prealloc_completion);
-#endif
     return 0;
 }
 

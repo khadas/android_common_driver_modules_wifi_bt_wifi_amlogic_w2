@@ -270,7 +270,7 @@ enum aml_sta_flags {
  * @tdls_status: Status of the TDLS link
  * @tdls_chsw_prohibited: Whether TDLS Channel Switch is prohibited or not
  * @generation: Generation ID. Increased each time a sta is added/removed
- * @ap_lock: Add lock protect for AP info(vif->sta.ap, only valid STA/P2P Client)
+ * @vif_lock: Add lock to protect for union sta/ap content
  *
  * STA / P2P_CLIENT interfaces
  * @flags: see aml_sta_flags
@@ -317,8 +317,6 @@ struct aml_vif {
     int generation;
     u32 filter;
     u8 is_disconnect;
-    spinlock_t ap_lock;
-    spinlock_t sta_lock; // for AP or GO interface
     unsigned char ipv4_addr[IPV4_ADDR_LEN];
     /* protect union sta/ap content */
     spinlock_t vif_lock;

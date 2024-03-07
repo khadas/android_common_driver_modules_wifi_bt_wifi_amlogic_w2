@@ -130,11 +130,7 @@ int aml_irq_task(void *data)
     }
     if (aml_hw->aml_irq_completion_init) {
         aml_hw->aml_irq_completion_init = 0;
-#if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
         complete_and_exit(&aml_hw->aml_irq_completion, 0);
-#else
-        complete(&aml_hw->aml_irq_completion);
-#endif
     }
 
     return 0;

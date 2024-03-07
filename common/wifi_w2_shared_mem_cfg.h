@@ -42,10 +42,11 @@ LA ON: rx buffer large size 0x30000, small size: 0x20000
 #define RXBUF_END_ADDR_SMALL             (0x60040000)
 #define RXBUF_END_ADDR_LARGE             (0x60069800)
 
-#define USB_TXBUF_START_ADDR                 (0x60024000)
-#define USB_RXBUF_END_ADDR_SMALL             (0x60024000)
+#define USB_TXBUF_START_ADDR                 (0x60029130)
+#define USB_RXBUF_END_ADDR_SMALL             (0x60029130)
+
 #if defined (USB_TX_USE_LARGE_PAGE) || defined (CONFIG_AML_USB_LARGE_PAGE)
-#define USB_RXBUF_END_ADDR_LARGE             (0x60066e20) // tx end 0x6007ff6c
+#define USB_RXBUF_END_ADDR_LARGE             (0x600684b0) // tx end 0x6007ff6c
 #else
 #define USB_RXBUF_END_ADDR_LARGE             (0x60067788) // tx end 0x6007fcc0
 #endif

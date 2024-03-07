@@ -1459,6 +1459,12 @@ static inline int aml_rx_sm_connect_ind(struct aml_hw *aml_hw,
                                         GFP_ATOMIC);
 
 #endif
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+                if (ind->status_code != 0 && aml_vif->wdev.connected) {
+                    AML_INFO("roam connect fail, need upload disconnect to kernel to clear wdev.connected\n");
+                    cfg80211_disconnected(dev, 0, NULL, 0, false, GFP_KERNEL);
+                }
+#endif
             }
     }
     netif_tx_start_all_queues(dev);
@@ -1559,6 +1565,8 @@ static inline int aml_rx_sm_external_auth_required_ind(struct aml_hw *aml_hw,
            min_t(size_t, ind->ssid.length, sizeof(params.ssid.ssid)));
     params.key_mgmt_suite = ind->akm;
 
+    AML_INFO("ind->vif_idx > NX_VIRT_DEV_MAX %d, !aml_vif->up %d, (AML_VIF_TYPE(aml_vif) != NL80211_IFTYPE_STATION) %d",
+        ind->vif_idx > NX_VIRT_DEV_MAX, !aml_vif->up, (AML_VIF_TYPE(aml_vif) != NL80211_IFTYPE_STATION));
     if ((ind->vif_idx > NX_VIRT_DEV_MAX) || !aml_vif->up ||
         (AML_VIF_TYPE(aml_vif) != NL80211_IFTYPE_STATION) ||
         cfg80211_external_auth_request(dev, &params, GFP_ATOMIC)) {

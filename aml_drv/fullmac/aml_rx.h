@@ -40,7 +40,7 @@
 #define RX_RPD_DATASTARTPTR            (RX_DESC_SIZE + 8)
 
 #define AML_WRAP CO_BIT(31)
-#define RX_DATA_MAX_CNT 512
+#define RX_DATA_MAX_CNT (512 + 128)
 
 #define RX_HOSTID_OFFSET 36
 #define RX_REORDER_LEN_OFFSET 40
@@ -55,7 +55,7 @@
 #define RX_PD_LEN                      (20)
 #define RX_PAYLOAD_OFFSET              (RX_DESC_SIZE + RX_PD_LEN)
 #define AML_WRAP CO_BIT(31)
-#define RX_DATA_MAX_CNT 512
+#define RX_DATA_MAX_CNT (512 + 128)
 
 #define RX_HOSTID_OFFSET               (36)
 #define RX_REORDER_LEN_OFFSET          (38)

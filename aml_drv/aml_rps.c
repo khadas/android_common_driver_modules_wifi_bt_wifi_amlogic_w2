@@ -18,10 +18,6 @@
 #include <net/addrconf.h>
 #include <net/cfg80211.h>
 #include <net/ip.h>
-#include <linux/version.h>
-#if LINUX_VERSION_CODE > KERNEL_VERSION(6, 0, 0)
-#include <net/netdev_rx_queue.h>
-#endif
 
 #include "aml_rps.h"
 #include "aml_utils.h"

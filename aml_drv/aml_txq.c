@@ -723,14 +723,14 @@ static bool aml_txq_drop_ap_vif_old_traffic(struct aml_vif *vif)
     /* protect union struct vif->ap.sta_list was overwritten
      * by vif->sta.ap = NULL when aml_cfg80211_change_iface
      */
-    if (&vif->ap.sta_list) {
+    if (vif->ap.sta_list.next) {
         list_for_each_entry_safe(sta, tmp, &vif->ap.sta_list, list) {
             struct aml_txq *txq;
             int tid;
             foreach_sta_txq_safe(sta, txq, tid, vif->aml_hw) {
                 pkt_queued |= aml_txq_drop_old_traffic(txq, vif->aml_hw,
-                                                    timeout * sta->listen_interval,
-                                                    &pkt_dropped);
+                                                        timeout * sta->listen_interval,
+                                                        &pkt_dropped);
             }
         }
     }

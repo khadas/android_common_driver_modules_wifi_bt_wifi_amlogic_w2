@@ -618,7 +618,7 @@ out:
     spin_lock_bh(&aml_recy->aml_hw->cmd_mgr.lock);
     aml_recy->reason = 0;
     spin_unlock_bh(&aml_recy->aml_hw->cmd_mgr.lock);
-    aml_recy_flags_clr(AML_RECY_STATE_ONGOING | AML_RECY_DROP_XMIT_PKT);
+    aml_recy_flags_clr(AML_RECY_STATE_ONGOING | AML_RECY_DROP_XMIT_PKT | AML_GETTING_IP);
 
     return ret;
 }

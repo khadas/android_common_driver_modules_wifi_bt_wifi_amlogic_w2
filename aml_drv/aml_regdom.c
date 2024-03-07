@@ -162,11 +162,7 @@ void aml_apply_regdom(struct aml_hw *aml_hw, struct wiphy *wiphy, char *alpha2)
         wiphy->regulatory_flags |= WIPHY_FLAG_CUSTOM_REGULATORY;
 #endif
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0))
-#if LINUX_VERSION_CODE <= KERNEL_VERSION(6, 3, 12)
         wiphy->regulatory_flags |= REGULATORY_IGNORE_STALE_KICKOFF;
-#else
-        wiphy->regulatory_flags |= (REGULATORY_WIPHY_SELF_MANAGED >> 1);
-#endif
 #endif
 
         wiphy_apply_custom_regulatory(wiphy, regdom);

@@ -13,10 +13,6 @@
 #include <linux/ipv6.h>
 #include <net/ip.h>
 #include <net/sock.h>
-#include <linux/version.h>
-#if LINUX_VERSION_CODE > KERNEL_VERSION(6, 0, 0)
-#include <net/sch_generic.h>
-#endif
 #include "aml_defs.h"
 #include "aml_tx.h"
 #include "aml_msg_tx.h"
@@ -468,7 +464,7 @@ u16 aml_select_txq(struct aml_vif *aml_vif, struct sk_buff *skb)
 
         txq = aml_txq_sta_get(sta, skb->priority, aml_hw);
         netdev_queue = txq->ndev_idx;
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0) && LINUX_VERSION_CODE <= KERNEL_VERSION(5, 10, 0))
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0)
         queue_index = netdev_queue;
         queue_index = netdev_cap_txqueue(aml_vif->ndev, queue_index);
         netq = netdev_get_tx_queue(aml_vif->ndev, queue_index);
@@ -2267,11 +2263,7 @@ int aml_tx_cfm_task(void *data)
     }
     if (aml_hw->aml_txcfm_completion_init) {
         aml_hw->aml_txcfm_completion_init = 0;
-#if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
         complete_and_exit(&aml_hw->aml_txcfm_completion, 0);
-#else
-        complete(&aml_hw->aml_txcfm_completion);
-#endif
     }
 
     return 0;

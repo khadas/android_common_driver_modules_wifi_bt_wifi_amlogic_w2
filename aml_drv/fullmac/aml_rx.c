@@ -280,13 +280,8 @@ static int aml_rx_data_skb(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
 
                 skb_put(skb, le32_to_cpu(rxhdr->hwvect.len));
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 3, 0)
                 ieee80211_amsdu_to_8023s(skb, &list, aml_vif->ndev->dev_addr,
                                  AML_VIF_TYPE(aml_vif), 0, NULL, NULL);
-#else
-                ieee80211_amsdu_to_8023s(skb, &list, aml_vif->ndev->dev_addr,
-                                 AML_VIF_TYPE(aml_vif), 0, NULL, NULL, 0);
-#endif
 
                 count = skb_queue_len(&list);
                 if (count > ARRAY_SIZE(aml_hw->stats->amsdus_rx))
@@ -313,13 +308,8 @@ static int aml_rx_data_skb(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
                 int count;
 
                 skb_put(skb, le32_to_cpu(rxhdr->hwvect.len));
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 3, 0)
                 ieee80211_amsdu_to_8023s(skb, &list, aml_vif->ndev->dev_addr,
                                  AML_VIF_TYPE(aml_vif), 0, NULL, NULL);
-#else
-                ieee80211_amsdu_to_8023s(skb, &list, aml_vif->ndev->dev_addr,
-                                 AML_VIF_TYPE(aml_vif), 0, NULL, NULL, 0);
-#endif
 
                 count = skb_queue_len(&list);
                 if (count > ARRAY_SIZE(aml_hw->stats->amsdus_rx))
@@ -1375,24 +1365,6 @@ void aml_rxdata_deinit(void)
         kfree(rxdata);
 }
 
-struct rxdata *aml_get_rxdata_from_free_list(void)
-{
-    struct rxdata *rxdata = NULL;
-
-    if (!list_empty(&free_rxdata_list)) {
-        rxdata = list_first_entry(&free_rxdata_list, struct rxdata, list);
-        list_del(&rxdata->list);
-    } else {
-        ASSERT_ERR(0);
-    }
-
-    return rxdata;
-}
-
-void aml_put_rxdata_back_to_free_list(struct rxdata *rxdata)
-{
-    list_add_tail(&rxdata->list, &free_rxdata_list);
-}
 void aml_clear_reorder_list()
 {
     struct rxdata *rxdata_clear = NULL;
@@ -1405,6 +1377,26 @@ void aml_clear_reorder_list()
         }
         list_add_tail(&rxdata_clear->list, &free_rxdata_list);
     }
+}
+
+struct rxdata *aml_get_rxdata_from_free_list(void)
+{
+    struct rxdata *rxdata = NULL;
+
+    if (!list_empty(&free_rxdata_list)) {
+        rxdata = list_first_entry(&free_rxdata_list, struct rxdata, list);
+        list_del(&rxdata->list);
+    } else {
+        ASSERT_ERR(0);
+        aml_clear_reorder_list();
+    }
+
+    return rxdata;
+}
+
+void aml_put_rxdata_back_to_free_list(struct rxdata *rxdata)
+{
+    list_add_tail(&rxdata->list, &free_rxdata_list);
 }
 
 uint8_t aml_scan_find_already_saved(struct aml_hw *aml_hw, struct sk_buff *skb)
@@ -2060,7 +2052,7 @@ s8 aml_sdio_rxdataind(void *pthis, void *arg)
     REG_SW_SET_PROFILING(aml_hw, SW_PROF_AMLDATAIND);
 
     while (list_empty(&aml_hw->rxbuf_free_list)) {
-        usleep_range(2,3);
+        return result;
     }
 
     if (aml_hw->fw_buf_pos != aml_hw->fw_new_pos) {
@@ -2300,11 +2292,7 @@ int aml_rx_task(void *data)
     }
     if (aml_hw->aml_rx_completion_init) {
         aml_hw->aml_rx_completion_init = 0;
-#if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
         complete_and_exit(&aml_hw->aml_rx_completion, 0);
-#else
-        complete(&aml_hw->aml_rx_completion);
-#endif
     }
 
     return 0;

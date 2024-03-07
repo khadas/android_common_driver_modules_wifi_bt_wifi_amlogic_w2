@@ -27,8 +27,7 @@
 #define SECOND_PAGE_DATA_OFFSET 12
 #define TXHEADER_RESERVE_LEN 240
 #define TXDESC_OFFSET        32 // 4 + 28
-#define USB_TXDESC_OFFSET    272 // 4 + 28 + 240
-#define USB_DATA_OFFSET (USB_TXDESC_OFFSET+72) //payload
+#define USB_DATA_OFFSET 72 //payload
 
 #define SDIO_TX_PAGE_SMALL_SKIP_NUM 166
 #define SDIO_TX_PAGE_NUM_SMALL 90
@@ -38,7 +37,7 @@
 #if defined (USB_TX_USE_LARGE_PAGE) || defined (CONFIG_AML_USB_LARGE_PAGE)
 #define USB_PAGE_MAX    25
 
-#define USB_PAGE_LEN    4892
+#define USB_PAGE_LEN    4624
 
 #define USB_TX_PAGE_SMALL_SKIP_NUM 56
 #define USB_TX_PAGE_NUM_SMALL 21   //250 * 1024 / 1880

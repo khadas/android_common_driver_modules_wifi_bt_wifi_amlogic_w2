@@ -40,7 +40,7 @@
 //rename IRQ FOR USB OR SDIO
 #define IPC_A2E_MSG_IND CO_BIT(4)
 #define DEBUG_MSGE2A_BUF_CNT       130
-#define USB_AMSDU_BUF_LEN (4620)
+#define USB_AMSDU_BUF_LEN (4624)
 #define TRAFFIC_CPU_FLAG           BIT(0)
 #define TRAFFIC_SCAN_FLAG          BIT(1)
 
