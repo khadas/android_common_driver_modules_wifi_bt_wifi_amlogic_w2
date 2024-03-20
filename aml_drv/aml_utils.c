@@ -1187,7 +1187,11 @@ int aml_tx_task(void *data)
     if ((amsdu_dynabuf = vmalloc(sizeof(uint8_t *) * 256)) == NULL) {
         if (aml_hw->aml_tx_completion_init) {
             aml_hw->aml_tx_completion_init = 0;
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
             complete_and_exit(&aml_hw->aml_tx_completion, 0);
+#else
+            complete(&aml_hw->aml_tx_completion);
+#endif
         }
         return -1;
     }
@@ -1495,7 +1499,11 @@ int aml_tx_task(void *data)
     vfree(amsdu_dynabuf);
     if (aml_hw->aml_tx_completion_init) {
         aml_hw->aml_tx_completion_init = 0;
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
         complete_and_exit(&aml_hw->aml_tx_completion, 0);
+#else
+        complete(&aml_hw->aml_tx_completion);
+#endif
     }
 
     return 0;

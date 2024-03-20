@@ -1487,8 +1487,14 @@ static struct wireless_dev *aml_interface_add(struct aml_hw *aml_hw,
 
     if (vif_idx >= 1) {
         memcpy(ndev->dev_addr, aml_hw->wiphy->addresses[1].addr, ETH_ALEN);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 1)
+        memcpy(ndev->dev_addr_shadow, aml_hw->wiphy->addresses[1].addr, ETH_ALEN);
+#endif
     } else {
         memcpy(ndev->dev_addr, aml_hw->wiphy->addresses[0].addr, ETH_ALEN);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 1)
+        memcpy(ndev->dev_addr_shadow, aml_hw->wiphy->addresses[0].addr, ETH_ALEN);
+#endif
     }
 
     if (params) {
@@ -6507,7 +6513,11 @@ int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
     }
 
 #ifdef CONFIG_AML_NAPI
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 0)
     netif_napi_add(wdev->netdev, &aml_hw->napi, aml_napi_poll, AML_NAPI_WEIGHT);
+#else
+    netif_napi_add_weight(wdev->netdev, &aml_hw->napi, aml_napi_poll, AML_NAPI_WEIGHT);
+#endif
     napi_enable(&aml_hw->napi);
     __skb_queue_head_init(&aml_hw->napi_rx_upload_queue);
     __skb_queue_head_init(&aml_hw->napi_rx_pending_queue);

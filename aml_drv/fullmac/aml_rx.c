@@ -280,8 +280,13 @@ static int aml_rx_data_skb(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
 
                 skb_put(skb, le32_to_cpu(rxhdr->hwvect.len));
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 3, 0)
                 ieee80211_amsdu_to_8023s(skb, &list, aml_vif->ndev->dev_addr,
                                  AML_VIF_TYPE(aml_vif), 0, NULL, NULL);
+#else
+                ieee80211_amsdu_to_8023s(skb, &list, aml_vif->ndev->dev_addr,
+                                 AML_VIF_TYPE(aml_vif), 0, NULL, NULL, 0);
+#endif
 
                 count = skb_queue_len(&list);
                 if (count > ARRAY_SIZE(aml_hw->stats->amsdus_rx))
@@ -308,8 +313,13 @@ static int aml_rx_data_skb(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
                 int count;
 
                 skb_put(skb, le32_to_cpu(rxhdr->hwvect.len));
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 3, 0)
                 ieee80211_amsdu_to_8023s(skb, &list, aml_vif->ndev->dev_addr,
                                  AML_VIF_TYPE(aml_vif), 0, NULL, NULL);
+#else
+                ieee80211_amsdu_to_8023s(skb, &list, aml_vif->ndev->dev_addr,
+                                 AML_VIF_TYPE(aml_vif), 0, NULL, NULL, 0);
+#endif
 
                 count = skb_queue_len(&list);
                 if (count > ARRAY_SIZE(aml_hw->stats->amsdus_rx))
@@ -2292,7 +2302,11 @@ int aml_rx_task(void *data)
     }
     if (aml_hw->aml_rx_completion_init) {
         aml_hw->aml_rx_completion_init = 0;
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
         complete_and_exit(&aml_hw->aml_rx_completion, 0);
+#else
+        complete(&aml_hw->aml_rx_completion);
+#endif
     }
 
     return 0;

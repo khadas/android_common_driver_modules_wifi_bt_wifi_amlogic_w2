@@ -24,6 +24,7 @@
  * where nice range is -20 to 19
  * PR = 0 to 39 which is same as 100 to 139.
  * */
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
 #define AML_TASK_FUNC(data, name, func) do { \
     struct aml_hw *aml_hw = (struct aml_hw *)data; \
     set_user_nice(current, 5); \
@@ -34,6 +35,18 @@
     } \
     complete_and_exit(&aml_hw->name->task_cmpl, 0); \
 } while (0);
+#else
+#define AML_TASK_FUNC(data, name, func) do { \
+    struct aml_hw *aml_hw = (struct aml_hw *)data; \
+    set_user_nice(current, 5); \
+    while (!aml_hw->name->task_quit) { \
+        if (down_interruptible(&aml_hw->name->task_sem) != 0) break; \
+        if (aml_hw->name->task_quit) break; \
+        func(aml_hw); \
+    } \
+    complete(&aml_hw->name->task_cmpl); \
+} while (0);
+#endif
 
 #define AML_TASK_INIT(aml_hw, name)  do { \
     aml_hw->name = kmalloc(sizeof(struct aml_task), GFP_KERNEL); \
@@ -80,7 +93,11 @@ int aml_task_irqhdlr(void *data)
         enable_irq(aml_platform_get_irq(aml_hw->plat));
         aml_hw->plat->ack_irq(aml_hw);
     }
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
     complete_and_exit(&aml_hw->irqhdlr->task_cmpl, 0);
+#else
+    complete(&aml_hw->irqhdlr->task_cmpl);
+#endif
     return 0;
 }
 
@@ -101,7 +118,11 @@ int aml_task_rxdesc(void *data)
             break;
         aml_rxdesc_hdlr(aml_hw);
     }
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(5, 16, 20)
     complete_and_exit(&aml_hw->rxdesc->task_cmpl, 0);
+#else
+    complete(&aml_hw->rxdesc->task_cmpl);
+#endif
 
     return 0;
 }
