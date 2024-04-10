@@ -214,6 +214,9 @@ static void aml_cfg_store_macaddr(struct file *fp, struct aml_cfg *cfg)
 
     sprintf(mac_str, MACFMT, MACARG(cfg->vif1_mac));
     aml_cfg_store_tag(fp, "VIF1_MACADDR", mac_str);
+
+    sprintf(mac_str, MACFMT, MACARG(cfg->vif2_mac));
+    aml_cfg_store_tag(fp, "VIF2_MACADDR", mac_str);
 }
 
 static void aml_cfg_check_macaddr(u8 *mac_addr, bool use_aml_oui)
@@ -231,6 +234,7 @@ static int aml_cfg_to_file(struct aml_hw *aml_hw, struct aml_cfg *cfg, struct fi
 {
     u8 vif0_mac[ETH_ALEN] = { 0x1c, 0xa4, 0x10, 0x11, 0x22, 0x33 };
     u8 vif1_mac[ETH_ALEN] = { 0x1e, 0xa4, 0x10, 0x11, 0x22, 0x33 };
+    u8 vif2_mac[ETH_ALEN] = { 0x1e, 0xa4, 0x10, 0x11, 0x22, 0x32 };
     u8 bcst_mac[ETH_ALEN] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
     int ret = -1;
 
@@ -255,12 +259,15 @@ static int aml_cfg_to_file(struct aml_hw *aml_hw, struct aml_cfg *cfg, struct fi
         aml_cfg_check_macaddr(vif0_mac, 0);
         /* locally administered for vif1_mac */
         memcpy(vif1_mac, vif0_mac, ETH_ALEN);
-        vif1_mac[0] |= 0x02;
+        vif1_mac[0] |= BIT(1);
+        memcpy(vif2_mac, vif1_mac, ETH_ALEN);
+        vif2_mac[5] ^= BIT(0);
         /* update mac address to cfg->vifx_mac */
         memcpy(cfg->vif0_mac, vif0_mac, ETH_ALEN);
         memcpy(cfg->vif1_mac, vif1_mac, ETH_ALEN);
-        AML_INFO("vif0 mac address:%pM, vif1 mac address: %pM",
-                cfg->vif0_mac, cfg->vif1_mac);
+        memcpy(cfg->vif2_mac, vif2_mac, ETH_ALEN);
+        AML_INFO("vif0 mac address:%pM, vif1 mac address: %pM, vif2 mac address: %pM\n",
+                cfg->vif0_mac, cfg->vif1_mac, cfg->vif2_mac);
     }
     else
 #endif
@@ -277,13 +284,16 @@ static int aml_cfg_to_file(struct aml_hw *aml_hw, struct aml_cfg *cfg, struct fi
         }
         /* locally administered for vif1_mac */
         memcpy(vif1_mac, vif0_mac, ETH_ALEN);
-        vif1_mac[0] |= 0x02;
+        vif1_mac[0] |= BIT(1);
+        memcpy(vif2_mac, vif1_mac, ETH_ALEN);
+        vif2_mac[5] ^= BIT(0);
 
         /* update mac address to cfg->vifx_mac */
         memcpy(cfg->vif0_mac, vif0_mac, ETH_ALEN);
         memcpy(cfg->vif1_mac, vif1_mac, ETH_ALEN);
-        AML_INFO("vif0 mac address:%pM, vif1 mac address: %pM",
-                cfg->vif0_mac, cfg->vif1_mac);
+        memcpy(cfg->vif2_mac, vif2_mac, ETH_ALEN);
+        AML_INFO("vif0 mac address:%pM, vif1 mac address: %pM, vif2 mac address: %pM\n",
+                cfg->vif0_mac, cfg->vif1_mac, cfg->vif2_mac);
     }
 
     if (fp) {
@@ -333,11 +343,13 @@ static int aml_cfg_from_file(struct aml_cfg *cfg, struct file *fp)
     if (memcmp(cfg->vif0_mac, bcst_mac, ETH_ALEN) != 0)
     {
         aml_cfg_check_macaddr(cfg->vif0_mac, 0);
-        /* locally administered for vif1_mac */
+        /* locally administered for vif1_mac and vif2_mac */
         memcpy(cfg->vif1_mac, cfg->vif0_mac, ETH_ALEN);
-        cfg->vif1_mac[0] |= 0x02;
-        AML_INFO("vif0 mac address:%pM, vif1 mac address: %pM",
-                cfg->vif0_mac, cfg->vif1_mac);
+        cfg->vif1_mac[0] |= BIT(1);
+        memcpy(cfg->vif2_mac, cfg->vif1_mac, ETH_ALEN);
+        cfg->vif2_mac[5] ^= BIT(0);
+        AML_INFO("vif0 mac address:%pM, vif1 mac address: %pM, vif2 mac address: %pM\n",
+                cfg->vif0_mac, cfg->vif1_mac, cfg->vif2_mac);
     }
     else
 #endif
@@ -364,6 +376,18 @@ static int aml_cfg_from_file(struct aml_cfg *cfg, struct file *fp)
                     cfg->vif1_mac + 2, cfg->vif1_mac + 3,
                     cfg->vif1_mac + 4, cfg->vif1_mac + 5);
             AML_INFO("get vif1 mac:"MACFMT, MACARG(cfg->vif1_mac));
+        }
+
+        /* get vif2 mac address from file */
+        tag_ptr = aml_cfg_find_tag(fbuf, strlen(fbuf),
+                "VIF2_MACADDR=", strlen("00:00:00:00:00:00"));
+        if (tag_ptr) {
+            sscanf((const char *)tag_ptr,
+                    "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+                    cfg->vif2_mac + 0, cfg->vif2_mac + 1,
+                    cfg->vif2_mac + 2, cfg->vif2_mac + 3,
+                    cfg->vif2_mac + 4, cfg->vif2_mac + 5);
+            AML_INFO("get vif2 mac:"MACFMT, MACARG(cfg->vif2_mac));
         }
     }
 

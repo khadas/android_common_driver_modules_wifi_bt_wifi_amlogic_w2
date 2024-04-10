@@ -279,7 +279,6 @@ static int aml_rx_data_skb(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
                 int count;
 
                 skb_put(skb, le32_to_cpu(rxhdr->hwvect.len));
-
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 3, 0)
                 ieee80211_amsdu_to_8023s(skb, &list, aml_vif->ndev->dev_addr,
                                  AML_VIF_TYPE(aml_vif), 0, NULL, NULL);
@@ -287,7 +286,6 @@ static int aml_rx_data_skb(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
                 ieee80211_amsdu_to_8023s(skb, &list, aml_vif->ndev->dev_addr,
                                  AML_VIF_TYPE(aml_vif), 0, NULL, NULL, 0);
 #endif
-
                 count = skb_queue_len(&list);
                 if (count > ARRAY_SIZE(aml_hw->stats->amsdus_rx))
                     count = ARRAY_SIZE(aml_hw->stats->amsdus_rx);
@@ -320,7 +318,6 @@ static int aml_rx_data_skb(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
                 ieee80211_amsdu_to_8023s(skb, &list, aml_vif->ndev->dev_addr,
                                  AML_VIF_TYPE(aml_vif), 0, NULL, NULL, 0);
 #endif
-
                 count = skb_queue_len(&list);
                 if (count > ARRAY_SIZE(aml_hw->stats->amsdus_rx))
                     count = ARRAY_SIZE(aml_hw->stats->amsdus_rx);
@@ -509,9 +506,34 @@ static void aml_rx_mgmt(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
 {
     struct ieee80211_mgmt *mgmt = (struct ieee80211_mgmt *)skb->data;
     struct rx_vector_1 *rxvect = &hw_rxhdr->hwvect.rx_vect1;
+    uint32_t sp_ret = 0;
 
     if (aml_bus_type != PCIE_MODE) {
         aml_scan_rx(aml_hw, hw_rxhdr, skb);
+    }
+
+    sp_ret = aml_filter_sp_mgmt_frame(aml_vif, mgmt, SP_STATUS_RX, skb->len, NULL);
+
+    if (sp_ret & AML_GAS_INIT_RSP_FRAME) {
+        aml_tx_cfm_wait_rsp(aml_hw, true, __func__, __LINE__);
+    }
+
+    if ((sp_ret & AML_GAS_ACTION_FRAME) || (sp_ret & AML_P2P_ACTION_FRAME)) {
+        if (aml_hw->scan_request) {
+            enum aml_wq_type type = AML_WQ_CANCEL_SCAN;
+            struct aml_wq *aml_wq;
+
+            aml_wq = aml_wq_alloc(1);
+            if (!aml_wq) {
+                AML_INFO("alloc workqueue out of memory");
+            }
+            else {
+                aml_wq->id = AML_WQ_CANCEL_SCAN;
+                aml_wq->aml_vif = aml_vif;
+                memcpy(aml_wq->data, &type, 1);
+                aml_wq_add(aml_hw, aml_wq);
+            }
+        }
     }
 
     if (ieee80211_is_beacon(mgmt->frame_control)) {

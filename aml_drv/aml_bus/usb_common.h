@@ -14,7 +14,7 @@
 
 #define OS_LOCK spinlock_t
 
-#define PRINT(...)      do {printk("aml_usb_common->");printk( __VA_ARGS__ );}while(0)
+#define PRINT(a, ...)      do {printk("aml_usb_common->"a, ##__VA_ARGS__ );}while(0)
 #ifndef ASSERT
 #define ASSERT(exp) do{    \
                 if (!(exp)) {   \

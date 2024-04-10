@@ -71,7 +71,7 @@
 
 // WIFI_CALI_VERSION must be consistent with the version field in "/vendor/firmware/"
 // After updating the parameters, it must be modified at the same time.
-#define WIFI_CALI_VERSION   (15)
+#define WIFI_CALI_VERSION   (17)
 #define WIFI_CALI_FILENAME  "aml_wifi_rf.txt"
 
 #define STRUCT_BUFF_LEN   252
@@ -318,8 +318,10 @@ struct aml_vif {
     u32 filter;
     u8 is_disconnect;
     unsigned char ipv4_addr[IPV4_ADDR_LEN];
+    unsigned char subnet_mask[IPV4_ADDR_LEN];
     /* protect union sta/ap content */
     spinlock_t vif_lock;
+    struct tx_cfm_wait_rsp tx_cfm_wait;
     union
     {
         struct
@@ -986,6 +988,7 @@ struct aml_hw {
 
 
     struct urb *g_urb;
+    uint16_t trb_wait_time;
     struct usb_ctrlrequest *g_cr;
     unsigned char *g_buffer;
     u8 la_enable;

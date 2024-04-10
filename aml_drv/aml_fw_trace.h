@@ -126,6 +126,14 @@ struct log_file_info {
     struct mutex mutex;
 };
 
+enum {
+    AML_TRACE_FW_LOG_START = 0xFF01,
+    AML_TRACE_FW_LOG_STOP,
+    AML_TRACE_FW_LOG_UPLOAD,
+    AML_LA_MACTRACE_UPLOAD,
+    AML_MEM_DUMP_UPLOAD,
+};
+
 int aml_fw_trace_init(struct aml_fw_trace *trace,
                        struct aml_fw_trace_ipc_desc *ipc);
 void aml_fw_trace_deinit(struct aml_fw_trace *trace);
@@ -157,7 +165,7 @@ int aml_fw_trace_config_filters(struct aml_fw_trace_buf *trace_buf,
 
 int aml_fw_trace_save_filters(struct aml_fw_trace *trace);
 int aml_fw_trace_restore_filters(struct aml_fw_trace *trace);
-int aml_log_file_info_init(int mode);
+int aml_trace_buf_init(void);
 loff_t aml_get_file_size(const char *filename);
 int aml_trace_log_to_file(uint16_t *trace, uint16_t *trace_limit);
 void aml_send_err_info_to_diag(char *pbuf, int len);

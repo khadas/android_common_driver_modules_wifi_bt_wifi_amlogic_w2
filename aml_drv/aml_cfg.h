@@ -41,6 +41,7 @@ struct aml_cfg {
     unsigned int chipid_h;
     u8 vif0_mac[ETH_ALEN];
     u8 vif1_mac[ETH_ALEN];
+    u8 vif2_mac[ETH_ALEN];
 };
 
 struct aml_cfg_phy {

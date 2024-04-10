@@ -68,6 +68,25 @@ struct aml_hw *g_pst_aml_hw = NULL;
 
 #define AML_SCAN_INTERNAL_THR 12000
 
+
+enum aml_intf_type {
+    AML_IFTYPE_STA,
+    AML_IFTYPE_P2P,
+    AML_IFTYPE_SAP,
+    AML_IFTYPE_MAX,
+};
+
+#define AML_IFNAME_STA  "wlan%d"
+#define AML_IFNAME_P2P  "p2p%d"
+#define AML_IFNAME_SAP  "ap%d"
+
+const char *aml_intf_name[AML_IFTYPE_MAX] = {
+    AML_IFNAME_STA,
+    AML_IFNAME_P2P,
+    AML_IFNAME_SAP,
+};
+
+
 #define AML_PRINT_CFM_ERR(req) \
         printk(KERN_CRIT "%s: Status Error(%d)\n", #req, (&req##_cfm)->status)
 
@@ -498,7 +517,8 @@ static const int aml_hwq2uapsd[NL80211_NUM_ACS] = {
 };
 
 extern void aml_print_version(void);
-extern void aml_log_file_info_deinit(void);
+extern int aml_trace_buf_init(void);
+extern void aml_trace_buf_deinit(void);
 extern struct aml_bus_state_detect bus_state_detect;
 extern struct usb_device *g_udev;
 /*********************************************************************
@@ -996,14 +1016,18 @@ static int aml_open(struct net_device *dev)
 #endif
 
     // Check if it is the first opened VIF
-    if (strcmp(dev->name, "wlan0")) {
-        memcpy(dev->dev_addr, aml_hw->wiphy->addresses[1].addr, ETH_ALEN);
-    } else {
+    if (strncmp(dev->name, AML_IFNAME_STA, 4) == 0) {
         memcpy(dev->dev_addr, aml_hw->wiphy->addresses[0].addr, ETH_ALEN);
+    } else if (strncmp(dev->name, AML_IFNAME_P2P, 3) == 0) {
+        memcpy(dev->dev_addr, aml_hw->wiphy->addresses[1].addr, ETH_ALEN);
+    } else if (strncmp(dev->name, AML_IFNAME_SAP, 2) == 0) {
+        memcpy(dev->dev_addr, aml_hw->wiphy->addresses[2].addr, ETH_ALEN);
+    } else {
+        AML_INFO("open netdev name(%s) error\n", dev->name);
+        return -1;
     }
 
-    if (aml_hw->vif_started == 0)
-    {
+    if (aml_hw->vif_started == 0) {
         // Start the FW
        if ((error = aml_send_start(aml_hw))) {
 #ifdef CONFIG_AML_RECOVERY
@@ -1167,6 +1191,7 @@ static int aml_close(struct net_device *dev)
 
     spin_lock_bh(&aml_hw->roc_lock);
     if (aml_hw->roc && (aml_hw->roc->vif == aml_vif)) {
+        aml_tx_cfm_wait_rsp(aml_hw, false, __func__, __LINE__);
         kfree(aml_hw->roc);
         aml_hw->roc = NULL;
     }
@@ -1485,16 +1510,24 @@ static struct wireless_dev *aml_interface_add(struct aml_hw *aml_hw,
         break;
     }
 
-    if (vif_idx >= 1) {
-        memcpy(ndev->dev_addr, aml_hw->wiphy->addresses[1].addr, ETH_ALEN);
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 1)
-        memcpy(ndev->dev_addr_shadow, aml_hw->wiphy->addresses[1].addr, ETH_ALEN);
-#endif
-    } else {
+    if (strncmp(ndev->name, AML_IFNAME_STA, 4) == 0) {
         memcpy(ndev->dev_addr, aml_hw->wiphy->addresses[0].addr, ETH_ALEN);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 1)
         memcpy(ndev->dev_addr_shadow, aml_hw->wiphy->addresses[0].addr, ETH_ALEN);
 #endif
+    } else if (strncmp(ndev->name, AML_IFNAME_P2P, 3) == 0) {
+        memcpy(ndev->dev_addr, aml_hw->wiphy->addresses[1].addr, ETH_ALEN);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 1)
+        memcpy(ndev->dev_addr_shadow, aml_hw->wiphy->addresses[1].addr, ETH_ALEN);
+#endif
+    } else if (strncmp(ndev->name, AML_IFNAME_SAP, 2) == 0) {
+        memcpy(ndev->dev_addr, aml_hw->wiphy->addresses[2].addr, ETH_ALEN);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 1)
+        memcpy(ndev->dev_addr_shadow, aml_hw->wiphy->addresses[2].addr, ETH_ALEN);
+#endif
+    } else {
+        AML_INFO("add interface name(%s) error\n", ndev->name);
+        goto err;
     }
 
     if (params) {
@@ -1726,7 +1759,7 @@ int aml_cfg80211_change_iface(struct wiphy *wiphy,
 void aml_set_scan_hang(struct aml_vif *aml_vif, int scan_hang, u8* func, u32 line)
 {
     aml_vif->sta.scan_hang = scan_hang;
-    printk("set_scan_hang, flag:%d, [%s %d]", scan_hang, func, line);
+    printk("set_scan_hang, flag:%d, [%s %d]\n", scan_hang, func, line);
 }
 
 static unsigned long last_scan_time = 0;
@@ -3144,7 +3177,6 @@ aml_cfg80211_remain_on_channel(struct wiphy *wiphy, struct wireless_dev *wdev,
             AML_VIF_TYPE(vif) == NL80211_IFTYPE_P2P_CLIENT) {
             if (vif->sta.ap && vif->sta.ap->valid) {
                 int count = 0;
-                AML_INFO("vif:%d is getting IP, wait for getting ip\n", vif->vif_index);
                 while (aml_connect_flags_chk(vif, AML_GETTING_IP)) {
                     msleep(10);
                     if (count++ > 100) {
@@ -3336,9 +3368,10 @@ static int aml_cfg80211_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
                                  mgmt->frame_control, ap);
 
     if (params->offchan) {
-        if (!params->chan)
+        if (!params->chan) {
+            AML_INFO("error");
             return -EINVAL;
-
+        }
         offchan = true;
         if (aml_chanctx_valid(aml_hw, aml_vif->ch_index)) {
             struct aml_chanctx *ctxt = &aml_hw->chanctx_table[aml_vif->ch_index];
@@ -3353,17 +3386,18 @@ static int aml_cfg80211_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
 
     if (offchan) {
         struct aml_roc *roc = aml_hw->roc;
+        bool lunch_roc = false;
         // Offchannel transmission, need to start a RoC
         if (roc) {
             // Test if current RoC can be re-used
             if ((roc->vif != aml_vif) ||
                 (roc->chan->center_freq != params->chan->center_freq)) {
-                AML_INFO("roc chan=0x%x,params chan=0x%X\n",roc->chan->center_freq,params->chan->center_freq);
-                cfg80211_mgmt_tx_status(wdev,*cookie,mgmt,params->len,0,GFP_ATOMIC);
-                return 0;
+                AML_INFO("roc chan=%d, params chan=%d\n", roc->chan->center_freq, params->chan->center_freq);
+                lunch_roc = true;
             }
-            // TODO: inform FW to increase RoC duration
-        } else {
+        }
+
+        if (lunch_roc || !roc) {
             int error;
             unsigned int duration = 30;
 
@@ -3371,11 +3405,13 @@ static int aml_cfg80211_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
             if (params->wait)
                 duration = params->wait;
 
+            AML_INFO("lunch roc for mgmt tx, dur:%d chan:%d\n", duration, params->chan->center_freq);
             error = aml_cfg80211_remain_on_channel(wiphy, wdev, params->chan,
                                                     duration, NULL);
-            if (error)
+            if (error) {
+                AML_INFO("error");
                 return error;
-
+            }
             // internal RoC, no need to inform user space about it
             spin_lock_bh(&aml_hw->roc_lock);
             if (aml_hw->roc) {
@@ -4794,6 +4830,7 @@ int aml_cancel_scan(struct aml_hw *aml_hw, struct aml_vif *vif)
             return -EINVAL;
         }
     }
+    vif->sta.cancel_scan_cfm = 0;
 
     return 0;
 }
@@ -5510,20 +5547,32 @@ unsigned char aml_parse_cali_param(char *varbuf, int len, struct Cali_Param *cal
     aml_get_s8_item(varbuf, len, "wf2g_he20_tpwr", &cali_param->wf2g_he20_tpwr[0]);
     aml_get_s8_item(varbuf, len, "wf2g_he40_tpwr", &cali_param->wf2g_he40_tpwr[0]);
 
-    aml_get_s8_item(varbuf, len, "wf5g_11a_tpwr", &cali_param->wf5g_11a_tpwr[0]);
-    aml_get_s8_item(varbuf, len, "wf5g_ht20_tpwr", &cali_param->wf5g_ht20_tpwr[0]);
-    aml_get_s8_item(varbuf, len, "wf5g_ht40_tpwr", &cali_param->wf5g_ht40_tpwr[0]);
-    aml_get_s8_item(varbuf, len, "wf5g_vht20_tpwr", &cali_param->wf5g_vht20_tpwr[0]);
-    aml_get_s8_item(varbuf, len, "wf5g_vht40_tpwr", &cali_param->wf5g_vht40_tpwr[0]);
-    aml_get_s8_item(varbuf, len, "wf5g_vht80_tpwr", &cali_param->wf5g_vht80_tpwr[0]);
-    aml_get_s8_item(varbuf, len, "wf5g_he20_tpwr", &cali_param->wf5g_he20_tpwr[0]);
-    aml_get_s8_item(varbuf, len, "wf5g_he40_tpwr", &cali_param->wf5g_he40_tpwr[0]);
-    aml_get_s8_item(varbuf, len, "wf5g_he80_tpwr", &cali_param->wf5g_he80_tpwr[0]);
+    aml_get_s8_item(varbuf, len, "wf5g_11a_tpwr_lm", &cali_param->wf5g_11a_tpwr_lm[0]);
+    aml_get_s8_item(varbuf, len, "wf5g_ht20_tpwr_lm", &cali_param->wf5g_ht20_tpwr_lm[0]);
+    aml_get_s8_item(varbuf, len, "wf5g_ht40_tpwr_lm", &cali_param->wf5g_ht40_tpwr_lm[0]);
+    aml_get_s8_item(varbuf, len, "wf5g_vht20_tpwr_lm", &cali_param->wf5g_vht20_tpwr_lm[0]);
+    aml_get_s8_item(varbuf, len, "wf5g_vht40_tpwr_lm", &cali_param->wf5g_vht40_tpwr_lm[0]);
+    aml_get_s8_item(varbuf, len, "wf5g_vht80_tpwr_lm", &cali_param->wf5g_vht80_tpwr_lm[0]);
+    aml_get_s8_item(varbuf, len, "wf5g_he20_tpwr_lm", &cali_param->wf5g_he20_tpwr_lm[0]);
+    aml_get_s8_item(varbuf, len, "wf5g_he40_tpwr_lm", &cali_param->wf5g_he40_tpwr_lm[0]);
+    aml_get_s8_item(varbuf, len, "wf5g_he80_tpwr_lm", &cali_param->wf5g_he80_tpwr_lm[0]);
+
+    aml_get_s8_item(varbuf, len, "wf5g_11a_tpwr_h", &cali_param->wf5g_11a_tpwr_h[0]);
+    aml_get_s8_item(varbuf, len, "wf5g_ht20_tpwr_h", &cali_param->wf5g_ht20_tpwr_h[0]);
+    aml_get_s8_item(varbuf, len, "wf5g_ht40_tpwr_h", &cali_param->wf5g_ht40_tpwr_h[0]);
+    aml_get_s8_item(varbuf, len, "wf5g_vht20_tpwr_h", &cali_param->wf5g_vht20_tpwr_h[0]);
+    aml_get_s8_item(varbuf, len, "wf5g_vht40_tpwr_h", &cali_param->wf5g_vht40_tpwr_h[0]);
+    aml_get_s8_item(varbuf, len, "wf5g_vht80_tpwr_h", &cali_param->wf5g_vht80_tpwr_h[0]);
+    aml_get_s8_item(varbuf, len, "wf5g_he20_tpwr_h", &cali_param->wf5g_he20_tpwr_h[0]);
+    aml_get_s8_item(varbuf, len, "wf5g_he40_tpwr_h", &cali_param->wf5g_he40_tpwr_h[0]);
+    aml_get_s8_item(varbuf, len, "wf5g_he80_tpwr_h", &cali_param->wf5g_he80_tpwr_h[0]);
+
     aml_get_s8_item(varbuf, len, "wf5g_lch_he_lowrssi_tpwr", &cali_param->wf5g_lch_he_lowrssi_tpwr[0]);
     aml_get_s8_item(varbuf, len, "wf5g_mch_he_lowrssi_tpwr", &cali_param->wf5g_mch_he_lowrssi_tpwr[0]);
     aml_get_s8_item(varbuf, len, "wf5g_hch_he20_lowrssi_tpwr", &cali_param->wf5g_hch_he20_lowrssi_tpwr[0]);
     aml_get_s8_item(varbuf, len, "wf5g_hch_he40_lowrssi_tpwr", &cali_param->wf5g_hch_he40_lowrssi_tpwr[0]);
     aml_get_s8_item(varbuf, len, "wf5g_hch_he80_lowrssi_tpwr", &cali_param->wf5g_hch_he80_lowrssi_tpwr[0]);
+    aml_get_s8_item(varbuf, len, "wf5g_vht_lowrssi_tpwr", &cali_param->wf5g_vht_lowrssi_tpwr[0]);
 
     aml_get_s8_item(varbuf, len, "customer_efuse_en", &cali_param->w2_efuse_param.customer_efuse_en);
     aml_get_s8_item(varbuf, len, "FT_efuse_en", &cali_param->w2_efuse_param.FT_efuse_en);
@@ -5649,10 +5698,11 @@ unsigned char aml_parse_cali_param(char *varbuf, int len, struct Cali_Param *cal
     printk("======>>>>>> wf2g_he20_tpwr = %d\n", cali_param->wf2g_he20_tpwr[0]);
     printk("======>>>>>> wf2g_he40_tpwr = %d\n", cali_param->wf2g_he40_tpwr[0]);
 
-    printk("======>>>>>> wf5g_he20_tpwr = %d\n", cali_param->wf5g_he20_tpwr[0]);
-    printk("======>>>>>> wf5g_he40_tpwr = %d\n", cali_param->wf5g_he40_tpwr[0]);
-    printk("======>>>>>> wf5g_he80_tpwr = %d\n", cali_param->wf5g_he80_tpwr[0]);
+    printk("======>>>>>> wf5g_he20_tpwr_h = %d\n", cali_param->wf5g_he20_tpwr_h[0]);
+    printk("======>>>>>> wf5g_he40_tpwr_h = %d\n", cali_param->wf5g_he40_tpwr_h[0]);
+    printk("======>>>>>> wf5g_he80_tpwr_h = %d\n", cali_param->wf5g_he80_tpwr_h[0]);
     printk("======>>>>>> wf5g_hch_he80_lowrssi_tpwr = %d\n", cali_param->wf5g_hch_he80_lowrssi_tpwr[0]);
+    printk("======>>>>>> wf5g_vht_lowrssi_tpwr = %d\n", cali_param->wf5g_vht_lowrssi_tpwr[0]);
 
     printk("======>>>>>> customer_efuse_en = 0x%x\n", cali_param->w2_efuse_param.customer_efuse_en);
     printk("======>>>>>> FT_efuse_en = 0x%x\n", cali_param->w2_efuse_param.FT_efuse_en);
@@ -6008,6 +6058,7 @@ static int aml_inetaddr_event(struct notifier_block *this,
                     || ((aml_vif->vif_index == AML_P2P_VIF_IDX)
                     && (aml_vif->wdev.iftype == NL80211_IFTYPE_P2P_CLIENT))) {
                 memcpy(aml_vif->ipv4_addr, (uint8_t *)&ifa->ifa_address, IPV4_ADDR_LEN);
+                memcpy(aml_vif->subnet_mask, (uint8_t *)&ifa->ifa_mask, IPV4_ADDR_LEN);
                 aml_send_notify_ip(aml_vif, IPV4_VER, aml_vif->ipv4_addr);
 #ifdef SCC_STA_SOFTAP
                 aml_scc_check_chan_conflict(aml_vif->aml_hw);
@@ -6086,14 +6137,15 @@ static struct notifier_block aml_ipv6_cb = {
 
 static int aml_wiphy_addresses_add(struct wiphy *wiphy, struct aml_cfg cfg)
 {
-    wiphy->addresses = (struct mac_address *)kmalloc(ETH_ALEN * 2, GFP_KERNEL);
+    wiphy->addresses = (struct mac_address *)kmalloc(ETH_ALEN * AML_IFTYPE_MAX, GFP_KERNEL);
     if (!wiphy->addresses) {
         wiphy_err(wiphy, "kmalloc mac address failed\n");
         return -1;
     }
-    wiphy->n_addresses = 2;
-    memcpy(wiphy->addresses, cfg.vif0_mac, ETH_ALEN);
+    wiphy->n_addresses = AML_IFTYPE_MAX;
+    memcpy(wiphy->addresses + 0, cfg.vif0_mac, ETH_ALEN);
     memcpy(wiphy->addresses + 1, cfg.vif1_mac, ETH_ALEN);
+    memcpy(wiphy->addresses + 2, cfg.vif2_mac, ETH_ALEN);
 
     return 0;
 }
@@ -6254,6 +6306,41 @@ const struct wiphy_vendor_command aml_wiphy_vendor_commands[] =
 {
     ANDROID_MDNS_OFFLOAD_VENDOR_CMD,
 };
+
+static int aml_interface_add_all(struct aml_hw *aml_hw, bool custchan)
+{
+    struct wireless_dev *wdev;
+    enum nl80211_iftype iftype;
+    int i;
+
+    for (i = 0; i < AML_IFTYPE_MAX; i++) {
+        rtnl_lock();
+        iftype = (custchan && (i == AML_IFTYPE_STA)) ? NL80211_IFTYPE_MONITOR : NL80211_IFTYPE_STATION;
+        wdev = aml_interface_add(aml_hw, aml_intf_name[i], NET_NAME_UNKNOWN, iftype, NULL);
+        rtnl_unlock();
+        if (!wdev) {
+            pr_err("add interface %s failed\n", aml_intf_name[i]);
+            return -ENOMEM;
+        }
+        pr_info("new interface create %s success\n", wdev->netdev->name);
+#ifdef CONFIG_AML_NAPI
+        if (i == AML_IFTYPE_STA) {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 0)
+            netif_napi_add(wdev->netdev, &aml_hw->napi, aml_napi_poll, AML_NAPI_WEIGHT);
+#else
+            netif_napi_add_weight(wdev->netdev, &aml_hw->napi, aml_napi_poll, AML_NAPI_WEIGHT);
+#endif
+            napi_enable(&aml_hw->napi);
+            __skb_queue_head_init(&aml_hw->napi_rx_upload_queue);
+            __skb_queue_head_init(&aml_hw->napi_rx_pending_queue);
+            aml_hw->napi_pend_pkt_num = 16;
+            aml_hw->napi_enable = 0;
+            aml_hw->gro_enable = 0;
+        }
+#endif
+    }
+    return 0;
+}
 
 extern struct aml_bus_state_detect bus_state_detect;
 int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
@@ -6448,6 +6535,10 @@ int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
     aml_sync_trace_init(aml_hw);
 #endif
 
+    if (ret = aml_trace_buf_init()) {
+        AML_INFO("alloc trace buf failed(%d)!\n", ret);
+    }
+
 #ifdef CONFIG_AML_RECOVERY
     aml_recy_init(aml_hw);
 #endif
@@ -6480,16 +6571,7 @@ int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
         goto err_config;
     }
 
-    rtnl_lock();
-
-    printk("%s:%d\n", __func__, __LINE__);
-    /* Add an initial interface */
-    wdev = aml_interface_add(aml_hw, "wlan%d", NET_NAME_UNKNOWN,
-               aml_mod_params.custchan ? NL80211_IFTYPE_MONITOR : NL80211_IFTYPE_STATION,
-               NULL);
-
-    rtnl_unlock();
-    if (!wdev) {
+    if ((ret = aml_interface_add_all(aml_hw, aml_mod_params.custchan))) {
         wiphy_err(wiphy, "Failed to instantiate a network device\n");
         ret = -ENOMEM;
         goto err_add_interface;
@@ -6512,42 +6594,15 @@ int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
         printk("%s failed to register panic notifier(%d)\n", __func__, ret);
     }
 
-#ifdef CONFIG_AML_NAPI
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 0)
-    netif_napi_add(wdev->netdev, &aml_hw->napi, aml_napi_poll, AML_NAPI_WEIGHT);
-#else
-    netif_napi_add_weight(wdev->netdev, &aml_hw->napi, aml_napi_poll, AML_NAPI_WEIGHT);
-#endif
-    napi_enable(&aml_hw->napi);
-    __skb_queue_head_init(&aml_hw->napi_rx_upload_queue);
-    __skb_queue_head_init(&aml_hw->napi_rx_pending_queue);
-    aml_hw->napi_pend_pkt_num = 16;
-    aml_hw->napi_enable = 0;
-    aml_hw->gro_enable = 0;
-#endif
     if (aml_bus_type == PCIE_MODE) {
         g_txdesc_trigger.ths_enable = 1;
         g_txdesc_trigger.txdesc_cnt = 0;
         g_txdesc_trigger.dynamic_cnt = 6;
         g_txdesc_trigger.tx_pcie_ths = 8;
     }
-    wiphy_info(wiphy, "New interface create %s", wdev->netdev->name);
-    rtnl_lock();
-
-    /* Add another interface, it will be use for p2p and softap */
-    wdev = aml_interface_add(aml_hw, "ap%d", NET_NAME_UNKNOWN,
-               NL80211_IFTYPE_STATION, NULL);
-    rtnl_unlock();
-    if (!wdev) {
-        wiphy_err(wiphy, "Failed to add the second network device\n");
-        ret = -ENOMEM;
-        goto err_add_interface;
-    }
 
     //tempsensor interrupt enable
     aml_set_temp_start(aml_hw);
-
-    wiphy_info(wiphy, "New interface create %s", wdev->netdev->name);
 
     // init sdio/usb/pcie interface
     //aml_lp_shutdown_func_register
@@ -6611,7 +6666,7 @@ void aml_cfg80211_deinit(struct aml_hw *aml_hw)
         kfree(g_mmc_misc);
 #endif
 #ifdef CONFIG_AML_DEBUGFS
-        aml_log_file_info_deinit();
+        aml_trace_buf_deinit();
 #endif
     }
     aml_hwctx_buf_deinit(aml_hw);

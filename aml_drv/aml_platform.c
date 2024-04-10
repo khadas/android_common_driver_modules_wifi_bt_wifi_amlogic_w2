@@ -1964,7 +1964,7 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
         usb_stor_control_msg(aml_hw, aml_hw->g_urb);
         aml_hw->g_tx_param.tx_page_free_num = USB_TX_PAGE_NUM_SMALL;
         aml_hw->g_tx_param.tx_page_tot_num = USB_TX_PAGE_NUM_SMALL;
-
+        aml_hw->trb_wait_time = USB_SEND_URB_DEFAULT_WAIT_TIME;
         USB_BEGIN_LOCK();
         coex_flag = 1;
         USB_END_LOCK();

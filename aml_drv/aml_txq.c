@@ -260,6 +260,17 @@ void aml_txq_drop_skb(struct aml_txq *txq, struct sk_buff *skb, struct aml_hw *a
 #endif
     }
 #endif
+
+    if (sw_txhdr->desc.api.host.flags & TXU_CNTRL_MGMT) {
+        AML_INFO("cfm status for mgmt");
+        /* Confirm transmission to CFG80211 */
+        cfg80211_mgmt_tx_status(&sw_txhdr->aml_vif->wdev,
+                                (unsigned long)skb, skb_mac_header(skb),
+                                sw_txhdr->frame_len,
+                                0,
+                                GFP_ATOMIC);
+    }
+
     aml_ipc_buf_a2e_release(aml_hw, &sw_txhdr->ipc_data);
     kmem_cache_free(aml_hw->sw_txhdr_cache, sw_txhdr);
     if (retry_packet) {
@@ -719,10 +730,10 @@ static bool aml_txq_drop_ap_vif_old_traffic(struct aml_vif *vif)
 #endif
     }
 
-    spin_lock_bh(&vif->vif_lock);
     /* protect union struct vif->ap.sta_list was overwritten
      * by vif->sta.ap = NULL when aml_cfg80211_change_iface
      */
+    spin_lock_bh(&vif->vif_lock);
     if (vif->ap.sta_list.next) {
         list_for_each_entry_safe(sta, tmp, &vif->ap.sta_list, list) {
             struct aml_txq *txq;
@@ -769,15 +780,15 @@ static bool aml_txq_drop_sta_vif_old_traffic(struct aml_vif *vif)
         }
     }
 
+    spin_lock_bh(&vif->vif_lock);
     if (vif->sta.ap) {
-        spin_lock_bh(&vif->vif_lock);
         foreach_sta_txq_safe(vif->sta.ap, txq, tid, vif->aml_hw) {
             pkt_queued |= aml_txq_drop_old_traffic(txq, vif->aml_hw,
                                                     AML_TXQ_MAX_QUEUE_JIFFIES,
                                                     &pkt_dropped);
         }
-        spin_unlock_bh(&vif->vif_lock);
     }
+    spin_unlock_bh(&vif->vif_lock);
 
     if (pkt_dropped) {
         struct aml_wq *aml_wq;
@@ -1137,11 +1148,9 @@ void aml_txq_vif_for_each_sta(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
     case NL80211_IFTYPE_P2P_GO:
     {
         struct aml_sta *sta, *tmp;
-        spin_lock_bh(&aml_vif->vif_lock);
         list_for_each_entry_safe(sta, tmp, &aml_vif->ap.sta_list, list) {
             f(sta, reason, aml_hw);
         }
-        spin_unlock_bh(&aml_vif->vif_lock);
         break;
     }
     default:
@@ -1174,7 +1183,8 @@ void aml_txq_vif_start(struct aml_vif *aml_vif, u16 reason,
 #endif
 
     trace_txq_vif_start(aml_vif->vif_index);
-
+    /* vif_lock should be outside of tx_lock, it avoid the lock cross @aml_txq_cleanup_timer_cb */
+    spin_lock_bh(&aml_vif->vif_lock);
     spin_lock_bh(&aml_hw->tx_lock);
 
 #ifdef CONFIG_AML_SOFTMAC
@@ -1209,6 +1219,7 @@ end:
 #endif /* CONFIG_AML_SOFTMAC */
 
     spin_unlock_bh(&aml_hw->tx_lock);
+    spin_unlock_bh(&aml_vif->vif_lock);
 }
 
 
@@ -1233,6 +1244,8 @@ void aml_txq_vif_stop(struct aml_vif *aml_vif, u16 reason,
 #endif
 
     trace_txq_vif_stop(aml_vif->vif_index);
+    /* vif_lock should be outside of tx_lock, it avoid the lock cross @aml_txq_cleanup_timer_cb */
+    spin_lock_bh(&aml_vif->vif_lock);
     spin_lock_bh(&aml_hw->tx_lock);
 
 #ifdef CONFIG_AML_SOFTMAC
@@ -1261,6 +1274,7 @@ end:
 #endif /* CONFIG_AML_SOFTMAC*/
 
     spin_unlock_bh(&aml_hw->tx_lock);
+    spin_unlock_bh(&aml_vif->vif_lock);
 }
 
 #ifdef CONFIG_AML_FULLMAC

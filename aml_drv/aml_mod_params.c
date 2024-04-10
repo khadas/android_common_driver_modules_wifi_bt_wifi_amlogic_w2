@@ -1119,8 +1119,8 @@ static void aml_set_rf_params(struct aml_hw *aml_hw, struct wiphy *wiphy)
     } else if (mdm_phy_cfg == MDM_PHY_CONFIG_KARST) {
         // We use the NSS parameter as is
         // Retrieve the Karst configuration
-        aml_cfg_parse_phy(aml_hw, AML_PHY_CONFIG_KARST_NAME,
-                                  &phy_conf, aml_hw->mod_params->phy_cfg);
+        //aml_cfg_parse_phy(aml_hw, AML_PHY_CONFIG_KARST_NAME,
+        //                          &phy_conf, aml_hw->mod_params->phy_cfg);
 
         memcpy(&aml_hw->phy.cfg, &phy_conf.karst, sizeof(phy_conf.karst));
     } else {

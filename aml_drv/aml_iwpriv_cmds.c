@@ -16,6 +16,7 @@
 #include "sg_common.h"
 #endif
 #include "sdio_common.h"
+#include "aml_fw_trace.h"
 
 
 #define RC_AUTO_RATE_INDEX -1
@@ -1529,7 +1530,7 @@ static int aml_get_tcp_ack_info(struct net_device *dev)
     printk("ack_mgr->enable=%u\n", atomic_read(&ack_mgr->enable));
     printk("ack_mgr->max_timeout=%u\n", atomic_read(&ack_mgr->max_timeout));
     printk("ack_mgr->dynamic_adjust=%u\n", atomic_read(&ack_mgr->dynamic_adjust));
-    printk("ack_mgr->total_drop_cnt=%u\n", ack_mgr->total_drop_cnt);
+    printk("ack_mgr->session_num=%u\n", ack_mgr->used_num);
     printk("ack_mgr->ack_winsize=%u\n", atomic_read(&ack_mgr->ack_winsize));
 #endif
     return 0;
@@ -1598,8 +1599,21 @@ static int aml_set_max_drop_num(struct net_device *dev, int num)
     struct aml_hw * aml_hw = aml_vif->aml_hw;
     struct aml_tcp_sess_mgr *ack_mgr = &aml_hw->ack_mgr;
 
-    atomic_set(&ack_mgr->max_drop_cnt, num);
-    atomic_set(&ack_mgr->dynamic_adjust, 0);
+    if (num < 0)
+    {
+        if (aml_bus_type == USB_MODE)
+            num = MAX_DROP_TCP_ACK_CNT_USB;
+        else
+            num = MAX_DROP_TCP_ACK_CNT;
+        atomic_set(&ack_mgr->max_drop_cnt, num);
+        atomic_set(&ack_mgr->dynamic_adjust, 1);
+    }
+    else
+    {
+        atomic_set(&ack_mgr->max_drop_cnt, num);
+        atomic_set(&ack_mgr->dynamic_adjust, 0);
+    }
+
     printk("set tcp delay ack:ack_mgr->max_drop_cnt=%u,dynamic adjust=%d\n", atomic_read(&ack_mgr->max_drop_cnt), atomic_read(&ack_mgr->dynamic_adjust));
     return 0;
 }
@@ -1816,6 +1830,7 @@ err:
     return 0;
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0)
 static int aml_emb_la_dump(struct net_device *dev)
 {
     struct file *fp = NULL;
@@ -1888,6 +1903,72 @@ err:
     kfree(la_buf);
     return 0;
 }
+#else
+static int aml_emb_la_dump(struct net_device *dev)
+{
+    struct file *fp = NULL;
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
+    struct aml_plat *aml_plat = aml_hw->plat;
+
+    int len = 0, i = 0;
+    char *la_buf = NULL;
+    u8 *map_address = NULL;
+    map_address = aml_pci_get_map_address(dev, LA_MEMORY_BASE_ADDRESS);
+    if (!map_address) {
+        printk("%s: map_address erro\n", __func__);
+        return 0;
+    }
+
+    la_buf = kmalloc(LA_BUF_SIZE, GFP_ATOMIC);
+    if (!la_buf) {
+         printk("%s: malloc buf erro\n", __func__);
+         return 0;
+    }
+
+
+    memset(la_buf, 0, LA_BUF_SIZE);
+
+    if (aml_bus_type == PCIE_MODE) {
+        for (i=0; i < 0x3fff; i+=2) {
+            len += scnprintf(&la_buf[len], (LA_BUF_SIZE - len), "%08x%08x\n",
+                aml_pci_readl(map_address+((1+i)*4)), aml_pci_readl(map_address+(i*4)));
+
+            if ((LA_BUF_SIZE - len) < 20) {
+                aml_send_log_to_user(la_buf, len, AML_LA_MACTRACE_UPLOAD);
+
+                len = 0;
+                memset(la_buf, 0, LA_BUF_SIZE);
+            }
+        }
+
+        if (len != 0) {
+            aml_send_log_to_user(la_buf, len, AML_LA_MACTRACE_UPLOAD);
+        }
+    } else {
+         for (i=0; i < 0x3fff; i+=2) {
+             len += scnprintf(&la_buf[len], (LA_BUF_SIZE - len), "%08x%08x\n",
+                 AML_REG_READ(aml_plat, 0, LA_MEMORY_BASE_ADDRESS+((1+i)*4)),
+                 AML_REG_READ(aml_plat, 0, LA_MEMORY_BASE_ADDRESS+(i*4)));
+
+             if ((LA_BUF_SIZE - len) < 20) {
+                 aml_send_log_to_user(la_buf, len, AML_LA_MACTRACE_UPLOAD);
+
+                 len = 0;
+                 memset(la_buf, 0, LA_BUF_SIZE);
+             }
+         }
+
+         if (len != 0) {
+             aml_send_log_to_user(la_buf, len, AML_LA_MACTRACE_UPLOAD);
+         }
+    }
+
+err:
+    kfree(la_buf);
+    return 0;
+}
+#endif
 
 int aml_set_pt_calibration(struct net_device *dev, int pt_cali_val)
 {
@@ -4003,6 +4084,7 @@ int aml_set_usb_trace_enable(struct net_device *dev)
     return 0;
 }
 
+extern struct log_file_info trace_log_file_info;
 int aml_set_fwlog_cmd(struct net_device *dev, int mode)
 {
     struct aml_vif *aml_vif = netdev_priv(dev);
@@ -4013,25 +4095,18 @@ int aml_set_fwlog_cmd(struct net_device *dev, int mode)
         AML_INFO("usb trace is disable!");
         return -1;
     }
-    if (aml_bus_type != PCIE_MODE) {
+    if (aml_bus_type != PCIE_MODE && trace_log_file_info.log_buf && trace_log_file_info.ptr) {
         if (mode == 0) {
             ret = aml_traceind(aml_vif->aml_hw->ipc_env->pthis, mode);
             if (ret < 0)
                 return -1;
         }
-
-#ifdef CONFIG_AML_DEBUGFS
-        ret = aml_log_file_info_init(mode);
-        if (ret < 0) {
-            printk("aml_log_file_info_init fail\n");
-            return -1;
-        }
-#endif
-
         aml_send_fwlog_cmd(aml_vif, mode);
         if (aml_bus_type == USB_MODE) {
             aml_dbgfs_fw_trace_create(aml_vif->aml_hw);
         }
+    } else {
+        AML_INFO("bus_type err or trace_log_file_info init failed!");
     }
     return 0;
 }

@@ -81,33 +81,33 @@ EXPORT_SYMBOL(aml_mem_prealloc);
 
 int aml_init_wlan_mem(void)
 {
-    wlan_static_aml_buf_type_txq = kmalloc(AML_PREALLOC_BUF_TYPE_TXQ_SIZE, GFP_KERNEL);
+    wlan_static_aml_buf_type_txq = kzalloc(AML_PREALLOC_BUF_TYPE_TXQ_SIZE, GFP_KERNEL);
     if (!wlan_static_aml_buf_type_txq)
         goto err_mem_alloc0;
 
-    wlan_static_aml_buf_type_dump = kmalloc(AML_PREALLOC_BUF_TYPE_DUMP_SIZE, GFP_KERNEL);
+    wlan_static_aml_buf_type_dump = kzalloc(AML_PREALLOC_BUF_TYPE_DUMP_SIZE, GFP_KERNEL);
     if (!wlan_static_aml_buf_type_dump) {
         /* alloc large memory fail sometimes, for example after OTA upgrade */
-        wlan_static_aml_buf_type_dump = kmalloc(AML_PREALLOC_BUF_TYPE_DUMP_SIZE, GFP_KERNEL | __GFP_NOFAIL);
+        wlan_static_aml_buf_type_dump = kzalloc(AML_PREALLOC_BUF_TYPE_DUMP_SIZE, GFP_KERNEL | __GFP_NOFAIL);
         if (!wlan_static_aml_buf_type_dump)
             goto err_mem_alloc1;
     }
-    wlan_static_download_fw = kmalloc(FW_VERBOSE_RING_SIZE, GFP_KERNEL);
+    wlan_static_download_fw = kzalloc(FW_VERBOSE_RING_SIZE, GFP_KERNEL);
     if (!wlan_static_download_fw)
         goto err_mem_alloc2;
 
-    wlan_static_hw_rx_buf = kmalloc(WLAN_AML_HW_RX_SIZE, GFP_KERNEL);
+    wlan_static_hw_rx_buf = kzalloc(WLAN_AML_HW_RX_SIZE, GFP_KERNEL);
     if (!wlan_static_hw_rx_buf) {
         /* alloc large memory fail sometimes, for example after OTA upgrade */
-        wlan_static_hw_rx_buf = kmalloc(WLAN_AML_HW_RX_SIZE, GFP_KERNEL | __GFP_NOFAIL);
+        wlan_static_hw_rx_buf = kzalloc(WLAN_AML_HW_RX_SIZE, GFP_KERNEL | __GFP_NOFAIL);
         if (!wlan_static_hw_rx_buf)
             goto err_mem_alloc3;
     }
-    wlan_static_sdio_buf = kmalloc(WLAN_AML_SDIO_SIZE, GFP_KERNEL);
+    wlan_static_sdio_buf = kzalloc(WLAN_AML_SDIO_SIZE, GFP_KERNEL);
     if (!wlan_static_sdio_buf)
         goto err_mem_alloc4;
 
-    wlan_static_amsdu_buf = kmalloc(WLAN_AML_AMSDU_SIZE, GFP_KERNEL);
+    wlan_static_amsdu_buf = kzalloc(WLAN_AML_AMSDU_SIZE, GFP_KERNEL);
     if (!wlan_static_amsdu_buf)
         goto err_mem_alloc5;
 

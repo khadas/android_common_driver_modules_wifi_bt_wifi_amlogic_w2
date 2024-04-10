@@ -725,8 +725,8 @@ void aml_scc_check_chan_conflict(struct aml_hw *aml_hw)
                     break;
                 }
 
-                if (aml_scc_get_init_band() != target_chdef.chan->band) {
-                    AML_INFO("init band conflict with target band [%d %d]\n",aml_scc_get_init_band(),target_chdef.chan->band);
+                if ((aml_scc_get_init_band() != target_chdef.chan->band) && (AML_VIF_TYPE(vif) == NL80211_IFTYPE_AP)) {
+                    AML_INFO("init band conflict with target band [%d %d]\n", aml_scc_get_init_band(), target_chdef.chan->band);
                     break;
                 }
                 AML_INFO("chan %d,bw:%s --> chan %d,bw:%s ",

@@ -197,6 +197,14 @@ struct aml_eap_hdr {
     u64 opcode:8;
 };
 
+struct tx_cfm_wait_rsp
+{
+    u64 cookie;
+    struct sk_buff *skb;
+    uint32_t len;
+    struct wireless_dev *wdev;
+};
+
 typedef enum {
     SP_STATUS_TX_START = 0,
     SP_STATUS_RX,
@@ -209,6 +217,9 @@ enum {
     AML_P2P_ACTION_FRAME = BIT(1),
     AML_DPP_ACTION_FRAME = BIT(2),
     AML_CSA_ACTION_FRAME = BIT(3),
+    AML_GAS_ACTION_FRAME = BIT(4),
+    AML_GAS_INIT_REQ_FRAME = BIT(5),
+    AML_GAS_INIT_RSP_FRAME = BIT(6),
 };
 
 /**
@@ -305,10 +316,9 @@ void aml_txq_credit_update(struct aml_hw *aml_hw, int sta_idx, u8 tid,
                             s8 update);
 void aml_tx_push(struct aml_hw *aml_hw, struct aml_txhdr *txhdr, int flags);
 int aml_update_tx_cfm(void *pthis);
-
 int aml_sdio_tx_task(void *data);
 bool aml_filter_sp_data_frame(struct sk_buff *skb,struct aml_vif *aml_vif,AML_SP_STATUS_E sp_status);
-
 int aml_prep_dma_tx(struct aml_hw *aml_hw, struct aml_sw_txhdr *sw_txhdr, void *frame_start);
+void aml_tx_cfm_wait_rsp(struct aml_hw *aml_hw, bool ack, u8* func, u32 line);
 
 #endif /* _AML_TX_H_ */

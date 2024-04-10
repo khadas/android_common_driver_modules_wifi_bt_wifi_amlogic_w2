@@ -123,7 +123,6 @@ int aml_task_rxdesc(void *data)
 #else
     complete(&aml_hw->rxdesc->task_cmpl);
 #endif
-
     return 0;
 }
 

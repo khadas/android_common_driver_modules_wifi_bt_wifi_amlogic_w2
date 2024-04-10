@@ -1,6 +1,6 @@
 #config version info <char> version must be consistent with the WIFI_CALI_VERSION in c code
 #After updating the parameters, it must be modified at the same time.
-version=15
+version=17
 
 #cali config <short>
 cali_config=0x0
@@ -48,15 +48,28 @@ wf2g_he20_tpwr=19,19,19,19,19,18,17,17,16,15,13,13
 wf2g_he40_tpwr=20,20,20,19,19,18,17,17,16,15,13,13
 
 #wf5g olpc target_pwr limit
-wf5g_11a_tpwr=16,16,16,16,15,14,13,13
-wf5g_ht20_tpwr=15,15,15,15,15,14,13,13
-wf5g_ht40_tpwr=15,15,15,15,15,14,13,12
-wf5g_vht20_tpwr=14,14,14,14,14,14,13,13,12
-wf5g_vht40_tpwr=15,15,15,15,15,14,13,13,12,12
-wf5g_vht80_tpwr=14,14,14,14,14,14,13,13,12,11
-wf5g_he20_tpwr=14,14,14,14,14,14,13,13,12,11,10,10
-wf5g_he40_tpwr=15,15,15,15,15,14,13,13,12,11,10,10
-wf5g_he80_tpwr=14,14,14,14,14,14,13,13,12,11,10,10
+//low/mid channel
+wf5g_11a_tpwr_lm=16,16,16,16,15,14,13,13
+wf5g_ht20_tpwr_lm=15,15,15,15,14,14,13,13
+wf5g_ht40_tpwr_lm=15,15,15,15,14,14,13,12
+wf5g_vht20_tpwr_lm=15,15,15,14,14,14,13,13,12
+wf5g_vht40_tpwr_lm=15,15,15,15,14,14,13,13,13,13
+wf5g_vht80_tpwr_lm=14,14,14,14,13,13,13,13,13,12
+wf5g_he20_tpwr_lm=15,15,15,14,14,14,13,13,13,13,12,12
+wf5g_he40_tpwr_lm=15,15,15,15,14,14,13,13,13,13,12,12
+wf5g_he80_tpwr_lm=14,14,14,14,13,13,13,13,13,12,12,12
+
+//high channel
+wf5g_11a_tpwr_h=16,16,16,16,15,14,13,13
+wf5g_ht20_tpwr_h=15,15,15,15,14,14,13,13
+wf5g_ht40_tpwr_h=15,15,15,15,14,14,13,12
+wf5g_vht20_tpwr_h=15,15,15,14,14,14,13,13,12
+wf5g_vht40_tpwr_h=15,15,15,15,14,14,13,13,13,13
+wf5g_vht80_tpwr_h=14,14,14,14,13,13,13,13,13,12
+wf5g_he20_tpwr_h=15,15,15,14,14,14,13,13,13,13,11,11
+wf5g_he40_tpwr_h=15,15,15,15,14,14,13,13,13,13,11,11
+wf5g_he80_tpwr_h=14,14,14,14,13,13,13,13,13,12,11,11
+
 #wf5g lch he lowrssi mcs0~5 tp use
 wf5g_lch_he_lowrssi_tpwr=17,17,17,17,17,16
 #wf5g mch he lowrssi mcs0~5 tp use
@@ -65,6 +78,11 @@ wf5g_mch_he_lowrssi_tpwr=17,17,17,17,15,14
 wf5g_hch_he20_lowrssi_tpwr=17,17,17,16,15,14
 wf5g_hch_he40_lowrssi_tpwr=17,17,17,16,15,14
 wf5g_hch_he80_lowrssi_tpwr=17,17,17,16,14,14
+#wf5g vht lowrssi mcs0~5 tp use
+#wf5g_vht20_lowrssi_tpwr=22,22,19,17,15,14
+#wf5g_vht40_lowrssi_tpwr=22,22,19,17,15,14
+#wf5g_vht80_lowrssi_tpwr=22,22,19,17,15,14
+wf5g_vht_lowrssi_tpwr=22,22,19,17,15,14
 
 #use xosc_ctune and offset power in txt:0
 #use xosc_ctune and offset power in efuse:1

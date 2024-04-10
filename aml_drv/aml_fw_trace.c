@@ -62,11 +62,7 @@ struct aml_trace_nl_info {
     int user_pid;
     int enable;
 };
-enum {
-    AML_TRACE_FW_LOG_START = 0xFF01,
-    AML_TRACE_FW_LOG_STOP,
-    AML_TRACE_FW_LOG_UPLOAD,
-};
+
 struct log_nl_msg_info {
     int msg_type;
     int msg_len;
@@ -216,7 +212,8 @@ int aml_fw_trace_init(struct aml_fw_trace *trace,
 void aml_fw_trace_deinit(struct aml_fw_trace *trace)
 {
     trace->closing = true;
-    flush_delayed_work(&trace->work);
+    if (trace->buf.data)
+        flush_delayed_work(&trace->work);
     trace->buf.data = NULL;
 }
 
@@ -626,7 +623,7 @@ void _aml_fw_trace_dump(struct aml_hw *aml_hw, struct aml_fw_trace_buf *trace_bu
     } else {
         ptr = kmalloc(28*1024, GFP_DMA | GFP_ATOMIC);
         ptr_flag = ptr;
-        aml_log_file_info_init(1);
+        aml_trace_buf_init();
         if (aml_bus_type == USB_MODE) {
             aml_hw->plat->hif_ops->hi_read_sram((unsigned char *)ptr, (unsigned char *)(SYS_TYPE)USB_TRACE_START_ADDR, USB_TRACE_TOTAL_SIZE, USB_EP4);
         } else if (aml_bus_type == SDIO_MODE) {
@@ -1007,55 +1004,41 @@ int aml_fw_trace_restore_filters(struct aml_fw_trace *trace)
     return 0;
 }
 
-int aml_log_file_info_init(int mode)
+int aml_trace_buf_init(void)
 {
     int ret = 0;
     static int isInit = 0;
 
-    if (!isInit) {
-        printk("aml_log_file_info_init mutex \n");
-        mutex_init(&trace_log_file_info.mutex);
-        isInit = 1;
-    }
+    if (aml_bus_type != PCIE_MODE) {
+        if (!isInit) {
+            AML_INFO("trace mutex init");
+            mutex_init(&trace_log_file_info.mutex);
+            isInit = 1;
+        }
 
-    mutex_lock(&trace_log_file_info.mutex);
-    do {
-        if (mode == 0) {
-            if (trace_log_file_info.log_buf) {
-                printk("aml_log_file_info_init close\n");
-                kfree(trace_log_file_info.log_buf);
-                trace_log_file_info.log_buf = NULL;
-            }
-
-            if (trace_log_file_info.ptr) {
-                printk("aml_log_file_info_init close\n");
-                kfree(trace_log_file_info.ptr);
-                trace_log_file_info.ptr = NULL;
-            }
-
-            ret = 0;
-            break;
-        } else if ((mode == 1) && (!trace_log_file_info.log_buf) && (!trace_log_file_info.ptr)) {
-            printk("aml_log_file_info_init open \n");
-            trace_log_file_info.log_buf = kmalloc(64*1024, GFP_DMA | GFP_ATOMIC);
+        mutex_lock(&trace_log_file_info.mutex);
+        if (!trace_log_file_info.log_buf) {
+            trace_log_file_info.log_buf = kmalloc(64 * 1024, GFP_DMA | GFP_ATOMIC);
             if (!trace_log_file_info.log_buf) {
-                printk("%s: alloc memory failed\n",__func__);
+                AML_INFO("alloc memory failed");
                 ret = -1;
-                break;
-            }
-            trace_log_file_info.ptr = kmalloc(33*1024, GFP_DMA | GFP_ATOMIC);
-            if (!trace_log_file_info.ptr) {
-                printk("%s: alloc memory failed\n",__func__);
-                ret = -1;
-                break;
             }
         }
-    } while(0);
-    mutex_unlock(&trace_log_file_info.mutex);
+
+        if (!trace_log_file_info.ptr) {
+            trace_log_file_info.ptr = kmalloc(33 * 1024, GFP_DMA | GFP_ATOMIC);
+            if (!trace_log_file_info.ptr) {
+                AML_INFO("alloc memory failed");
+                ret = -1;
+            }
+        }
+        mutex_unlock(&trace_log_file_info.mutex);
+    }
 
     return ret;
 }
-void aml_log_file_info_deinit(void)
+
+void aml_trace_buf_deinit(void)
 {
     if (trace_log_file_info.log_buf) {
         kfree(trace_log_file_info.log_buf);
@@ -1234,7 +1217,7 @@ int aml_send_log_to_user(char *pbuf, uint16_t len, int msg_type)
     nlh = nlmsg_put(nl_skb, 0, 0, AML_TRACE_NL_PROTOCOL, buf_len, 0);
     if (nlh == NULL)
     {
-        AML_INFO("nlmsg_put failure\n");
+        AML_INFO("nlmsg_put failure \n");
         nlmsg_free(nl_skb);
         return -1;
     }
@@ -1261,6 +1244,10 @@ void aml_send_err_info_to_diag(char *pbuf, int len)
     struct file *fp = NULL;
     loff_t file_size = 0;
     unsigned int file_mode;
+
+    if (!trace_log_file_info.log_buf || !trace_log_file_info.ptr) {
+        return;
+    }
 
     mutex_lock(&trace_log_file_info.mutex);
     if (g_trace_nl_info.enable && len > 0) {

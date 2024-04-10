@@ -851,6 +851,7 @@ int aml_send_cancel_roc(struct aml_hw *aml_hw)
 
     AML_DBG(AML_FN_ENTRY_STR);
 
+    aml_tx_cfm_wait_rsp(aml_hw, false, __func__, __LINE__);
     /* Build the MM_REMAIN_ON_CHANNEL_REQ message */
     req = aml_msg_zalloc(MM_REMAIN_ON_CHANNEL_REQ, TASK_MM, DRV_TASK_ID,
                           sizeof(struct mm_remain_on_channel_req));
@@ -2509,7 +2510,7 @@ int aml_send_scanu_req(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
     int i;
     uint8_t chan_flags = 0;
 
-    AML_DBG(AML_FN_ENTRY_STR);
+    AML_INFO("vif:%d", aml_vif->vif_index);
 
     /* Build the SCANU_START_REQ message */
     req = aml_msg_zalloc(SCANU_START_REQ, TASK_SCANU, DRV_TASK_ID,

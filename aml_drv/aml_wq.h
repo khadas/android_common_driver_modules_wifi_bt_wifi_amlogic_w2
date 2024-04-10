@@ -32,6 +32,7 @@ enum aml_wq_type {
     AML_WQ_ALLOC_RX_RATE,
 #endif
     AML_WQ_IPV6,
+    AML_WQ_CANCEL_SCAN,
     AML_WQ_MAX,
 };
 

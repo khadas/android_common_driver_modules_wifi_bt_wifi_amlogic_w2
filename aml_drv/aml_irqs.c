@@ -96,7 +96,7 @@ int aml_irq_task(void *data)
         && !bus_state_detect.bus_err
 #endif
         ) {
-            usleep_range(20, 30);
+            usleep_range(aml_hw->trb_wait_time, aml_hw->trb_wait_time + 10);
             USB_BEGIN_LOCK();
             if ((atomic_read(&g_wifi_pm.bus_suspend_cnt) == 0) && (atomic_read(&g_wifi_pm.is_shut_down) == 0) &&
                 (atomic_read(&g_wifi_pm.drv_suspend_cnt) == 0)) {

@@ -564,6 +564,7 @@ static int aml_recy_vif_restart(struct aml_hw *aml_hw)
     return 0;
 }
 
+extern struct usb_device *g_udev;
 int aml_recy_doit(struct aml_hw *aml_hw)
 {
     int ret;
@@ -594,6 +595,17 @@ int aml_recy_doit(struct aml_hw *aml_hw)
         goto out;
     }
     aml_recy_flags_clr(AML_RECY_DROP_XMIT_PKT);
+
+
+    if (aml_bus_type == USB_MODE) {
+        /* realloc usb_dev in function@auc_probe when usb do reset, it need to reinit data */
+        aml_hw->plat->usb_dev = g_udev;
+        dev_set_drvdata(&aml_hw->plat->usb_dev->dev, aml_hw);
+        aml_hw->dev = aml_platform_get_dev(aml_hw->plat);
+        set_wiphy_dev(aml_hw->wiphy, aml_hw->dev);
+    }
+
+
     ret = aml_recy_fw_reload(aml_hw);
     if (ret) {
         RECY_DBG("fw reload failed");

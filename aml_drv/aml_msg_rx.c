@@ -388,6 +388,7 @@ static inline int aml_rx_remain_on_channel_exp_ind(struct aml_hw *aml_hw,
 
     aml_vif= roc->vif;
 
+    aml_tx_cfm_wait_rsp(aml_hw, false, __func__, __LINE__);
     trace_roc_exp(aml_vif->vif_index);
 
     AML_INFO("roc internal=%d, on_chan=%d cookie:0x%llu\n",roc->internal,roc->on_chan,roc);
@@ -2105,8 +2106,10 @@ static inline int aml_traffic_busy_ind(struct aml_hw *aml_hw,
 
     if (traffic_param->td_flag == TRAFFIC_SCAN_FLAG) {
         if (traffic_param->traffic_busy_flag) {
+            aml_hw->trb_wait_time = (USB_SEND_URB_DEFAULT_WAIT_TIME / 50);
             printk("traffic busy!!\n");
         } else {
+            aml_hw->trb_wait_time = USB_SEND_URB_DEFAULT_WAIT_TIME;
             printk("traffic idle!!\n");
         }
     }

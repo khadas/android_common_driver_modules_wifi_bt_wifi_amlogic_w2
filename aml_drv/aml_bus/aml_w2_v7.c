@@ -259,7 +259,7 @@ void aml_pcie_speed_check(struct pci_dev *dev)
         ((pci_speed == PCI_EXP_LNKSTA_CLS_5_0GB) ? "PCI_EXP_LNKSTA_CLS_5_0GB" : "OTHER"));
 
     if (pci_speed != PCI_EXP_LNKSTA_CLS_2_5GB)
-        printk("%s:%d warning ===> pcie link speed is NOT PCI_EXP_LNKSTA_CLS_2_5GB !!!\n", __func__, __LINE__);
+        printk("%s:%d WARNING ===> pcie link speed is NOT PCI_EXP_LNKSTA_CLS_2_5GB !!!\n", __func__, __LINE__);
 }
 
 
