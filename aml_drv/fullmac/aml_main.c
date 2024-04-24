@@ -5206,13 +5206,20 @@ static int aml_ps_wow_suspend(struct aml_hw *aml_hw, struct cfg80211_wowlan *wow
         }
     }
 
-    if (aml_bus_type != PCIE_MODE) {
-        aml_tx_rx_buf_init(aml_hw);
-        if (aml_bus_type == SDIO_MODE)
-            aml_hw->g_tx_param.tx_page_free_num = SDIO_TX_PAGE_NUM_SMALL;
-        else
-            aml_hw->g_tx_param.tx_page_free_num = USB_TX_PAGE_NUM_SMALL;
-    }
+    //When in rx buf reduce, not expend rx buf,after resume, do rx buf expend
+     if (aml_bus_type != PCIE_MODE) {
+        if (aml_hw->rx_buf_state & FW_BUFFER_EXPAND) {
+            aml_tx_rx_buf_init(aml_hw);
+            if (aml_bus_type == SDIO_MODE)
+                aml_hw->g_tx_param.tx_page_free_num = SDIO_TX_PAGE_NUM_SMALL;
+            else
+                aml_hw->g_tx_param.tx_page_free_num = USB_TX_PAGE_NUM_SMALL;
+
+        } else if (aml_hw->rx_buf_state & FW_BUFFER_NARROW) {//In rx buf reduce state,put ptr in rx start
+           aml_hw->fw_buf_pos = RXBUF_START_ADDR;
+           aml_hw->last_fw_pos = RXBUF_START_ADDR;
+        }
+     }
 
     AML_INFO("after suspend cmd:%d\n", aml_hw->cmd_mgr.queue_sz);
     count = 0;

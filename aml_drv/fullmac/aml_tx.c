@@ -1939,6 +1939,8 @@ int aml_update_tx_cfm(void *pthis)
                 aml_hw->txcfm_param.start_blk  = 0;
             }
 
+	    aml_hw->txcfm_param.read_blk = 6;
+	    aml_hw->txcfm_param.start_blk  = 0;
             aml_hw->plat->hif_sdio_ops->hi_sram_read((unsigned char *)(&aml_hw->read_cfm[aml_hw->txcfm_param.start_blk*TAGS_IN_SDIO_BLK]),
                 (unsigned char *)(SRAM_TXCFM_START_ADDR + aml_hw->txcfm_param.start_blk * blk_size), aml_hw->txcfm_param.read_blk * blk_size);
 
