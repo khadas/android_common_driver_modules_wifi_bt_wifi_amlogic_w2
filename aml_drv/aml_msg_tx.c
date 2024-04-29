@@ -4095,7 +4095,7 @@ int aml_send_notify_ip(struct aml_vif *aml_vif, u8_l ip_ver, u8_l *ip_addr)
     notify_ip_addr_t *notify_ip_addr;
 
     if (!aml_vif) {
-        printk("aml vif param invalid\n");
+        printk("aml vif param invald\n");
         return -EINVAL;
     }
     aml_hw = aml_vif->aml_hw;
