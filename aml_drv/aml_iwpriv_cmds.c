@@ -1531,7 +1531,7 @@ static int aml_get_tcp_ack_info(struct net_device *dev)
     printk("ack_mgr->max_timeout=%u\n", atomic_read(&ack_mgr->max_timeout));
     printk("ack_mgr->dynamic_adjust=%u\n", atomic_read(&ack_mgr->dynamic_adjust));
     printk("ack_mgr->session_num=%u\n", ack_mgr->used_num);
-    printk("ack_mgr->ack_winsize=%u\n", atomic_read(&ack_mgr->ack_winsize));
+    printk("ack_mgr->ack_winsize=%u\n", ack_mgr->ack_winsize);
 #endif
     return 0;
 }
