@@ -19,6 +19,7 @@
 #include "aml_tcp_ack.h"
 #include "aml_tx.h"
 #include "aml_compat.h"
+
 static void aml_send_tcp_ack(struct aml_tcp_ack_tx *tx_info)
 {
     u8 tid = 0;
@@ -407,6 +408,8 @@ void aml_tcp_delay_ack_init(struct aml_hw *aml_hw)
 
     ack_mgr->ack_winsize = MIN_WIN;
     ack_mgr->win_scale = 1;
+    ack_mgr->rssi_l_thr = -68;
+    ack_mgr->rssi_h_thr = -65;
 
 }
 
@@ -515,6 +518,20 @@ int aml_replace_tcp_ack(struct sk_buff *skb,
     }
 
     return ret;
+}
+
+int aml_set_tcp_ack_accord_to_rssi(struct aml_sta *sta, struct aml_hw *aml_hw, s32_l rssi)
+{
+    struct aml_tcp_sess_mgr *ack_mgr = &aml_hw->ack_mgr;
+    if (aml_bus_type == USB_MODE && sta->band == NL80211_BAND_2GHZ) {
+        if (rssi < ack_mgr->rssi_l_thr && atomic_read(&ack_mgr->enable)) {
+            atomic_set(&ack_mgr->enable, 0);
+            printk("%s, %d set enable 0\n", __func__, __LINE__);
+        } else if (rssi > ack_mgr->rssi_h_thr && !atomic_read(&ack_mgr->enable)) {
+            atomic_set(&ack_mgr->enable, 1);
+            printk("%s, %d set enable 1\n", __func__, __LINE__);
+        }
+    }
 }
 
 int aml_filter_tx_tcp_ack(struct net_device *dev,

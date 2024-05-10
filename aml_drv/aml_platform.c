@@ -1744,7 +1744,6 @@ int aml_cpufreq_boost_update(struct aml_hw *aml_hw)
     ret = freq_qos_update_request(aml_hw->qos_req, aml_hw->min_cpu_freq);
     if (ret < 0)
         return ret;
-    printk("aml cpu is fix to max frequency!!\n");
 #endif
     return 0;
 }
@@ -1754,7 +1753,6 @@ int aml_cpufreq_boost_remove(struct aml_hw *aml_hw)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
     freq_qos_remove_request(aml_hw->qos_req);
     kfree(aml_hw->qos_req);
-    printk("aml cpu is remove from fixed-max frequency!!\n");
 #endif
     return 0;
 }
@@ -2411,8 +2409,9 @@ int aml_platform_register_usb_drv(void)
     aml_platform_init(aml_plat, &drv_data);
     dev_set_drvdata(&aml_plat->usb_dev->dev, drv_data);
     bus_state_detect.is_drv_load_finished = 1;
+#ifdef CONFIG_AML_DEBUGFS
     aml_log_nl_init();
-
+#endif
     return ret;
 }
 
@@ -2422,8 +2421,9 @@ void aml_platform_unregister_usb_drv(void)
     struct aml_plat *aml_plat;
 
     AML_DBG(AML_FN_ENTRY_STR);
-
+#ifdef CONFIG_AML_DEBUGFS
     aml_log_nl_destroy();
+#endif
     aml_hw = dev_get_drvdata(&g_udev->dev);
     if (aml_hw == NULL)
         goto err_drvdata;
@@ -2544,7 +2544,9 @@ int aml_platform_register_sdio_drv(void)
     g_mmc_misc = kmalloc(sizeof(struct mmc_misc) * RXDESC_CNT_READ_ONCE, GFP_ATOMIC);
 #endif
     bus_state_detect.is_drv_load_finished = 1;
+#ifdef CONFIG_AML_DEBUGFS
     aml_log_nl_init();
+#endif
 
     return ret;
 }
@@ -2556,8 +2558,9 @@ void aml_platform_unregister_sdio_drv(void)
     struct sdio_func *func = aml_priv_to_func(SDIO_FUNC7);
 
     AML_DBG(AML_FN_ENTRY_STR);
-
+#ifdef CONFIG_AML_DEBUGFS
     aml_log_nl_destroy();
+#endif
     aml_hw = dev_get_drvdata(&func->dev);
     if (aml_hw == NULL)
         goto err_drvdata;

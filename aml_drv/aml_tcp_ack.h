@@ -80,11 +80,14 @@ struct aml_tcp_sess_mgr {
     struct aml_tcp_sess_info tcp_info[AML_TCP_SESS_NUM];
     unsigned int ack_winsize;
     unsigned short win_scale;
+    s32 rssi_l_thr;
+    s32 rssi_h_thr;
 };
 
 void aml_tcp_delay_ack_deinit(struct aml_hw *aml_hw);
 void aml_tcp_delay_ack_init(struct aml_hw *aml_hw);
 int aml_filter_tx_tcp_ack(struct net_device *dev, struct sk_buff *skb, struct aml_sta *sta);
 void aml_check_tcpack_skb(struct aml_hw *aml_hw, struct sk_buff *skb, u32 len);
+int aml_set_tcp_ack_accord_to_rssi(struct aml_sta *sta, struct aml_hw *aml_hw, s32_l rssi);
 
 #endif

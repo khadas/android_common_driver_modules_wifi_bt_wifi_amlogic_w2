@@ -577,7 +577,9 @@ int aml_recy_doit(struct aml_hw *aml_hw)
     scnprintf(fbuf, sizeof(fbuf), "recovery reason: 0x%02x(%s)\n", aml_recy->reason, aml_recy_reason_code2str[aml_recy->reason]);
     AML_INFO("%s", fbuf);
     if (aml_bus_type != PCIE_MODE)
+#ifdef CONFIG_AML_DEBUGFS
         aml_send_err_info_to_diag(fbuf, strlen(fbuf));
+#endif
 
     if (aml_recy_flags_chk(flags)) {
         RECY_DBG("recy delay by flags: 0x%x\n", aml_recy->flags);

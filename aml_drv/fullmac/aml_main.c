@@ -4112,13 +4112,14 @@ static int aml_fill_station_info(struct aml_sta *sta, struct aml_vif *vif,
                                   struct station_info *sinfo)
 {
     struct aml_sta_stats *stats = &sta->stats;
+    struct aml_hw *aml_hw = vif->aml_hw;
     struct aml_plat *aml_plat = vif->aml_hw->plat;
     struct rx_vector_1 *rx_vect1 = &stats->last_rx.rx_vect1;
 
     // Generic info
     rx_vect1->rssi1 = (AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, REG_OF_SYNC_RSSI) & 0xffff) - 256;
+    aml_set_tcp_ack_accord_to_rssi(sta, aml_hw, rx_vect1->rssi1);
     sinfo->generation = vif->generation;
-
     sinfo->inactive_time = jiffies_to_msecs(jiffies - stats->last_act);
     sinfo->rx_bytes = stats->rx_bytes;
     sinfo->tx_bytes = stats->tx_bytes;
@@ -5207,7 +5208,7 @@ static int aml_ps_wow_suspend(struct aml_hw *aml_hw, struct cfg80211_wowlan *wow
     }
 
     //When in rx buf reduce, not expend rx buf,after resume, do rx buf expend
-     if (aml_bus_type != PCIE_MODE) {
+    if (aml_bus_type != PCIE_MODE) {
         if (aml_hw->rx_buf_state & FW_BUFFER_EXPAND) {
             aml_tx_rx_buf_init(aml_hw);
             if (aml_bus_type == SDIO_MODE)
@@ -5219,7 +5220,7 @@ static int aml_ps_wow_suspend(struct aml_hw *aml_hw, struct cfg80211_wowlan *wow
            aml_hw->fw_buf_pos = RXBUF_START_ADDR;
            aml_hw->last_fw_pos = RXBUF_START_ADDR;
         }
-     }
+    }
 
     AML_INFO("after suspend cmd:%d\n", aml_hw->cmd_mgr.queue_sz);
     count = 0;
@@ -5315,10 +5316,11 @@ static int aml_cfg80211_resume(struct wiphy *wiphy)
     {
         msleep(50);
         cnt++;
-        if (cnt > 40)
+        if (cnt > 200)
         {
             AML_INFO("no resume cnt 0x%x\n",
                     atomic_read(&g_wifi_pm.bus_suspend_cnt));
+            atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
             return -1;
         }
     }
@@ -5708,8 +5710,6 @@ unsigned char aml_parse_cali_param(char *varbuf, int len, struct Cali_Param *cal
     printk("======>>>>>> wf5g_he20_tpwr_h = %d\n", cali_param->wf5g_he20_tpwr_h[0]);
     printk("======>>>>>> wf5g_he40_tpwr_h = %d\n", cali_param->wf5g_he40_tpwr_h[0]);
     printk("======>>>>>> wf5g_he80_tpwr_h = %d\n", cali_param->wf5g_he80_tpwr_h[0]);
-    printk("======>>>>>> wf5g_hch_he80_lowrssi_tpwr = %d\n", cali_param->wf5g_hch_he80_lowrssi_tpwr[0]);
-    printk("======>>>>>> wf5g_vht_lowrssi_tpwr = %d\n", cali_param->wf5g_vht_lowrssi_tpwr[0]);
 
     printk("======>>>>>> customer_efuse_en = 0x%x\n", cali_param->w2_efuse_param.customer_efuse_en);
     printk("======>>>>>> FT_efuse_en = 0x%x\n", cali_param->w2_efuse_param.FT_efuse_en);

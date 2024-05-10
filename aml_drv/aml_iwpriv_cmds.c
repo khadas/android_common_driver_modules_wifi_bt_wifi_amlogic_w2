@@ -1593,6 +1593,22 @@ static int aml_set_tcp_delay_ack(struct net_device *dev, int enable,int min_size
     return 0;
 }
 
+static int aml_set_tcp_delay_ack_rssi_thr(struct net_device *dev, int rssi_l_thr, int rssi_h_thr)
+{
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw * aml_hw = aml_vif->aml_hw;
+    struct aml_tcp_sess_mgr *ack_mgr = &aml_hw->ack_mgr;
+    if (rssi_l_thr >= rssi_h_thr) {
+        printk("ERR:[rssi_l_thr, rssi_h_thr], The first parameter must be smaller than the second parameter\n");
+        return 0;
+    }
+
+    ack_mgr->rssi_l_thr = rssi_l_thr;
+    ack_mgr->rssi_h_thr = rssi_h_thr;
+    printk("set tcp delay ack:rssi_l_thr=%d,rssi_h_thr=%d\n", ack_mgr->rssi_l_thr, ack_mgr->rssi_h_thr);
+    return 0;
+}
+
 static int aml_set_max_drop_num(struct net_device *dev, int num)
 {
     struct aml_vif *aml_vif = netdev_priv(dev);
@@ -4103,7 +4119,9 @@ int aml_set_fwlog_cmd(struct net_device *dev, int mode)
         }
         aml_send_fwlog_cmd(aml_vif, mode);
         if (aml_bus_type == USB_MODE) {
+#ifdef CONFIG_AML_DEBUGFS
             aml_dbgfs_fw_trace_create(aml_vif->aml_hw);
+#endif
         }
     } else {
         AML_INFO("bus_type err or trace_log_file_info init failed!");
@@ -4758,6 +4776,9 @@ static int aml_iwpriv_send_para2(struct net_device *dev,
         case AML_IWP_SET_TCP_DELAY_ACK:
             aml_set_tcp_delay_ack(dev, set1,set2);
             break;
+        case AML_IWP_SET_DEAYL_ACK_RSSI_THR:
+            aml_set_tcp_delay_ack_rssi_thr(dev, set1,set2);
+            break;
         default:
             break;
     }
@@ -5325,6 +5346,9 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_IWP_SET_TCP_DELAY_ACK,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 2, 0, "set_delay_ack"},
+    {
+        AML_IWP_SET_DEAYL_ACK_RSSI_THR,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 2, 0, "set_rssi_thr"},
     {
         SIOCIWFIRSTPRIV + 3,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 3, 0, ""},

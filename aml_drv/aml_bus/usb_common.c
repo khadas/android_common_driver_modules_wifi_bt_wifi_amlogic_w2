@@ -52,6 +52,7 @@ static void auc_disconnect(struct usb_interface *interface)
     usb_set_intfdata(interface, NULL);
     usb_put_dev(g_udev);
     g_usb_after_probe = 0;
+    atomic_set(&g_wifi_pm.bus_suspend_cnt, 0);
     PRINT("--------aml_usb:disconnect-------\n");
 }
 
