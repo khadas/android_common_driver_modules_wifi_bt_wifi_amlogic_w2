@@ -859,8 +859,11 @@ uint32_t ipc_host_tx_host_ptr_to_id(struct ipc_host_env_tag *env, void *host_ptr
     list_del(&tx_hostid->list);
 
     #ifdef CONFIG_SDIO_TX_ENH
-    if (aml_bus_type == SDIO_MODE)
+    if (aml_bus_type == SDIO_MODE) {
+        spin_lock_bh(&aml_hw->txcfm_rd_lock);
         aml_hw->txcfm_param.hostid_pushed++;
+        spin_unlock_bh(&aml_hw->txcfm_rd_lock);
+    }
     #ifdef SDIO_TX_ENH_DBG
     cfmlog.hostid_pushed = aml_hw->txcfm_param.hostid_pushed;
     #endif

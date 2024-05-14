@@ -548,7 +548,7 @@ struct aml_stats {
 };
 
 #ifdef CONFIG_SDIO_TX_ENH
-#define SDIO_TX_ENH_DBG
+//#define SDIO_TX_ENH_DBG
 #ifdef SDIO_TX_ENH_DBG
 typedef struct {
     /* block status to record the time between adjacent 2 tx download */

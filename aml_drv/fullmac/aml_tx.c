@@ -1927,6 +1927,10 @@ int aml_update_tx_cfm(void *pthis)
 #ifdef CONFIG_SDIO_TX_ENH
         if (aml_hw->txcfm_param.dyn_en) {
             uint32_t pushed_occupy_blk = 0;
+            uint32_t read_blk = 6;
+            uint32_t start_blk = 0;
+
+            spin_lock_bh(&aml_hw->txcfm_rd_lock);
             pushed_occupy_blk = aml_hw->txcfm_param.hostid_pushed / TAGS_IN_SDIO_BLK;
             pushed_occupy_blk += (aml_hw->txcfm_param.hostid_pushed % TAGS_IN_SDIO_BLK) ? 1 : 0;
             if (pushed_occupy_blk > aml_hw->txcfm_param.read_blk)
@@ -1934,14 +1938,18 @@ int aml_update_tx_cfm(void *pthis)
 
             /* make sure the read blocks should not be out of TXCFM sharemem range */
             /* reset txcfm reading as more cfm tags in fw */
-            if (aml_hw->txcfm_param.start_blk + aml_hw->txcfm_param.read_blk > 6) {
+            if (aml_hw->txcfm_param.start_blk > 5 || aml_hw->txcfm_param.read_blk == 0 ||
+                        (aml_hw->txcfm_param.start_blk + aml_hw->txcfm_param.read_blk) > 6) {
                 aml_hw->txcfm_param.thresh_cnt = 0;
                 aml_hw->txcfm_param.read_blk = 6;
                 aml_hw->txcfm_param.start_blk  = 0;
             }
+            read_blk  = aml_hw->txcfm_param.read_blk;
+            start_blk = aml_hw->txcfm_param.start_blk;
+            spin_unlock_bh(&aml_hw->txcfm_rd_lock);
 
-            aml_hw->plat->hif_sdio_ops->hi_sram_read((unsigned char *)(&aml_hw->read_cfm[aml_hw->txcfm_param.start_blk*TAGS_IN_SDIO_BLK]),
-                (unsigned char *)(SRAM_TXCFM_START_ADDR + aml_hw->txcfm_param.start_blk * blk_size), aml_hw->txcfm_param.read_blk * blk_size);
+            aml_hw->plat->hif_sdio_ops->hi_sram_read((unsigned char *)(&aml_hw->read_cfm[start_blk*TAGS_IN_SDIO_BLK]),
+                (unsigned char *)(SRAM_TXCFM_START_ADDR + start_blk * blk_size), read_blk * blk_size);
 
 #ifdef SDIO_TX_ENH_DBG
             cfmlog.cfm_read_cnt++;

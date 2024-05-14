@@ -1259,6 +1259,15 @@ static int aml_close(struct net_device *dev)
      aml_recy_flags_clr(recy_clr_flag | AML_RECY_CLOSE_VIF_PROC);
 #endif
     if ((aml_bus_type == USB_MODE) && aml_hw->g_urb) {
+        u8 cnt = 0;
+        /*wait for cmd cmplete*/
+        while (aml_hw->cmd_mgr.queue_sz > 0) {
+            msleep(10);
+            if (cnt++ > 100) {
+                AML_INFO("err cmd not complete!\n");
+                break;
+            }
+        }
         USB_BEGIN_LOCK();
         usb_kill_urb(aml_hw->g_urb);
         USB_END_LOCK();
@@ -5138,6 +5147,15 @@ static int aml_ps_wow_suspend(struct aml_hw *aml_hw, struct cfg80211_wowlan *wow
                 }
                 aml_vif->filter = filter;
                 aml_send_dhcp_req(aml_hw, aml_vif, 1);
+
+#ifdef CONFIG_SDIO_TX_ENH
+                if (aml_bus_type == SDIO_MODE) {
+                    if (aml_hw->txcfm_param.dyn_en) {
+                        aml_update_dyn_txcfm(aml_hw, 0);
+                        aml_update_tx_cfm(aml_hw);
+                    }
+                }
+#endif
 
                 while (!aml_txq_is_empty(aml_vif, aml_vif->sta.ap)) {
                     msleep(10);

@@ -1002,7 +1002,7 @@ void aml_tx_cfmed_list_init(struct aml_hw *aml_hw)
 void aml_tx_cfm_param_init(struct aml_hw *aml_hw)
 {
     memset(&aml_hw->txcfm_param, 0, sizeof(txcfm_param_t));
-    aml_hw->txcfm_param.dyn_en = 1;
+    aml_hw->txcfm_param.dyn_en = 0;
     aml_hw->txcfm_param.read_blk = 6;
     aml_hw->txcfm_param.read_thresh = TXCFM_THRESH;
     spin_lock_init(&aml_hw->txcfm_rd_lock);
@@ -1738,6 +1738,28 @@ void record_proc_msg_buf(struct ipc_host_env_tag *env, struct aml_ipc_buf *buf,s
     }
 }
 
+#ifdef CONFIG_SDIO_TX_ENH
+int aml_update_dyn_txcfm(struct aml_hw *aml_hw, int en)
+{
+    if (aml_hw->txcfm_param.dyn_en == !!en) {
+        printk("txcfm dyn_en isn't changed, ignore\n");
+        return 0;
+    }
+
+    spin_lock_bh(&aml_hw->txcfm_rd_lock);
+    memset(&aml_hw->txcfm_param, 0, sizeof(txcfm_param_t));
+    aml_hw->txcfm_param.read_blk = 6;
+    aml_hw->txcfm_param.read_thresh = TXCFM_THRESH;
+    spin_unlock_bh(&aml_hw->txcfm_rd_lock);
+    spin_lock_init(&aml_hw->txcfm_rd_lock);
+
+    aml_hw->txcfm_param.dyn_en = !!en;
+    printk("txcfm dyn_en:0x%x success\n", en);
+
+    return 0;
+}
+#endif
+
 static u8 aml_msg_process(struct aml_hw *aml_hw, struct ipc_e2a_msg *msg, struct aml_ipc_buf *buf)
 {
     u8 ret = 0;
@@ -1847,6 +1869,16 @@ void aml_traffic_busy_msg(struct aml_hw *aml_hw,struct ipc_e2a_msg *msg1,struct 
                     else
                         aml_hw->traffic_busy = 0;
                 }
+#ifdef CONFIG_SDIO_TX_ENH
+                else if (msg_param->td_flag == TRAFFIC_TXCFM_FLAG) {
+                    /*tx or rx has traffic*/
+                    if (msg_param->traffic_busy_flag == 1) {
+                        aml_update_dyn_txcfm(aml_hw, 1);
+                    } else {
+                        aml_update_dyn_txcfm(aml_hw, 0);
+                    }
+                }
+#endif
             }
         }
         if (msg2->pattern == IPC_MSGE2A_VALID_PATTERN) {
@@ -1883,6 +1915,16 @@ void aml_traffic_busy_msg(struct aml_hw *aml_hw,struct ipc_e2a_msg *msg1,struct 
                     else
                         aml_hw->traffic_busy = 0;
                 }
+#ifdef CONFIG_SDIO_TX_ENH
+                else if (msg_param->td_flag == TRAFFIC_TXCFM_FLAG) {
+                    /*tx or rx has traffic*/
+                    if (msg_param->traffic_busy_flag == 1) {
+                        aml_update_dyn_txcfm(aml_hw, 1);
+                    } else {
+                        aml_update_dyn_txcfm(aml_hw, 0);
+                    }
+                }
+#endif
             }
         }
     }

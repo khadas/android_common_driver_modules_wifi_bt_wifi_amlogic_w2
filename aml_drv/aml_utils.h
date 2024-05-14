@@ -43,6 +43,7 @@
 #define USB_AMSDU_BUF_LEN (4624)
 #define TRAFFIC_CPU_FLAG           BIT(0)
 #define TRAFFIC_SCAN_FLAG          BIT(1)
+#define TRAFFIC_TXCFM_FLAG         BIT(2)
 
 
 enum aml_dev_flag {
@@ -320,5 +321,8 @@ int aml_rx_task(void *data);
 int aml_tx_task(void *data);
 int aml_msg_task(void *data);
 int aml_tx_cfm_task(void *data);
+#ifdef CONFIG_SDIO_TX_ENH
+int aml_update_dyn_txcfm(struct aml_hw *aml_hw, int en);
+#endif
 
 #endif /* _AML_IPC_UTILS_H_ */

@@ -2231,7 +2231,7 @@ int aml_rx_task(void *data)
 
     sch_param.sched_priority = 91;
 #ifndef CONFIG_PT_MODE
-    sched_setscheduler(current, SCHED_FIFO, &sch_param);
+    sched_setscheduler(current, SCHED_RR, &sch_param);
 #endif
     while (!aml_hw->aml_rx_task_quit) {
         /* wait for work */
