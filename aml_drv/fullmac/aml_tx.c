@@ -1678,7 +1678,7 @@ netdev_tx_t aml_start_xmit(struct sk_buff *skb, struct net_device *dev)
     spin_lock_bh(&aml_hw->tx_lock);
 
     if (txq->idx == TXQ_INACTIVE ) {
-        trace_printk("%s:%d Get txq idx is inactive after spin_lock_bh  \n",__func__, __LINE__);
+        printk("%s:%d Get txq idx is inactive after spin_lock_bh  \n",__func__, __LINE__);
        //"do not push and process it with kernel list lib it whill be re-pull out and used this freed buf"
        spin_unlock_bh(&aml_hw->tx_lock);
        goto free;
