@@ -417,8 +417,9 @@ static int aml_send_msg(struct aml_hw *aml_hw, const void *msg_params,
         return 0;
     }
 #endif
-    if ((aml_hw->state > WIFI_SUSPEND_STATE_NONE || g_pci_msg_suspend) && (*(msg->param) != MM_SUB_SET_SUSPEND_REQ)
-        && (*(msg->param) != MM_SUB_SCANU_CANCEL_REQ && (*(msg->param) != MM_SUB_SHUTDOWN))
+    if ((aml_hw->state > WIFI_SUSPEND_STATE_NONE || g_pci_msg_suspend)
+        && ((msg->param_len != 0) && (*(msg->param) != MM_SUB_SET_SUSPEND_REQ))
+        && ((msg->param_len != 0) && (*(msg->param) != MM_SUB_SCANU_CANCEL_REQ && (*(msg->param) != MM_SUB_SHUTDOWN)))
 #ifdef CONFIG_AML_RECOVERY
         && (!aml_recy_flags_chk(AML_RECY_STATE_ONGOING))
 #endif
@@ -455,7 +456,7 @@ static int aml_send_msg(struct aml_hw *aml_hw, const void *msg_params,
     }
 
     nonblock = is_non_blocking_msg(msg->id);
-    if ((*(msg->param) == MM_SUB_SHUTDOWN) && (msg->id == MM_OTHER_REQ)) {
+    if ((msg->param_len != 0) && (*(msg->param) == MM_SUB_SHUTDOWN) && (msg->id == MM_OTHER_REQ)) {
         nonblock = true;
     }
 
@@ -2093,7 +2094,7 @@ int aml_send_me_set_ps_mode(struct aml_hw *aml_hw, u8 ps_mode)
 
     /* Build the ME_SET_PS_MODE_REQ message */
     req = aml_msg_zalloc(ME_SET_PS_MODE_REQ, TASK_ME, DRV_TASK_ID,
-                          sizeof(struct me_set_ps_mode_req));
+                          4);
     if (!req)
         return -ENOMEM;
 

@@ -5836,7 +5836,7 @@ static int aml_get_cali_param(struct aml_hw *aml_hw, struct Cali_Param *cali_par
     aml_parse_cali_param((char *)cfg_fw->data, len, cali_param);
     if (cali_param->version != WIFI_CALI_VERSION) {
         AML_INFO("*******************************************************");
-        AML_INFO("WARNING: rf cali %s file out of date, please update!!! ");
+        AML_INFO("WARNING: rf cali file out of date, please update!!! ");
         AML_INFO("*******************************************************");
         ret = -1;
     }
