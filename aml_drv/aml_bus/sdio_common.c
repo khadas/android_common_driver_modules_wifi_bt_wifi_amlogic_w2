@@ -390,6 +390,7 @@ Try_again:
 #ifndef CONFIG_PT_MODE
 #ifndef CONFIG_LINUXPC_VERSION
     extern_wifi_set_enable(1);
+    msleep(100);
     sdio_reinit();
 #endif
 #endif

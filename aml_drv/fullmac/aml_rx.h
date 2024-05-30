@@ -240,6 +240,7 @@ struct rxbuf_list{
     unsigned int rx_buf_end;
     unsigned int rx_buf_len;
     unsigned int rxbuf_data_start;
+    unsigned int rxbuf_data_end;
 };
 
 struct aml_dyn_snr_cfg {

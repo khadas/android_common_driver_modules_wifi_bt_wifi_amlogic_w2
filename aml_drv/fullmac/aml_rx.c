@@ -2093,6 +2093,7 @@ s8 aml_sdio_rxdataind(void *pthis, void *arg)
             aml_sdio_dynamic_buffer_check(aml_hw, temp_list);
             need_len = CIRCLE_Subtract(fw_new_pos, fw_buf_pos, temp_list->rx_buf_len);
             temp_list->rxbuf_data_start = fw_buf_pos;
+            temp_list->rxbuf_data_end = fw_new_pos;
             if (aml_bus_type == SDIO_MODE) {
                 if (fw_new_pos > fw_buf_pos) {
                     aml_hw->plat->hif_sdio_ops->hi_rx_buffer_read((unsigned char *)temp_list->rxbuf,
@@ -2295,6 +2296,10 @@ int aml_rx_task(void *data)
                 aml_sdio_usb_host_reoder_handle(aml_hw, &desc_stat, reorder_hostid_start, reorder_len);
 
         next_handle:
+                if (temp_list->first_len == 0 && *next_fw_pkt >= temp_list->rxbuf_data_end) {
+                    break;
+                }
+
                 if ((temp_list->rx_buf_end - *next_fw_pkt) < RX_DESC_SIZE) {
                     *next_fw_pkt = RXBUF_START_ADDR;
                 }

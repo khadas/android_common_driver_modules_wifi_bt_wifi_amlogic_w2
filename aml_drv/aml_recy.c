@@ -247,7 +247,7 @@ extern void aml_platform_off(struct aml_hw *aml_hw, void **config);
 extern void extern_wifi_set_enable(int is_on);
 extern unsigned char g_usb_after_probe;
 extern void aml_sdio_reset(void);
-
+extern struct usb_device *g_udev;
 int aml_recy_fw_reload_for_usb_sdio(struct aml_hw *aml_hw)
 {
     int ret = 0;
@@ -264,9 +264,15 @@ Try_again:
         aml_clear_reorder_list();
     }
     if (aml_bus_type == USB_MODE) {
-       bus_state_detect.bus_reset_ongoing = 1;
-       aml_usb_reset();
-       bus_state_detect.bus_reset_ongoing = 0;
+        bus_state_detect.bus_reset_ongoing = 1;
+        aml_usb_reset();
+
+        /* realloc usb_dev in function@auc_probe when usb do reset, it need to reinit data */
+        aml_hw->plat->usb_dev = g_udev;
+        dev_set_drvdata(&aml_hw->plat->usb_dev->dev, aml_hw);
+        aml_hw->dev = aml_platform_get_dev(aml_hw->plat);
+        set_wiphy_dev(aml_hw->wiphy, aml_hw->dev);
+        bus_state_detect.bus_reset_ongoing = 0;
     }
     if ((aml_bus_type == SDIO_MODE) && ((bus_state_detect.bus_err == 1) || (try_cnt > 1))) {
        aml_sdio_reset();
@@ -564,7 +570,6 @@ static int aml_recy_vif_restart(struct aml_hw *aml_hw)
     return 0;
 }
 
-extern struct usb_device *g_udev;
 int aml_recy_doit(struct aml_hw *aml_hw)
 {
     int ret;
@@ -590,6 +595,7 @@ int aml_recy_doit(struct aml_hw *aml_hw)
     }
 
     aml_recy_flags_set(AML_RECY_STATE_ONGOING | AML_RECY_DROP_XMIT_PKT);
+    aml_hw->traffic_busy = 0;
 
     ret = aml_recy_vif_reset(aml_hw);
     if (ret) {
@@ -597,16 +603,6 @@ int aml_recy_doit(struct aml_hw *aml_hw)
         goto out;
     }
     aml_recy_flags_clr(AML_RECY_DROP_XMIT_PKT);
-
-
-    if (aml_bus_type == USB_MODE) {
-        /* realloc usb_dev in function@auc_probe when usb do reset, it need to reinit data */
-        aml_hw->plat->usb_dev = g_udev;
-        dev_set_drvdata(&aml_hw->plat->usb_dev->dev, aml_hw);
-        aml_hw->dev = aml_platform_get_dev(aml_hw->plat);
-        set_wiphy_dev(aml_hw->wiphy, aml_hw->dev);
-    }
-
 
     ret = aml_recy_fw_reload(aml_hw);
     if (ret) {

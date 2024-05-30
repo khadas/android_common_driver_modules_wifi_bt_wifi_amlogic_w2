@@ -1217,7 +1217,7 @@ int aml_send_log_to_user(char *pbuf, uint16_t len, int msg_type)
     nlh = nlmsg_put(nl_skb, 0, 0, AML_TRACE_NL_PROTOCOL, buf_len, 0);
     if (nlh == NULL)
     {
-        AML_INFO("nlmsg_put failure \n");
+        AML_INFO("nlmsg_put failure\n");
         nlmsg_free(nl_skb);
         return -1;
     }

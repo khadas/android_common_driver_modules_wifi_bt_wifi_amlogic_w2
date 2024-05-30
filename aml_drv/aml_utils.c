@@ -55,9 +55,9 @@ static int aml_ipc_buf_pool_alloc(struct aml_hw *aml_hw,
     int i;
 
     pool->nb = 0;
-
+    nb++;
     /* allocate buf array */
-    pool->buffers = kmalloc(nb * sizeof(struct aml_ipc_buf), GFP_KERNEL);
+    pool->buffers = kzalloc(nb * sizeof(struct aml_ipc_buf), GFP_KERNEL);
     if (!pool->buffers) {
         dev_err(aml_hw->dev, "Allocation of buffer array for %s failed\n",
                 pool_name);
@@ -83,7 +83,8 @@ static int aml_ipc_buf_pool_alloc(struct aml_hw *aml_hw,
             return -ENOMEM;
         }
         if (!buf->dma_addr) {
-            printk("err:dma_addr null \n");
+            printk("err:dma_addr null i=%d\n",i);
+            continue;
         }
         pool->nb++;
 
@@ -92,8 +93,10 @@ static int aml_ipc_buf_pool_alloc(struct aml_hw *aml_hw,
 
         /* push it to FW */
         push(aml_hw->ipc_env, buf);
-    }
 
+        if (pool->nb == (nb - 1))
+            break;
+    }
     return 0;
 }
 
@@ -110,8 +113,10 @@ static void aml_ipc_buf_pool_dealloc(struct aml_ipc_buf_pool *pool)
     struct aml_ipc_buf *buf;
     int i;
 
-    for (i = 0, buf = pool->buffers; i < pool->nb ; buf++, i++) {
-        dma_pool_free(pool->pool, buf->addr, buf->dma_addr);
+    for (i = 0, buf = pool->buffers; i < (pool->nb + 1) ; buf++, i++) {
+        if (buf->addr) {
+            dma_pool_free(pool->pool, buf->addr, buf->dma_addr);
+        }
     }
     pool->nb = 0;
 
