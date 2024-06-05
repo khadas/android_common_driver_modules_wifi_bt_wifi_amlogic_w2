@@ -1563,7 +1563,7 @@ void usb_stor_control_msg(struct aml_hw *aml_hw, struct urb *urb)
     aml_hw->g_cr->bRequest = CMD_USB_IRQ;
     aml_hw->g_cr->wValue = 0;
     aml_hw->g_cr->wIndex = 0;
-    aml_hw->g_cr->wLength = cpu_to_le16(2 * sizeof(int));
+    aml_hw->g_cr->wLength = cpu_to_le16(4 * sizeof(int));
 
     /*fill a control urb*/
     usb_fill_control_urb(urb,
@@ -1571,7 +1571,7 @@ void usb_stor_control_msg(struct aml_hw *aml_hw, struct urb *urb)
         usb_rcvctrlpipe(udev, USB_EP0),
         (unsigned char *)(aml_hw->g_cr),
         aml_hw->g_buffer,
-        2 * sizeof(int),
+        4 * sizeof(int),
         aml_irq_usb_hdlr,
         aml_hw);
 
@@ -1886,7 +1886,7 @@ int aml_sdio_platform_on(struct aml_hw *aml_hw, void *config)
     }
 #endif
     if (aml_bus_type == USB_MODE) {
-        aml_hw->g_buffer = ZMALLOC(2 * sizeof(int), "fw_stat", GFP_DMA | GFP_ATOMIC);
+        aml_hw->g_buffer = ZMALLOC(4 * sizeof(int), "fw_stat", GFP_DMA | GFP_ATOMIC);
         if (!aml_hw->g_buffer) {
             ERROR_DEBUG_OUT("malloc fail!\n");
             return -ENOMEM;
@@ -2166,9 +2166,15 @@ int aml_pci_platform_on(struct aml_hw *aml_hw, void *config)
     {
         if (aml_hw->plat->disable)
             aml_hw->plat->disable(aml_hw);
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0) // template solution for S905L3A
 #ifndef CONFIG_AML_USE_TASK
         tasklet_kill(&aml_hw->task);
 #endif
+#else
+        tasklet_kill(&aml_hw->task);
+#endif
+
         aml_ipc_deinit(aml_hw);
         return ret;
     }
@@ -2237,7 +2243,11 @@ void aml_platform_off(struct aml_hw *aml_hw, void **config)
     if (aml_hw->plat->disable)
         aml_hw->plat->disable(aml_hw);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0) // template solution for S905L3A
 #ifndef CONFIG_AML_USE_TASK
+    tasklet_kill(&aml_hw->task);
+#endif
+#else
     tasklet_kill(&aml_hw->task);
 #endif
 
@@ -2334,6 +2344,8 @@ static unsigned char *aml_get_address(struct aml_plat *aml_plat, int addr_name,
 
     return addr;
 }
+extern int bt_wt_ptr;
+extern int bt_rd_ptr;
 
 static u32 aml_pci_ack_irq(struct aml_hw *aml_hw)
 {
@@ -2347,7 +2359,9 @@ static u32 aml_pci_ack_irq(struct aml_hw *aml_hw)
     if (aml_bus_type == USB_MODE) {
         reg_val[0] = (aml_hw->g_buffer[3] << 24) | (aml_hw->g_buffer[2] << 16) | (aml_hw->g_buffer[1] << 8) | (aml_hw->g_buffer[0]);
         reg_val[1] = (aml_hw->g_buffer[7] << 24) | (aml_hw->g_buffer[6] << 16) | (aml_hw->g_buffer[5] << 8) | (aml_hw->g_buffer[4]);
-        memset(aml_hw->g_buffer, 0, 2 * sizeof(int));
+        bt_rd_ptr = (aml_hw->g_buffer[11] << 24) | (aml_hw->g_buffer[10] << 16) | (aml_hw->g_buffer[9] << 8) | (aml_hw->g_buffer[8]);
+        bt_wt_ptr = (aml_hw->g_buffer[15] << 24) | (aml_hw->g_buffer[14] << 16) | (aml_hw->g_buffer[13] << 8) | (aml_hw->g_buffer[12]);
+        memset(aml_hw->g_buffer, 0, 4 * sizeof(int));
     } else if (aml_bus_type == SDIO_MODE) {
         aml_hw->plat->hif_sdio_ops->hi_desc_read((unsigned char *)(unsigned long)reg_val,
                 (unsigned char *)(unsigned long)RG_WIFI_IF_FW2HST_IRQ_CFG, sizeof(reg_val));

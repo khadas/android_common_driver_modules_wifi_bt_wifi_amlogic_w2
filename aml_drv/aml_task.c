@@ -132,7 +132,10 @@ void aml_task_init(struct aml_hw *aml_hw)
         return;
 
     AML_INFO("aml task init");
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0) // template solution for S905L3A
     AML_TASK_INIT(aml_hw, irqhdlr);
+#else
+#endif
     AML_TASK_INIT(aml_hw, rxdesc);
 }
 
@@ -142,7 +145,10 @@ void aml_task_deinit(struct aml_hw *aml_hw)
         return;
 
     AML_INFO("aml task deinit");
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0) // template solution for S905L3A
     AML_TASK_DEINIT(aml_hw, irqhdlr);
+#else
+#endif
     AML_TASK_DEINIT(aml_hw, rxdesc);
 }
 #endif

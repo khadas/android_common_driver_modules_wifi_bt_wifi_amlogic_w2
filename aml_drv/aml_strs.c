@@ -166,6 +166,7 @@ const char *const aml_mm_other_id2str[MM_SUB_A2E_MAX] = {
     [MM_SUB_FIX_TXPWR]               = "MM_SUB_FIX_TXPWR",
     [MM_SUB_SET_USB_TRACE_STATE]     = "MM_SUB_SET_USB_TRACE_STATE",
     [MM_SUB_SET_PUTV_TRACE_SWITCH]   = "MM_SUB_SET_PUTV_TRACE_SWITCH",
+    [MM_SUB_ENABLE_RSSI_REG]         = "MM_SUB_ENABLE_RSSI_REG",
 };
 
 static const char *const aml_dbgid2str[MSG_I(DBG_MAX)] = {

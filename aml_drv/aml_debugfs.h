@@ -127,7 +127,7 @@ static const struct file_operations aml_dbgfs_##name##_ops = {     \
 #endif /* CONFIG_AML_FULLMAC */
 
 #define TXQ_HDR "idx|  status|credit|ready|retry|pushed"
-#define TXQ_HDR_FMT "%3d|%s%s%s%s%s%s%s%s|%6d|%5d|%5d|%6d"
+#define TXQ_HDR_FMT "%3d|%s%s%s%s%s%s%s%s%s|%6d|%5d|%5d|%6d"
 
 #ifdef CONFIG_AML_AMSDUS_TX
 #ifdef CONFIG_AML_FULLMAC
@@ -181,7 +181,7 @@ static const struct file_operations aml_dbgfs_##name##_ops = {     \
 #define VIF_SEP_LEN sizeof(VIF_SEP)
 
 #define CAPTION "status: L=in hwq list, F=stop full, P=stop sta PS, V=stop vif PS,\
- C=stop channel, S=stop CSA, M=stop MU, N=Ndev queue stopped"
+ C=stop channel, S=stop CSA, M=stop MU, N=Ndev queue stopped, I=CO Inactive"
 #define CAPTION_LEN sizeof(CAPTION)
 
 #define STA_TXQ 0

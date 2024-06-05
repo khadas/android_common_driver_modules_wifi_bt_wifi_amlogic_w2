@@ -55,6 +55,8 @@
 #define UBUNTU_PC_VERSION   0xA1B2C3D4  // indicate ubuntu pc + w2
 #define UBUNTU_SYNC_PATTERN 0x4D3C2B1A
 #define UBUNTU_SYNC_ADDR    0x00a10018
+
+#define REG_OF_SYNC_TWO_RSSI    0x00a1001c
 #define REG_OF_SYNC_RSSI (MAC_SRAM_BASE + 0x14)
 #define REG_OF_VENDOR_ID (MAC_SRAM_BASE + 0x4)
 

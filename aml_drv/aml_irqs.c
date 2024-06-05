@@ -155,8 +155,15 @@ irqreturn_t aml_irq_pcie_hdlr(int irq, void *dev_id)
         return IRQ_HANDLED;
     }
     disable_irq_nosync(irq);
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0) // template solution for S905L3A
+
 #ifdef CONFIG_AML_USE_TASK
     up(&aml_hw->irqhdlr->task_sem);
+#else
+    tasklet_schedule(&aml_hw->task);
+#endif
+
 #else
     tasklet_schedule(&aml_hw->task);
 #endif
@@ -182,8 +189,11 @@ void aml_pcie_task(unsigned long data)
     while ((status = ipc_host_get_status(aml_hw->ipc_env))) {
         /* All kinds of IRQs will be handled in one shot (RX, MSG, DBG, ...)
          * this will ack IPC irqs not the cfpga irqs */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0) // template solution for S905L3A
         ipc_host_irq(aml_hw->ipc_env, status);
-
+#else
+        ipc_host_irq_ext(aml_hw->ipc_env, status);
+#endif
         aml_plat->ack_irq(aml_hw);
     }
 

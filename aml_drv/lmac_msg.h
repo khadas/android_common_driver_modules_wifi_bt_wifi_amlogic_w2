@@ -452,6 +452,7 @@ enum mm_sub_a2e_tag {
     MM_SUB_FIX_TXPWR,
     MM_SUB_SET_USB_TRACE_STATE,
     MM_SUB_SET_PUTV_TRACE_SWITCH,
+    MM_SUB_ENABLE_RSSI_REG,
     /// the MAX
     MM_SUB_A2E_MAX,
     /// New members cannot be added below
@@ -3151,6 +3152,11 @@ struct enable_wf_req
 struct fix_txpwr
 {
     s32_l pwr;
+};
+
+struct enable_rssi_req
+{
+    u8_l flag;
 };
 
 struct get_efuse_req

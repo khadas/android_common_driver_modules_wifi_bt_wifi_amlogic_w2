@@ -792,14 +792,17 @@ unsigned int auc_read_word_by_ep_for_wifi(unsigned int addr, unsigned int ep)
 {
     int len = 4;
     unsigned int value = 0;
+    static int cnt = 0;
 
 #ifdef CONFIG_AML_RECOVERY
     if (bus_state_detect.bus_err || bus_state_detect.bus_reset_ongoing) {
-        ERROR_DEBUG_OUT("EP-%d bus reset is ongoing(bus err:%d, reset on going: %d:), do not read/write now!\n",
-            ep, bus_state_detect.bus_err, bus_state_detect.bus_reset_ongoing);
+        if (cnt++ < 3)
+            ERROR_DEBUG_OUT("EP-%d bus reset is ongoing(bus err:%d, reset on going: %d:), do not read/write now!\n",
+                ep, bus_state_detect.bus_err, bus_state_detect.bus_reset_ongoing);
         return 0;
     }
 #endif
+    cnt = 0;
     if ((ep == USB_EP4) || (ep == USB_EP5) || (ep == USB_EP6) || (ep == USB_EP7)) {
         ep = USB_EP1;
         value = auc_read_reg_by_ep(addr, len, ep, WIFI_READ_CMD);

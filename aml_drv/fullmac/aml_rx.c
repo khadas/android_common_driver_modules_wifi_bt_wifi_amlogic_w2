@@ -1639,8 +1639,8 @@ s8 rx_skb_handle(struct rx_desc_head *desc_stat, struct aml_hw *aml_hw, struct r
         */
 
         if ((aml_hw->host_buf_start < rxbuf_end) && (aml_hw->host_buf_start + RX_PAYLOAD_OFFSET + eth_hdr_offset + desc_stat->frame_len > rxbuf_end)) {//loop
-            if (aml_hw->host_buf_start + RX_DESC_SIZE < rxbuf_end) {
-                if (aml_hw->host_buf_start + RX_PAYLOAD_OFFSET < rxbuf_end) {
+            if (aml_hw->host_buf_start + RX_DESC_SIZE <= rxbuf_end) {
+                if (aml_hw->host_buf_start + RX_PAYLOAD_OFFSET <= rxbuf_end) {
 #ifndef CONFIG_AML_RX_MINISIZE
                     if (hw_rxhdr->flags_is_80211_mpdu) {
                         if (aml_hw->host_buf_start + RX_PAYLOAD_OFFSET + desc_stat->frame_len <= rxbuf_end) {
@@ -1651,7 +1651,7 @@ s8 rx_skb_handle(struct rx_desc_head *desc_stat, struct aml_hw *aml_hw, struct r
                     } else
 #endif
                     {
-                        if (aml_hw->host_buf_start + RX_PAYLOAD_OFFSET + UNWRAP_SIZE < rxbuf_end) {//5
+                        if (aml_hw->host_buf_start + RX_PAYLOAD_OFFSET + UNWRAP_SIZE <= rxbuf_end) {//5
                             upload_len = rxbuf_end - aml_hw->host_buf_start - RX_PAYLOAD_OFFSET - eth_hdr_offset;
                             memcpy((unsigned char *)skb->data, aml_hw->host_buf_start + RX_PAYLOAD_OFFSET + eth_hdr_offset, upload_len);
                             memcpy((unsigned char *)skb->data + upload_len, rxbuf_end + RX_PD_LEN, desc_stat->frame_len - upload_len);

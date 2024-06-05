@@ -457,7 +457,7 @@ static int aml_send_msg(struct aml_hw *aml_hw, const void *msg_params,
 
     nonblock = is_non_blocking_msg(msg->id);
     if ((msg->param_len != 0) && (*(msg->param) == MM_SUB_SHUTDOWN) && (msg->id == MM_OTHER_REQ)) {
-        nonblock = true;
+           nonblock = true;
     }
 
     call_thread = aml_msg_send_mtheod(msg->id);
@@ -3718,6 +3718,20 @@ int _aml_fix_txpwr(struct aml_vif *aml_vif, int pwr)
         return -ENOMEM;
     memset((void *)req, 0,sizeof(struct fix_txpwr));
     req->pwr= pwr;
+    /* coverity[leaked_storage] - req will be freed later */
+    return aml_priv_send_msg(aml_hw, req, 0, 0, NULL);
+}
+
+int aml_set_rssi_reg(struct aml_vif *aml_vif, int flag)
+{
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
+    struct enable_rssi_req *req = NULL;
+    printk("%s: %x\n", __func__, flag);
+    req = aml_priv_msg_zalloc(MM_SUB_ENABLE_RSSI_REG, sizeof(struct enable_rssi_req));
+    if (!req)
+        return -ENOMEM;
+    memset((void *)req, 0,sizeof(struct enable_rssi_req));
+    req->flag= flag;
     /* coverity[leaked_storage] - req will be freed later */
     return aml_priv_send_msg(aml_hw, req, 0, 0, NULL);
 }

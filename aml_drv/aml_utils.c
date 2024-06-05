@@ -26,7 +26,9 @@
 #endif
 
 #define DGB_INFO_OFFSET (16) //for sdio and usb, sizeof(struct dma_desc)
+#ifdef CONFIG_AML_DEBUGFS
 extern struct log_file_info trace_log_file_info;
+#endif
 
 /**
  * aml_ipc_buf_pool_alloc() - Allocate and push to fw a pool of IPC buffer.

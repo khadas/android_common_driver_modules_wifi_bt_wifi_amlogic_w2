@@ -1895,8 +1895,7 @@ int aml_start_mgmt_xmit(struct aml_vif *vif, struct aml_sta *sta,
 cfm_log cfmlog = {0};
 #endif
 #endif
-extern int bt_wt_ptr;
-extern int bt_rd_ptr;
+
 extern struct aml_bus_state_detect bus_state_detect;
 int aml_update_tx_cfm(void *pthis)
 {
@@ -1917,10 +1916,7 @@ int aml_update_tx_cfm(void *pthis)
     }
 #endif
     if (aml_bus_type == USB_MODE) {
-
-        ret = usb_bulk_msg(aml_hw->plat->usb_dev, usb_rcvbulkpipe(aml_hw->plat->usb_dev, USB_EP5), (void *)read_cfm, sizeof(struct tx_sdio_usb_cfm_tag) * (SRAM_TXCFM_CNT+1), &actual_length, 100);
-        bt_rd_ptr = *((char *)read_cfm + sizeof(struct tx_sdio_usb_cfm_tag) * SRAM_TXCFM_CNT);
-        bt_wt_ptr = *((char *)read_cfm + sizeof(struct tx_sdio_usb_cfm_tag) * SRAM_TXCFM_CNT + 4);
+        ret = usb_bulk_msg(aml_hw->plat->usb_dev, usb_rcvbulkpipe(aml_hw->plat->usb_dev, USB_EP5), (void *)read_cfm, sizeof(struct tx_sdio_usb_cfm_tag) * (SRAM_TXCFM_CNT), &actual_length, 100);
         if (ret)
             printk("usb bulk failed actual len is %d\n",actual_length);
     } else if (aml_bus_type == SDIO_MODE) {

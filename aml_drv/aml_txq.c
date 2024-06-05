@@ -1136,9 +1136,6 @@ void aml_txq_vif_for_each_sta(struct aml_hw *aml_hw, struct aml_vif *aml_vif,
 
         if (aml_vif->sta.ap != NULL)
             f(aml_vif->sta.ap, reason, aml_hw);
-        else
-            AML_INFO("WARN_ON:aml_vif->sta.ap == NULL\n");
-
         break;
     }
     case NL80211_IFTYPE_AP_VLAN:

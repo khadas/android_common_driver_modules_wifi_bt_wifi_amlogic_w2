@@ -517,7 +517,9 @@ static const int aml_hwq2uapsd[NL80211_NUM_ACS] = {
 };
 
 extern void aml_print_version(void);
+#ifdef CONFIG_AML_DEBUGFS
 extern int aml_trace_buf_init(void);
+#endif
 extern void aml_trace_buf_deinit(void);
 extern struct aml_bus_state_detect bus_state_detect;
 extern struct usb_device *g_udev;
@@ -6501,8 +6503,13 @@ int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
     wiphy->extended_capabilities = aml_hw->ext_capa;
     wiphy->extended_capabilities_mask = aml_hw->ext_capa;
     wiphy->extended_capabilities_len = ARRAY_SIZE(aml_hw->ext_capa);
-
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0) // template solution for S905L3A
 #ifndef CONFIG_AML_USE_TASK
+    if (aml_bus_type == PCIE_MODE) {
+        tasklet_init(&aml_hw->task, aml_pcie_task, (unsigned long)aml_hw);
+    }
+#endif
+#else
     if (aml_bus_type == PCIE_MODE) {
         tasklet_init(&aml_hw->task, aml_pcie_task, (unsigned long)aml_hw);
     }
@@ -6560,9 +6567,11 @@ int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
     aml_sync_trace_init(aml_hw);
 #endif
 
+#ifdef CONFIG_AML_DEBUGFS
     if (ret = aml_trace_buf_init()) {
         AML_INFO("alloc trace buf failed(%d)!\n", ret);
     }
+#endif
 
 #ifdef CONFIG_AML_RECOVERY
     aml_recy_init(aml_hw);
