@@ -984,6 +984,14 @@ static bool aml_amsdu_add_subframe(struct aml_hw *aml_hw, struct sk_buff *skb,
            available, otherwise end the current amsdu */
         struct aml_sw_txhdr *sw_txhdr = txq->amsdu;
         eth = (struct ethhdr *)(skb->data);
+
+        //mac addr dismatch not asmdu
+        if (memcmp(eth->h_dest, sw_txhdr->desc.api.host.eth_dest_addr.array, 6) || \
+            memcmp(eth->h_source, sw_txhdr->desc.api.host.eth_src_addr.array, 6)) {
+            txq->amsdu = NULL;
+            goto end;
+        }
+
         if ((sw_txhdr->desc.api.host.flags & TXU_CNTRL_SP_FRAME) ||
             ((sw_txhdr->amsdu.len + sw_txhdr->amsdu.pad +
               aml_amsdu_subframe_length(eth, skb->len)) > txq->amsdu_len) ||
@@ -1021,6 +1029,12 @@ static bool aml_amsdu_add_subframe(struct aml_hw *aml_hw, struct sk_buff *skb,
 
         eth = (struct ethhdr *)(skb->data);
         len2 = aml_amsdu_subframe_length(eth, skb->len);
+
+        //mac addr dismatch not asmdu
+        if (memcmp(eth->h_dest, sw_txhdr->desc.api.host.eth_dest_addr.array, 6) || \
+            memcmp(eth->h_source, sw_txhdr->desc.api.host.eth_src_addr.array, 6)) {
+            goto end;
+        }
 
         if (len1 + AMSDU_PADDING(len1) + len2 > txq->amsdu_len)
             /* not enough space to aggregate those two buffers */
