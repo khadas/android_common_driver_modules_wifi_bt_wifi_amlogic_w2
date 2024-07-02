@@ -1,4 +1,4 @@
-AML_VERS_NUM=v1.9.3_2024-06.17-w2 driver:f5bf7960f4dce987baa83e25eabcd981e8cca817
+AML_VERS_NUM=v1.9.4_2024-07.02-w2 driver:8bf3f356211a43867f238ea8ace612a6e4bd92f0
 #KERNELDIR=/usr/lib/modules/5.8.0-63-generic/build
 PWD=$(shell pwd)
 ifeq ($(ARCH),)
@@ -109,6 +109,9 @@ CONFIG_AML_RX_MINISIZE ?= n
 #support NAPI
 CONFIG_AML_NAPI ?= y
 
+# support MDNS_OFFLOAD featrue
+CONFIG_MDNS_OFFLOAD_FEATRUE ?= y
+
 # Support 4.9 ax
 ifeq ($(CONFIG_AML_KERNEL_4_9),y)
 CONFIG_KERNEL_AX_PATCH ?= y
@@ -133,6 +136,7 @@ subdir-ccflags-$(CONFIG_AML_RX_MINISIZE) += -DCONFIG_AML_RX_MINISIZE
 subdir-ccflags-$(CONFIG_AML_NAPI) += -DCONFIG_AML_NAPI
 subdir-ccflags-$(CONFIG_KERNEL_AX_PATCH) += -DCONFIG_KERNEL_AX_PATCH
 subdir-ccflags-$(CONFIG_SDIO_TX_ENH) += -DCONFIG_SDIO_TX_ENH
+subdir-ccflags-$(CONFIG_MDNS_OFFLOAD_FEATRUE) += -DMDNS_OFFLOAD_FEATRUE
 
 # FW VARS
 subdir-ccflags-y += -DNX_VIRT_DEV_MAX=4

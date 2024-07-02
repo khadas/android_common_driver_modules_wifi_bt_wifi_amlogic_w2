@@ -99,6 +99,39 @@ static int _aml_sdio_request_byte(unsigned char func_num,
     return (err_ret == 0) ? SDIOH_API_RC_SUCCESS : SDIOH_API_RC_FAIL;
 }
 
+//cmd52, func 0, for self define domain
+int aml_sdio_self_define_domain_func0_write8(int addr, unsigned char data)
+{
+    int ret = 0;
+    bool sdio_bus_block = false;
+    unsigned char func_num = 0;
+
+    sdio_bus_block = aml_sdio_block_bus_opt();
+    if (sdio_bus_block)
+    {
+       return 0;
+    }
+
+    ret =  _aml_sdio_request_byte(SDIO_FUNC0, SDIO_WRITE, addr, &data);
+    return ret;
+}
+
+//cmd52
+unsigned char aml_sdio_self_define_domain_func0_read8(int addr)
+{
+    unsigned char sramdata;
+    bool sdio_bus_block = false;
+    unsigned char func_num = 0;
+
+    sdio_bus_block = aml_sdio_block_bus_opt();
+    if (sdio_bus_block)
+    {
+       return 0;
+    }
+
+    _aml_sdio_request_byte(SDIO_FUNC0, SDIO_READ, addr, &sramdata);
+    return sramdata;
+}
 
 //cmd52, func 1, for self define domain
 int aml_sdio_self_define_domain_write8(int addr, unsigned char data)
@@ -963,6 +996,10 @@ extern int aml_sdio_suspend(unsigned int suspend_enable);
 void aml_sdio_init_w2_ops(void)
 {
     struct aml_hif_sdio_ops* ops = &g_hif_sdio_ops;
+    //func0 operation func, read/write self define domain reg, no need to set base addr
+    ops->hi_self_define_domain_func0_write8 = aml_sdio_self_define_domain_func0_write8;
+    ops->hi_self_define_domain_func0_read8 = aml_sdio_self_define_domain_func0_read8;
+
     //func1 operation func, read/write self define domain reg, no need to set base addr
     ops->hi_self_define_domain_write8 = aml_sdio_self_define_domain_write8;
     ops->hi_self_define_domain_read8 = aml_sdio_self_define_domain_read8;

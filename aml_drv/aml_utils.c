@@ -26,9 +26,9 @@
 #endif
 
 #define DGB_INFO_OFFSET (16) //for sdio and usb, sizeof(struct dma_desc)
-#ifdef CONFIG_AML_DEBUGFS
+
 extern struct log_file_info trace_log_file_info;
-#endif
+
 
 /**
  * aml_ipc_buf_pool_alloc() - Allocate and push to fw a pool of IPC buffer.
@@ -1856,23 +1856,8 @@ void aml_traffic_busy_msg(struct aml_hw *aml_hw,struct ipc_e2a_msg *msg1,struct 
 #endif
                 }   else if (msg_param->td_flag == TRAFFIC_SCAN_FLAG) {
                     /*tx or rx has traffic*/
-                    if (msg_param->traffic_busy_flag == 1) {
-
-                        list_for_each_entry(aml_vif, &aml_hw->vifs, list) {
-                            if (!aml_vif->up || aml_vif->ndev == NULL) {
-                                  continue;
-                            }
-                            if (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_STATION ||
-                                AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_P2P_CLIENT) {
-#ifndef CONFIG_LINUXPC_VERSION
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0)
-                            aml_rps_cpus_disable(aml_vif->ndev);
-#endif
-#endif
-                            }
-                        }
+                    if (msg_param->traffic_busy_flag == 1)
                         aml_hw->traffic_busy = 1;
-                    }
                     else
                         aml_hw->traffic_busy = 0;
                 }
@@ -1900,25 +1885,10 @@ void aml_traffic_busy_msg(struct aml_hw *aml_hw,struct ipc_e2a_msg *msg1,struct 
                     else
                         aml_cpufreq_boost_remove(aml_hw);
 #endif
-                }  else if (msg_param->td_flag == TRAFFIC_SCAN_FLAG) {
+                } else if (msg_param->td_flag == TRAFFIC_SCAN_FLAG) {
                     /*tx or rx has traffic*/
-                    if (msg_param->traffic_busy_flag == 1) {
-
-                        list_for_each_entry(aml_vif, &aml_hw->vifs, list) {
-                            if (!aml_vif->up || aml_vif->ndev == NULL) {
-                                  continue;
-                            }
-                            if (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_STATION ||
-                                AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_P2P_CLIENT) {
-#ifndef CONFIG_LINUXPC_VERSION
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0)
-                            aml_rps_cpus_disable(aml_vif->ndev);
-#endif
-#endif
-                            }
-                        }
+                    if (msg_param->traffic_busy_flag == 1)
                         aml_hw->traffic_busy = 1;
-                    }
                     else
                         aml_hw->traffic_busy = 0;
                 }
@@ -2301,14 +2271,14 @@ int aml_traceind(void *pthis, int mode)
     int ret = 0;
     uint32_t trace_max_size = 0;
 
-#ifdef CONFIG_AML_DEBUGFS
     mutex_lock(&trace_log_file_info.mutex);
+
     if (!trace_log_file_info.ptr)
         goto err;
 
     memset(trace_log_file_info.ptr, 0, 33*1024);
     ptr_flag = trace_log_file_info.ptr;
-#endif
+
     if (aml_bus_type == USB_MODE) {
         aml_hw->plat->hif_ops->hi_read_sram((unsigned char *)ptr_flag, (unsigned char *)(SYS_TYPE)USB_TRACE_START_ADDR, USB_TRACE_TOTAL_SIZE, USB_EP4);
         end = aml_hw->plat->hif_ops->hi_read_word((unsigned long)&(aml_hw->ipc_env->shared->trace_end), USB_EP4);
@@ -2337,7 +2307,7 @@ int aml_traceind(void *pthis, int mode)
             ptr_limit = ptr_flag + end;
         }
     }
-#ifdef CONFIG_AML_DEBUGFS
+
     ret = aml_trace_log_to_file(ptr_flag, ptr_limit);
     if (ret) {
         printk("aml_traceind  trace log to file fail\n");
@@ -2345,12 +2315,11 @@ int aml_traceind(void *pthis, int mode)
     }
 
     mutex_unlock(&trace_log_file_info.mutex);
-#endif
+
     return 0;
 err:
-#ifdef CONFIG_AML_DEBUGFS
     mutex_unlock(&trace_log_file_info.mutex);
-#endif
+
     return -1;
 }
 

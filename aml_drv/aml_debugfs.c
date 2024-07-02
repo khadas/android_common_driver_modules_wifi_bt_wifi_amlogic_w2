@@ -1361,7 +1361,7 @@ int compare_idx(const void *st1, const void *st2)
 }
 
 int print_rate(char *buf, int size, int format, int nss, int mcs, int bw,
-                      int sgi, int pre, int dcm, int *r_idx)
+                      int sgi, int pre, int dcm, int *r_idx, bool bprint)
 {
     int res = 0;
     int bitrates_cck[4] = { 10, 20, 55, 110 };
@@ -1372,70 +1372,133 @@ int print_rate(char *buf, int size, int format, int nss, int mcs, int bw,
         if (mcs < 4) {
             if (r_idx) {
                 *r_idx = (mcs * 2) + pre;
-                res = scnprintf(buf, size - res, "%4d ", *r_idx);
+                if (bprint) {
+                    printk("%4d ", *r_idx);
+                } else {
+                    res = scnprintf(buf, size - res, "%4d ", *r_idx);
+                }
             }
-            res += scnprintf(&buf[res], size - res, "L-CCK/%cP%11c%2u.%1uM   ",
-                             pre > 0 ? 'L' : 'S', ' ',
-                             bitrates_cck[mcs] / 10,
-                             bitrates_cck[mcs] % 10);
+            if (bprint) {
+                printk("L-CCK/%cP%11c%2u.%1uM   ", pre > 0 ? 'L' : 'S', ' ', bitrates_cck[mcs] / 10, bitrates_cck[mcs] % 10);
+            } else {
+                res += scnprintf(&buf[res], size - res, "L-CCK/%cP%11c%2u.%1uM   ",
+                                 pre > 0 ? 'L' : 'S', ' ',
+                                 bitrates_cck[mcs] / 10,
+                                 bitrates_cck[mcs] % 10);
+            }
         } else {
             mcs -= 4;
             if (r_idx) {
                 *r_idx = N_CCK + mcs;
-                res = scnprintf(buf, size - res, "%4d ", *r_idx);
+                if (bprint) {
+                    printk("%4d ", *r_idx);
+                } else {
+                    res = scnprintf(buf, size - res, "%4d ", *r_idx);
+                }
             }
-            res += scnprintf(&buf[res], size - res, "L-OFDM%13c%2u.0M   ",
-                             ' ', bitrates_ofdm[mcs]);
+            if (bprint) {
+                printk("L-OFDM%13c%2u.0M   ", ' ', bitrates_ofdm[mcs]);
+            } else {
+                res += scnprintf(&buf[res], size - res, "L-OFDM%13c%2u.0M   ",
+                                 ' ', bitrates_ofdm[mcs]);
+            }
         }
     } else if (format < FORMATMOD_VHT) {
         if (r_idx) {
             *r_idx = N_CCK + N_OFDM + nss * 32 + mcs * 4 + bw * 2 + sgi;
-            res = scnprintf(buf, size - res, "%4d ", *r_idx);
+            if (bprint) {
+                printk("%4d ", *r_idx);
+            } else {
+                res = scnprintf(buf, size - res, "%4d ", *r_idx);
+            }
         }
         mcs += nss * 8;
-        res += scnprintf(&buf[res], size - res, "HT%d/%cGI%11cMCS%-2d   ",
-                         20 * (1 << bw), sgi ? 'S' : 'L', ' ', mcs);
+        if (bprint) {
+            printk("HT%d/%cGI%11cMCS%-2d   ", 20 * (1 << bw), sgi ? 'S' : 'L', ' ', mcs);
+        } else {
+            res += scnprintf(&buf[res], size - res, "HT%d/%cGI%11cMCS%-2d   ",
+                             20 * (1 << bw), sgi ? 'S' : 'L', ' ', mcs);
+        }
     } else if (format == FORMATMOD_VHT){
         if (r_idx) {
             *r_idx = N_CCK + N_OFDM + N_HT + nss * 80 + mcs * 8 + bw * 2 + sgi;
-            res = scnprintf(buf, size - res, "%4d ", *r_idx);
+            if (bprint) {
+                printk("%4d ", *r_idx);
+            } else {
+                res = scnprintf(buf, size - res, "%4d ", *r_idx);
+            }
         }
-        res += scnprintf(&buf[res], size - res, "VHT%d/%cGI%*cMCS%d/%1d  ",
-                         20 * (1 << bw), sgi ? 'S' : 'L', bw > 2 ? 9 : 10, ' ',
-                         mcs, nss + 1);
+        if (bprint) {
+            printk("VHT%d/%cGI%*cMCS%d/%1d  ", 20 * (1 << bw), sgi ? 'S' : 'L', bw > 2 ? 9 : 10, ' ',
+                     mcs, nss + 1);
+        } else {
+            res += scnprintf(&buf[res], size - res, "VHT%d/%cGI%*cMCS%d/%1d  ",
+                             20 * (1 << bw), sgi ? 'S' : 'L', bw > 2 ? 9 : 10, ' ',
+                             mcs, nss + 1);
+        }
     } else if (format == FORMATMOD_HE_SU){
         if (r_idx) {
             *r_idx = N_CCK + N_OFDM + N_HT + N_VHT + nss * 144 + mcs * 12 + bw * 3 + sgi;
-            res = scnprintf(buf, size - res, "%4d ", *r_idx);
+            if (bprint) {
+                printk("%4d ", *r_idx);
+            } else {
+                res = scnprintf(buf, size - res, "%4d ", *r_idx);
+            }
         }
-        res += scnprintf(&buf[res], size - res, "HE%d/GI%s%4s%*cMCS%d/%1d%*c",
-                         20 * (1 << bw), he_gi[sgi], dcm ? "/DCM" : "",
-                         bw > 2 ? 4 : 5, ' ', mcs, nss + 1, mcs > 9 ? 1 : 2, ' ');
+        if (bprint) {
+            printk("HE%d/GI%s%4s%*cMCS%d/%1d%*c",
+                    20 * (1 << bw), he_gi[sgi], dcm ? "/DCM" : "",
+                    bw > 2 ? 4 : 5, ' ', mcs, nss + 1, mcs > 9 ? 1 : 2, ' ');
+        } else {
+            res += scnprintf(&buf[res], size - res, "HE%d/GI%s%4s%*cMCS%d/%1d%*c",
+                             20 * (1 << bw), he_gi[sgi], dcm ? "/DCM" : "",
+                             bw > 2 ? 4 : 5, ' ', mcs, nss + 1, mcs > 9 ? 1 : 2, ' ');
+        }
     } else if (format == FORMATMOD_HE_MU){
         if (r_idx) {
             *r_idx = N_CCK + N_OFDM + N_HT + N_VHT + N_HE_SU + nss * 216 + mcs * 18 + bw * 3 + sgi;
-            res = scnprintf(buf, size - res, "%4d ", *r_idx);
+            if (bprint) {
+                printk("%4d ", *r_idx);
+            } else {
+                res = scnprintf(buf, size - res, "%4d ", *r_idx);
+            }
         }
-        res += scnprintf(&buf[res], size - res, "HEMU-%d/GI%s%*cMCS%d/%1d%*c",
-                         ru_size_he_mu[bw], he_gi[sgi], bw > 1 ? 5 : 6, ' ',
-                         mcs, nss + 1, mcs > 9 ? 1 : 2, ' ');
+        if (bprint) {
+            printk("HEMU-%d/GI%s%*cMCS%d/%1d%*c",
+                     ru_size_he_mu[bw], he_gi[sgi], bw > 1 ? 5 : 6, ' ',
+                     mcs, nss + 1, mcs > 9 ? 1 : 2, ' ');
+        } else {
+            res += scnprintf(&buf[res], size - res, "HEMU-%d/GI%s%*cMCS%d/%1d%*c",
+                             ru_size_he_mu[bw], he_gi[sgi], bw > 1 ? 5 : 6, ' ',
+                             mcs, nss + 1, mcs > 9 ? 1 : 2, ' ');
+        }
 
     }
     else // HE ER
     {
         if (r_idx) {
             *r_idx = N_CCK + N_OFDM + N_HT + N_VHT + N_HE_SU + N_HE_MU + bw * 9 + mcs * 3 + sgi;
-            res = scnprintf(buf, size - res, "%4d ", *r_idx);
+            if (bprint) {
+                printk("%4d ", *r_idx);
+            } else {
+                res = scnprintf(buf, size - res, "%4d ", *r_idx);
+            }
         }
-        res += scnprintf(&buf[res], size - res, "HEER-%d/GI%s%4s%1cMCS%d/%1d%2c",
-                         ru_size_he_er[bw], he_gi[sgi], dcm ? "/DCM" : "",
-                         ' ', mcs, nss + 1, ' ');
+        if (bprint) {
+            printk("HEER-%d/GI%s%4s%1cMCS%d/%1d%2c",
+                     ru_size_he_er[bw], he_gi[sgi], dcm ? "/DCM" : "",
+                     ' ', mcs, nss + 1, ' ');
+        } else {
+            res += scnprintf(&buf[res], size - res, "HEER-%d/GI%s%4s%1cMCS%d/%1d%2c",
+                             ru_size_he_er[bw], he_gi[sgi], dcm ? "/DCM" : "",
+                             ' ', mcs, nss + 1, ' ');
+        }
     }
 
     return res;
 }
 
-int print_rate_from_cfg(char *buf, int size, u32 rate_config, int *r_idx, int ru_size)
+int print_rate_from_cfg(char *buf, int size, u32 rate_config, int *r_idx, int ru_size, bool bprint)
 {
     union aml_rate_ctrl_info *r_cfg = (union aml_rate_ctrl_info *)&rate_config;
     union aml_mcs_index *mcs_index = (union aml_mcs_index *)&rate_config;
@@ -1463,7 +1526,7 @@ int print_rate_from_cfg(char *buf, int size, u32 rate_config, int *r_idx, int ru
         nss = 0;
     }
 
-    len = print_rate(buf, size, ft, nss, mcs, bw, gi, pre, dcm, r_idx);
+    len = print_rate(buf, size, ft, nss, mcs, bw, gi, pre, dcm, r_idx, bprint);
     return len;
 }
 
@@ -1852,7 +1915,7 @@ static ssize_t aml_dbgfs_rc_stats_read(struct file *file,
         unsigned int tp, eprob;
         len = print_rate_from_cfg(st[i].line, LINE_MAX_SZ,
                                   me_rc_stats_cfm.rate_stats[i].rate_config,
-                                  (int *)&st[i].r_idx, 0);
+                                  (int *)&st[i].r_idx, 0, 0);
 
         if (me_rc_stats_cfm.sw_retry_step != 0)
         {
@@ -1910,7 +1973,7 @@ static ssize_t aml_dbgfs_rc_stats_read(struct file *file,
         len += scnprintf(&buf[len], bufsz - len,
                 "     type               rate             tpt   eprob    ok(   tot)   ul_length\n     ");
         len += print_rate_from_cfg(&buf[len], bufsz - len, rate_stats->rate_config,
-                                   NULL, ru_index);
+                                   NULL, ru_index, 0);
 
         tp = me_rc_stats_cfm.tp[RC_HE_STATS_IDX] / 10;
         len += scnprintf(&buf[len], bufsz - len, "      %4u.%1u",
@@ -2049,7 +2112,7 @@ static ssize_t aml_dbgfs_last_rx_read(struct file *file,
 
             idx_to_rate_cfg(i, &rate_config, &ru_size);
             len += print_rate_from_cfg(&buf[len], bufsz - len,
-                                       rate_config.value, NULL, ru_size);
+                                       rate_config.value, NULL, ru_size, 0);
             p = div_u64((percent * hist_len), 1000);
             len += scnprintf(&buf[len], bufsz - len, ": %9d(%2d.%1d%%)%.*s\n",
                              rate_stats->table[i],
@@ -2087,7 +2150,7 @@ static ssize_t aml_dbgfs_last_rx_read(struct file *file,
         gi = 0;
     }
 
-    len += print_rate(&buf[len], bufsz - len, fmt, nss, mcs, bw, gi, pre, dcm, NULL);
+    len += print_rate(&buf[len], bufsz - len, fmt, nss, mcs, bw, gi, pre, dcm, NULL, 0);
 
     /* flags for HT/VHT/HE */
     if (fmt >= FORMATMOD_HE_SU) {

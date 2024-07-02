@@ -78,6 +78,9 @@ enum
 #define MAX_SCHED_SCAN_PLANS 1
 #define MAX_MATCH_COUNT 2
 
+#define MDNS_RAW_DATA_LENGTH_MAX    492
+#define MDNS_LIST_CRITERIA_MAX      8
+#define MDNS_QNAME_LENGTH_MAX       80
 
 /// For MAC HW States copied from "hal_machw.h"
 enum
@@ -399,60 +402,76 @@ enum priv_e2a_tag {
     PRIV_CSI_STATUS_SP_CFM,
     PRIV_SCANU_RESULT_IND,
     PRIV_COEX_STOP_RESTORE_TXQ_IND,
+    PRIV_MDNS_ADDDATA_CFM,
+    PRIV_MDNS_ADDPASSTHROUGH_CFM,
+    PRIV_MDNS_GET_HIT_CFM,
+    PRIV_MDNS_GET_MISS_CFM,
+    PRIV_COEX_GET_STATUS,
     PRIV_SUB_E2A_MAX,
 };
 
 /// bypass a2e cmd before netdev open
 #define MM_MSG_BYPASS_ID (LMAC_FIRST_MSG(TASK_MM + 1) - 1)
 enum mm_sub_a2e_tag {
-    MM_SUB_RF_READ,
-    MM_SUB_RF_WRITE,
-    MM_SCAN_HANG,
-    MM_SUB_SET_SUSPEND_REQ,
-    MM_SUB_SET_WOW_PATTERN,
-    MM_SUB_SCANU_CANCEL_REQ,
-    MM_SUB_ARP_AGENT_REQ,
-    MM_SUB_SET_REKEY_DATA,
-    MM_SUB_TKO_CONFIG_REQ,
-    MM_SUB_TKO_ACTIVATE_REQ,
-    MM_SUB_SET_CALI_REQ,
-    MM_SUB_GET_EFUSE,
-    MM_SUB_SET_EFUSE,
-    MM_SUB_FW_RESET,
-    MM_SUB_SET_MACBYPASS,
-    MM_SUB_SET_STOP_MACBYPASS,
-    SCANU_SCHED_START_REQ,
-    SCANU_SCHED_STOP_REQ,
-    MM_SUB_SET_AMSDU_TX,
-    MM_SUB_SET_LDPC,
-    MM_SUB_SET_TX_LFT,
-    MM_SUB_SET_STBC_ON,
-    MM_SUB_COEX_CMD,
-    MM_SUB_PCIE_DL_TEST,
-    MM_SUB_PCIE_UL_TEST,
-    MM_SUB_SET_PT_CALIBRATION,
-    MM_SUB_NOTIFY_IP,
-    MM_SUB_CALIBRATION,
-    MM_SUB_READ_EFUSE,
-    MM_SUB_SET_TEMP_START,
-    MM_SUB_ENABLE_WF,
-    MM_SUB_SEND_FWLOG,
-    MM_SCC_CONFLICT,
-    MM_SYNC_TRACE,
-    MM_SUB_DHCP_REQ,
-    MM_EXT_CAPAB,
-    MM_SUB_LIMIT_POWER,
-    MM_SUB_SHOW_TX_MSG,
-    MM_SUB_CSI_STATUS_COM_GET,
-    MM_SUB_CSI_STATUS_SP_GET,
-    MM_SUB_SET_DYNAMIC_BUF_STATE,
-    MM_SUB_SET_LA_CAPTURE,
-    MM_SUB_SET_LA_STATE,
-    MM_SUB_SHUTDOWN,
-    MM_SUB_FIX_TXPWR,
-    MM_SUB_SET_USB_TRACE_STATE,
-    MM_SUB_SET_PUTV_TRACE_SWITCH,
-    MM_SUB_ENABLE_RSSI_REG,
+    MM_SUB_RF_READ = 0,
+    MM_SUB_RF_WRITE = 1,
+    MM_SCAN_HANG = 2,
+    MM_SUB_SET_SUSPEND_REQ = 3,
+    MM_SUB_SET_WOW_PATTERN = 4,
+    MM_SUB_SCANU_CANCEL_REQ = 5,
+    MM_SUB_ARP_AGENT_REQ = 6,
+    MM_SUB_SET_REKEY_DATA = 7,
+    MM_SUB_TKO_CONFIG_REQ = 8,
+    MM_SUB_TKO_ACTIVATE_REQ = 9,
+    MM_SUB_SET_CALI_REQ = 10,
+    MM_SUB_GET_EFUSE = 11,
+    MM_SUB_SET_EFUSE = 12,
+    MM_SUB_FW_RESET = 13,
+    MM_SUB_SET_MACBYPASS = 14,
+    MM_SUB_SET_STOP_MACBYPASS = 15,
+    SCANU_SCHED_START_REQ = 16,
+    SCANU_SCHED_STOP_REQ = 17,
+    MM_SUB_SET_AMSDU_TX = 18,
+    MM_SUB_SET_LDPC = 19,
+    MM_SUB_SET_TX_LFT = 20,
+    MM_SUB_SET_STBC_ON = 21,
+    MM_SUB_COEX_CMD = 22,
+    MM_SUB_PCIE_DL_TEST = 23,
+    MM_SUB_PCIE_UL_TEST = 24,
+    MM_SUB_SET_PT_CALIBRATION = 25,
+    MM_SUB_NOTIFY_IP = 26,
+    MM_SUB_CALIBRATION = 27,
+    MM_SUB_READ_EFUSE = 28,
+    MM_SUB_SET_TEMP_START = 29,
+    MM_SUB_ENABLE_WF = 30,
+    MM_SUB_SEND_FWLOG = 31,
+    MM_SCC_CONFLICT = 32,
+    MM_SYNC_TRACE = 33,
+    MM_SUB_DHCP_REQ = 34,
+    MM_EXT_CAPAB = 35,
+    MM_SUB_LIMIT_POWER = 36,
+    MM_SUB_SHOW_TX_MSG = 37,
+    MM_SUB_CSI_STATUS_COM_GET = 38,
+    MM_SUB_CSI_STATUS_SP_GET = 39,
+    MM_SUB_SET_DYNAMIC_BUF_STATE = 40,
+    MM_SUB_SET_LA_CAPTURE = 41,
+    MM_SUB_SET_LA_STATE = 42,
+    MM_SUB_SHUTDOWN = 43,
+    MM_SUB_FIX_TXPWR = 44,
+    MM_SUB_SET_USB_TRACE_STATE = 45,
+    MM_SUB_SET_PUTV_TRACE_SWITCH = 46,
+    MM_SUB_ENABLE_RSSI_REG = 47,
+    MDNS_SET_STATE = 48,
+    MDNS_SET_BEHAVIOR = 49,
+    MDNS_ADD_PROTOCOL = 50,
+    MDNS_REMOVE_PROTOCOL = 51,
+    MDNS_GET_HIT = 52,
+    MDNS_GET_MISS = 53,
+    MDNS_ADD_PASS_LIST = 54,
+    MDNS_REMOVE_PASS_LIST = 55,
+    MDNS_RESET_ALL = 56,
+    MDNS_ADD_PROTOCOL_STATUS = 57,
+    MM_SUB_COEX_GET_STATUS = 58,
     /// the MAX
     MM_SUB_A2E_MAX,
     /// New members cannot be added below
@@ -3047,6 +3066,20 @@ struct dma_ul_result_ind
     u32_l payload;
 };
 #endif
+
+struct coex_get_status
+{
+    u8_l coex_state; //TDD or FDD;
+    u8_l work_mode;  // TDD reason;
+    u8_l tx_agg_num; //the tx agg num coex setting;
+    u8_l rx_agg_num; //the rx agg num coex setting;
+    u32_l bt_work_status; // bt connect info;
+    u32_l wifi_inact_sum;
+    u32_l wifi_act_sum;
+    u8_l poc_cali_status;
+    u8_l link_cali_status;
+};
+
 struct scan_hang_req
 {
     u8_l scan_hang;
@@ -3323,6 +3356,85 @@ struct set_la_capture_req
 {
     u32_l bus1;
     u32_l bus2;
+};
+
+/// Structure containing the parameters of the @ref MDNS_SET_STATE message.
+struct mm_mdns_offload_state {
+    uint16_t enable;
+    uint16_t resv;
+};
+
+/// Structure containing the parameters of the @ref MDNS_SET_BEHAVIOR message.
+struct mm_mdns_offload_behavior {
+    uint8_t behavior;
+    uint8_t resv[3];
+};
+
+/// Structure containing the parameters of the @ref PRIV_MDNS_ADDDATA_CFM message.
+struct mdns_adddata_cfm {
+    uint16_t state;
+    uint16_t index;
+};
+
+/// Structure containing the parameters of the @ref PRIV_MDNS_ADDPASSTHROUGH_CFM message.
+struct mdns_adddpassthrough_cfm
+{
+    int32_t state;
+};
+
+/// Structure containing the parameters of the match_criteria.
+struct match_criteria
+{
+    /// the type of current query
+    uint16_t type; // 255 is "ANY" type @uint8_t_mdns_type
+    /// the offset of current query in response data
+    uint16_t offset;
+};
+
+/// Structure containing the parameters of the @ref MDNS_ADD_PROTOCOL_STATUS message.
+struct mm_mdns_add_data_status {
+    uint16_t list_len;
+    uint16_t data_len;
+    struct match_criteria list_criteria[MDNS_LIST_CRITERIA_MAX];
+};
+
+/// Structure containing the parameters of the @ref MDNS_ADD_PROTOCOL message.
+struct mm_mdns_add_data {
+    uint8_t index;
+    uint8_t rev[3];
+    uint8_t raw_offload_packet[MDNS_RAW_DATA_LENGTH_MAX];
+};
+
+
+/// Structure containing the parameters of the @ref MDNS_REMOVE_PROTOCOL message.
+struct mm_mdns_remove_data {
+    uint32_t index;
+};
+
+/// Structure containing the parameters of the @ref PRIV_MDNS_GET_HIT_CFM message.
+struct mdns_get_hit_cfm {
+    int32_t cnt;
+};
+
+/// Structure containing the parameters of the @ref PRIV_MDNS_GET_MISS_CFM message.
+struct mdns_get_miss_cfm {
+    int32_t cnt;
+};
+
+/// Structure containing the parameters of the @ref MDNS_GET_HIT message.
+struct mm_mdns_get_hit {
+    uint32_t index;
+};
+
+/// Structure containing the parameters of the @ref MDNS_GET_MISS message.
+struct mm_mdns_get_miss {
+    uint32_t index;
+};
+
+/// Structure containing the parameters of the @ref MDNS_ADD_PASS_LIST message.
+struct mm_mdns_passthrough_list {
+    uint32_t length;
+    uint8_t qname[MDNS_QNAME_LENGTH_MAX];
 };
 
 #endif // LMAC_MSG_H_

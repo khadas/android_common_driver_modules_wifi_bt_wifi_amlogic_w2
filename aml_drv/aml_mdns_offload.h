@@ -13,8 +13,12 @@
 #include <linux/slab.h>
 #include <net/cfg80211.h>
 #include <net/netlink.h>
+#include "aml_defs.h"
 
 typedef uint32_t u32_boolean;
+
+#define u32_true 1
+#define u32_false 0
 
 #define GOOGLE_VENDOR_OUI 0x1A11
 
@@ -70,16 +74,16 @@ typedef enum {
 } passthroughBehavior;
 
 struct MDNS_OFFLOAD_OPS {
-    u32_boolean (*setOffloadState)(u32_boolean enabled);
-    void (*resetAll)();
-    int (*addProtocolResponses)(char *networkInterface,
+    u32_boolean (*setOffloadState)(struct aml_hw *aml_hw, u32_boolean enabled);
+    void (*resetAll)(struct aml_hw *aml_hw);
+    int (*addProtocolResponses)(struct aml_hw *aml_hw, char *networkInterface,
         mdnsProtocolData *offloadData);
-    void (*removeProtocolResponses)(int recordKey);
-    int (*getAndResetHitCounter)(int recordKey);
-    int (*getAndResetMissCounter)();
-    u32_boolean (*addToPassthroughList)(char *networkInterface, char *qname);
-    void (*removeFromPassthroughList)(char *networkInterface, char *qname);
-    void (*setPassthroughBehavior)(char *networkInterface,
+    void (*removeProtocolResponses)(struct aml_hw *aml_hw, int recordKey);
+    int (*getAndResetHitCounter)(struct aml_hw *aml_hw, int recordKey);
+    int (*getAndResetMissCounter)(struct aml_hw *aml_hw);
+    u32_boolean (*addToPassthroughList)(struct aml_hw *aml_hw, char *networkInterface, char *qname);
+    void (*removeFromPassthroughList)(struct aml_hw *aml_hw, char *networkInterface, char *qname);
+    void (*setPassthroughBehavior)(struct aml_hw *aml_hw, char *networkInterface,
         passthroughBehavior behavior);
 };
 
@@ -130,10 +134,6 @@ extern const struct nla_policy mdns_offload_attr_policy[];
 
 #define VENDOR_CMD_FUNC(func) __mdnsOffload_##func
 
-#define VENDOR_CMD_FUNC_IMPL(func) \
-static inline int __mdnsOffload_##func(struct wiphy *wiphy,\
-    struct wireless_dev *wdev, const void *data, int len)
-
 #define ANDROID_MDNS_OFFLOAD_VENDOR_IMPL \
     DEFINE_MDNS_OFFLOAD_ATTR_POLICY;\
     const struct MDNS_OFFLOAD_OPS mdns_offload_ops
@@ -145,9 +145,9 @@ static inline char *__mdnsOffload_decode_qname(unsigned char *buf,
     unsigned char *p = NULL, *c = NULL;
     uint32_t n = 0, i = 0;
 
-    if (!buf || buf_len < 1 || offset < 1 || offset > buf_len)
+    if (!buf || buf_len < 1 || offset < 0 || offset > buf_len - 1)
         goto err;
-    p = buf + offset - 1;
+    p = buf + offset;
     if (*p == 0)
         goto err;
     qname = (char *)kmalloc(256, GFP_KERNEL);
@@ -159,14 +159,14 @@ static inline char *__mdnsOffload_decode_qname(unsigned char *buf,
     c = (unsigned char *)qname;
     while (*p) {
         if ((*p >> 6) == 0x03) {
-            n = (((*p << 8) | *(p + 1)) & 0x3fff) - 1;
+            n = (((*p << 8) | *(p + 1)) & 0x3fff);
             if (n > (buf_len - 1))
                 goto err;
             p = buf + n;
             continue;
         }
         n = *p;
-        if (p + 1 + n > buf + buf_len - 1)
+        if (p + n > buf + buf_len - 1)
             goto err;
         p++;
         for (i = 0; i < n; i++) {
@@ -247,8 +247,11 @@ exit:
     return err;
 }
 
-VENDOR_CMD_FUNC_IMPL(setOffloadState)
+static inline int __mdnsOffload_setOffloadState(struct wiphy *wiphy,
+    struct wireless_dev *wdev, const void *data, int len)
 {
+    struct aml_hw *aml_hw = wiphy_priv(wiphy);
+    struct aml_vif *vif = netdev_priv(wdev->netdev);
     int rem, type, err = 0;
     const struct nlattr *iter;
     u32_boolean enabled = 0;
@@ -275,7 +278,7 @@ VENDOR_CMD_FUNC_IMPL(setOffloadState)
     }
     printk("mdnsOffload: setOffloadState: enabled:%d\n", enabled);
     if (mdns_offload_ops.setOffloadState) {
-        reply = mdns_offload_ops.setOffloadState((u32_boolean)enabled);
+        reply = mdns_offload_ops.setOffloadState(aml_hw, (u32_boolean)enabled);
         printk("mdnsOffload: setOffloadState: reply:%u\n", reply);
         err = __mdnsOffload_send_vendor_cmd_reply(wiphy,
             WIFI_MDNS_OFFLOAD_SET_STATE,
@@ -291,13 +294,16 @@ exit:
     return err;
 }
 
-VENDOR_CMD_FUNC_IMPL(resetAll)
+static inline int __mdnsOffload_resetAll(struct wiphy *wiphy,
+    struct wireless_dev *wdev, const void *data, int len)
 {
+    struct aml_hw *aml_hw = wiphy_priv(wiphy);
+    struct aml_vif *vif = netdev_priv(wdev->netdev);
     int err = 0;
 
     printk("mdnsOffload: resetAll\n");
     if (mdns_offload_ops.resetAll)
-        mdns_offload_ops.resetAll();
+        mdns_offload_ops.resetAll(aml_hw);
     else {
         printk("mdnsOffload: resetAll: unsupported!\n");
         err = -EPERM;
@@ -309,8 +315,11 @@ exit:
     return err;
 }
 
-VENDOR_CMD_FUNC_IMPL(addProtocolResponses)
+static inline int __mdnsOffload_addProtocolResponses(struct wiphy *wiphy,
+    struct wireless_dev *wdev, const void *data, int len)
 {
+    struct aml_hw *aml_hw = wiphy_priv(wiphy);
+    struct aml_vif *vif = netdev_priv(wdev->netdev);
     int rem, type, err = 0, i = 0, size = 0;
     const struct nlattr *iter;
     char ifname[32];
@@ -394,13 +403,13 @@ VENDOR_CMD_FUNC_IMPL(addProtocolResponses)
         qname = NULL;
     }
     printk("rawOffloadPacket:\n");
-    __mdnsOffload_dump_msg(pkt_data, pkt_len);
+    //__mdnsOffload_dump_msg(pkt_data, pkt_len);
     if (mdns_offload_ops.addProtocolResponses) {
         offloadData.rawOffloadPacketLen = pkt_len;
         offloadData.rawOffloadPacket = pkt_data;
         offloadData.matchCriteriaListNum = criteriaListNum;
         offloadData.matchCriteriaList = criteriaList;
-        reply = mdns_offload_ops.addProtocolResponses(ifname, &offloadData);
+        reply = mdns_offload_ops.addProtocolResponses(aml_hw, ifname, &offloadData);
         printk("mdnsOffload: addProtocolResponses: reply:%d\n", reply);
         err = __mdnsOffload_send_vendor_cmd_reply(wiphy,
             WIFI_MDNS_OFFLOAD_ADD_PROTOCOL_RESPONSES,
@@ -411,15 +420,21 @@ VENDOR_CMD_FUNC_IMPL(addProtocolResponses)
         goto exit;
     }
 exit:
-    kfree(pkt_data);
-    kfree(criteriaList);
+    if (!pkt_data)
+        kfree(pkt_data);
+    if (!criteriaList)
+        kfree(criteriaList);
+
     if (err)
         printk("mdnsOffload: addProtocolResponses: failed!err:%d\n", err);
     return err;
 }
 
-VENDOR_CMD_FUNC_IMPL(removeProtocolResponses)
+static inline int __mdnsOffload_removeProtocolResponses(struct wiphy *wiphy,
+    struct wireless_dev *wdev, const void *data, int len)
 {
+    struct aml_hw *aml_hw = wiphy_priv(wiphy);
+    struct aml_vif *vif = netdev_priv(wdev->netdev);
     int rem, type, err = 0;
     const struct nlattr *iter;
     int recordKey = -1;
@@ -446,7 +461,7 @@ VENDOR_CMD_FUNC_IMPL(removeProtocolResponses)
     printk("mdnsOffload: removeProtocolResponses: recordKey:%d\n",
         recordKey);
     if (mdns_offload_ops.removeProtocolResponses) {
-        mdns_offload_ops.removeProtocolResponses(recordKey);
+        mdns_offload_ops.removeProtocolResponses(aml_hw, recordKey);
     } else {
         printk("mdnsOffload: removeProtocolResponses: unsupported!\n");
         err = -EPERM;
@@ -458,8 +473,11 @@ exit:
     return err;
 }
 
-VENDOR_CMD_FUNC_IMPL(getAndResetHitCounter)
+static inline int __mdnsOffload_getAndResetHitCounter(struct wiphy *wiphy,
+    struct wireless_dev *wdev, const void *data, int len)
 {
+    struct aml_hw *aml_hw = wiphy_priv(wiphy);
+    struct aml_vif *vif = netdev_priv(wdev->netdev);
     int rem, type, err = 0;
     const struct nlattr *iter;
     int recordKey = -1;
@@ -487,7 +505,7 @@ VENDOR_CMD_FUNC_IMPL(getAndResetHitCounter)
     printk("mdnsOffload: getAndResetHitCounter: recordKey:%d\n",
         recordKey);
     if (mdns_offload_ops.getAndResetHitCounter) {
-        reply = mdns_offload_ops.getAndResetHitCounter(recordKey);
+        reply = mdns_offload_ops.getAndResetHitCounter(aml_hw, recordKey);
         printk("mdnsOffload: getAndResetHitCounter: reply:%d\n", reply);
         err = __mdnsOffload_send_vendor_cmd_reply(wiphy,
             WIFI_MDNS_OFFLOAD_GET_AND_RESET_HIT_COUNTER,
@@ -503,14 +521,17 @@ exit:
     return err;
 }
 
-VENDOR_CMD_FUNC_IMPL(getAndResetMissCounter)
+static inline int __mdnsOffload_getAndResetMissCounter(struct wiphy *wiphy,
+    struct wireless_dev *wdev, const void *data, int len)
 {
+    struct aml_hw *aml_hw = wiphy_priv(wiphy);
+    struct aml_vif *vif = netdev_priv(wdev->netdev);
     int err = 0;
     int reply = 0;
 
     printk("mdnsOffload: getAndResetMissCounter\n");
     if (mdns_offload_ops.getAndResetMissCounter) {
-        reply = mdns_offload_ops.getAndResetMissCounter();
+        reply = mdns_offload_ops.getAndResetMissCounter(aml_hw);
         printk("mdnsOffload: getAndResetMissCounter: reply:%d\n", reply);
         err = __mdnsOffload_send_vendor_cmd_reply(wiphy,
             WIFI_MDNS_OFFLOAD_GET_AND_RESET_MISS_COUNTER,
@@ -526,8 +547,11 @@ exit:
     return err;
 }
 
-VENDOR_CMD_FUNC_IMPL(addToPassthroughList)
+static inline int __mdnsOffload_addToPassthroughList(struct wiphy *wiphy,
+    struct wireless_dev *wdev, const void *data, int len)
 {
+    struct aml_hw *aml_hw = wiphy_priv(wiphy);
+    struct aml_vif *vif = netdev_priv(wdev->netdev);
     int rem, type, err = 0;
     const struct nlattr *iter;
     char ifname[32];
@@ -561,9 +585,9 @@ VENDOR_CMD_FUNC_IMPL(addToPassthroughList)
         goto exit;
     }
     printk("mdnsOffload: addToPassthroughList: ifname:%s\n", ifname);
-    printk("mdnsOffload: addToPassthroughList: qname:%s\n", qname);
+    printk("mdnsOffload: addToPassthroughList: length:%d qname:%s\n", strlen(qname), qname);
     if (mdns_offload_ops.addToPassthroughList) {
-        reply = mdns_offload_ops.addToPassthroughList(ifname, qname);
+        reply = mdns_offload_ops.addToPassthroughList(aml_hw, ifname, qname);
         printk("mdnsOffload: addToPassthroughList: reply:%u\n", reply);
         err = __mdnsOffload_send_vendor_cmd_reply(wiphy,
             WIFI_MDNS_OFFLOAD_ADD_TO_PASSTHROUGH_LIST,
@@ -579,8 +603,11 @@ exit:
     return err;
 }
 
-VENDOR_CMD_FUNC_IMPL(removeFromPassthroughList)
+static inline int __mdnsOffload_removeFromPassthroughList(struct wiphy *wiphy,
+    struct wireless_dev *wdev, const void *data, int len)
 {
+    struct aml_hw *aml_hw = wiphy_priv(wiphy);
+    struct aml_vif *vif = netdev_priv(wdev->netdev);
     int rem, type, err = 0;
     const struct nlattr *iter;
     char ifname[32];
@@ -615,7 +642,7 @@ VENDOR_CMD_FUNC_IMPL(removeFromPassthroughList)
         goto exit;
     }
     if (mdns_offload_ops.removeFromPassthroughList) {
-        mdns_offload_ops.removeFromPassthroughList(ifname, qname);
+        mdns_offload_ops.removeFromPassthroughList(aml_hw, ifname, qname);
     } else {
         printk("mdnsOffload: removeFromPassthroughList: unsupported!\n");
         err = -EPERM;
@@ -627,8 +654,11 @@ exit:
     return err;
 }
 
-VENDOR_CMD_FUNC_IMPL(setPassthroughBehavior)
+static inline int __mdnsOffload_setPassthroughBehavior(struct wiphy *wiphy,
+    struct wireless_dev *wdev, const void *data, int len)
 {
+    struct aml_hw *aml_hw = wiphy_priv(wiphy);
+    struct aml_vif *vif = netdev_priv(wdev->netdev);
     int rem, type, err = 0;
     const struct nlattr *iter;
     char ifname[32];
@@ -662,7 +692,7 @@ VENDOR_CMD_FUNC_IMPL(setPassthroughBehavior)
         goto exit;
     }
     if (mdns_offload_ops.setPassthroughBehavior) {
-        mdns_offload_ops.setPassthroughBehavior(ifname,
+        mdns_offload_ops.setPassthroughBehavior(aml_hw, ifname,
             (passthroughBehavior)behavior);
     } else {
         printk("mdnsOffload: setPassthroughBehavior: unsupported!\n");

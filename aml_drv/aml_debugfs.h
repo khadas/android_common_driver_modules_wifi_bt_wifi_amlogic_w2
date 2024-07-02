@@ -262,8 +262,8 @@ int aml_dbgfs_txq(char *buf, size_t size, struct aml_txq *txq, int type, int tid
 int aml_dbgfs_txq_sta(char *buf, size_t size, struct aml_sta *aml_sta, struct aml_hw *aml_hw);
 int aml_dbgfs_txq_vif(char *buf, size_t size, struct aml_vif *aml_vif, struct aml_hw *aml_hw);
 int print_rate(char *buf, int size, int format, int nss, int mcs, int bw,
-                      int sgi, int pre, int dcm, int *r_idx);
-int print_rate_from_cfg(char *buf, int size, u32 rate_config, int *r_idx, int ru_size);
+                      int sgi, int pre, int dcm, int *r_idx, bool bprint);
+int print_rate_from_cfg(char *buf, int size, u32 rate_config, int *r_idx, int ru_size, bool bprint);
 int compare_idx(const void *st1, const void *st2);
 void aml_dbgfs_fw_trace_create(struct aml_hw *aml_hw);
 
@@ -314,9 +314,9 @@ static inline void aml_fw_trace_reset(struct aml_hw *aml_hw) {}
 
 static inline void idx_to_rate_cfg(int idx, union aml_rate_ctrl_info *r_cfg, int *ru_size) {}
 static inline int print_rate_from_cfg(char *buf, int size, u32 rate_config,
-            int *r_idx, int ru_size) {return 0;}
+            int *r_idx, int ru_size, bool bprint) {return 0;}
 static inline int print_rate(char *buf, int size, int format, int nss, int mcs, int bw,
-            int sgi, int pre, int dcm, int *r_idx) {return 0;}
+            int sgi, int pre, int dcm, int *r_idx, bool bprint) {return 0;}
 static inline void aml_dbgfs_trigger_fw_dump(struct aml_hw *aml_hw, char *reason) {}
 static inline int compare_idx(const void *st1, const void *st2) {return 0;}
 static inline int aml_dbgfs_txq_vif(char *buf, size_t size,

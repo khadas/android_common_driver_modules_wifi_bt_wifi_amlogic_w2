@@ -454,6 +454,10 @@ static int aml_recy_vif_reset(struct aml_hw *aml_hw)
 
         spin_lock_bh(&aml_hw->cb_lock);
         aml_vif->up = false;
+        if (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_STATION ||
+            AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_P2P_CLIENT)
+            aml_connect_flags_clr(aml_vif, AML_GETTING_IP);
+
         if (netif_carrier_ok(dev)) {
             if (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_STATION ||
                 AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_P2P_CLIENT) {
@@ -628,7 +632,7 @@ out:
     spin_lock_bh(&aml_recy->aml_hw->cmd_mgr.lock);
     aml_recy->reason = 0;
     spin_unlock_bh(&aml_recy->aml_hw->cmd_mgr.lock);
-    aml_recy_flags_clr(AML_RECY_STATE_ONGOING | AML_RECY_DROP_XMIT_PKT | AML_GETTING_IP);
+    aml_recy_flags_clr(AML_RECY_STATE_ONGOING | AML_RECY_DROP_XMIT_PKT);
 
     return ret;
 }

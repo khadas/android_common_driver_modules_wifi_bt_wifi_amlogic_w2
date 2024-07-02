@@ -216,6 +216,8 @@ static int aml_tcp_sess_find(struct aml_tcp_sess_mgr *ack_mgr,
                ret = i;
             }
         } while (read_seqretry(&tcp_info->seqlock, start));
+        if (ret != -1)
+            break;
     }
 
     return ret;
@@ -351,6 +353,8 @@ static int aml_alloc_tcp_sess(struct aml_tcp_sess_mgr *ack_mgr)
                 ret = i;
             }
         } while (read_seqretry(&tcp_info->seqlock, start));
+        if (ret != -1)
+            break;
     }
     spin_unlock_bh(&ack_mgr->lock);
 
@@ -372,7 +376,6 @@ static void aml_tcp_ack_timeout(struct timer_list *t)
         tx_info.sta = tcp_info->sta;
         tcp_info->skb = NULL;
         tcp_info->drop_cnt = 0;
-        tcp_info->in_txq_skb = skb;
         write_sequnlock_bh(&tcp_info->seqlock);
         aml_send_tcp_ack(&tx_info);
         return;
@@ -499,7 +502,6 @@ int aml_replace_tcp_ack(struct sk_buff *skb,
         if (!tcp_info->in_txq_skb &&
            (tcp_info->drop_cnt >= atomic_read(&ack_mgr->max_drop_cnt))) {
             tcp_info->drop_cnt = 0;
-            tcp_info->in_txq_skb = skb;
             del_timer(&tcp_info->timer);
         } else {
             ret = 1;

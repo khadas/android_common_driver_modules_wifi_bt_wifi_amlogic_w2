@@ -24,6 +24,8 @@
 #endif
 #include "aml_rps.h"
 #include "aml_utils.h"
+#include "aml_interface.h"
+#include "aml_defs.h"
 
 #define AML_RPS_FLOW_ENTRIES    4096
 
@@ -94,14 +96,20 @@ static int aml_rps_map_set(struct netdev_rx_queue *queue, uint32_t cpu_mask)
     return 0;
 }
 
+extern unsigned int aml_bus_type;
+
 int aml_rps_cpus_enable(struct net_device *net)
 {
     int rx_idx = 0;
+    uint32_t cpu_mask = BIT_FIELD_MASK(0, num_online_cpus() - 1);
 
+    if (aml_bus_type == PCIE_MODE)
+        cpu_mask = BIT_FIELD_MASK(0, num_online_cpus() - 1);
+    else if (aml_bus_type == SDIO_MODE)
+        cpu_mask = 1 << (num_online_cpus() - 1); //bind cpu for s905l3a
     if (net && net->_rx) {
         for (rx_idx = 0; rx_idx < net->num_rx_queues; rx_idx++)
-            aml_rps_map_set(net->_rx + rx_idx,
-                    BIT_FIELD_MASK(0, num_online_cpus() - 1));
+            aml_rps_map_set(net->_rx + rx_idx, cpu_mask);
     }
     return 0;
 }
@@ -313,4 +321,27 @@ int aml_rps_sock_flow_sysctl_enable(void)
     aml_rps_sock_flow_sysctl_set(AML_RPS_FLOW_ENTRIES * cpu_nums);
 
     return 0;
+}
+
+// template solution for S905L3A
+void aml_rps_switch_check(struct aml_hw *aml_hw, u8 flag)
+{
+    struct aml_vif *aml_vif;
+
+    list_for_each_entry(aml_vif, &aml_hw->vifs, list) {
+        if (!aml_vif->up || aml_vif->ndev == NULL) {
+            continue;
+        }
+        if (AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_STATION ||
+            AML_VIF_TYPE(aml_vif) == NL80211_IFTYPE_P2P_CLIENT) {
+            printk("%s:%d, flag %d\n", __func__, __LINE__, flag);
+#ifndef CONFIG_LINUXPC_VERSION
+            if (flag == RPS_ON) {
+                aml_rps_cpus_enable(aml_vif->ndev);
+            } else {
+                aml_rps_cpus_disable(aml_vif->ndev);
+            }
+#endif
+        }
+    }
 }

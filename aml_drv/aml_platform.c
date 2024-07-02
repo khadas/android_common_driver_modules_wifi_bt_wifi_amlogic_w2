@@ -1599,13 +1599,28 @@ int aml_sdio_create_thread(struct aml_hw *aml_hw)
 
     sema_init(&aml_hw->aml_rx_sem, 0);
     aml_hw->aml_rx_task_quit = 0;
-    aml_hw->aml_rx_task = kthread_run(aml_rx_task, aml_hw, "aml_rx_task");
-    if (IS_ERR(aml_hw->aml_rx_task)) {
-        kthread_stop(aml_hw->aml_irq_task);
-        aml_hw->aml_rx_task = NULL;
-        ERROR_DEBUG_OUT("create aml_rx_task error!!!!\n");
-        return -1;
-    }
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
+        aml_hw->aml_rx_task = kthread_run(aml_rx_task, aml_hw, "aml_rx_task");
+        if (IS_ERR(aml_hw->aml_rx_task)) {
+            kthread_stop(aml_hw->aml_irq_task);
+            aml_hw->aml_rx_task = NULL;
+            ERROR_DEBUG_OUT("create aml_rx_task error!!!!\n");
+            return -1;
+        }
+#else // template solution for S905L3A
+        {
+            aml_hw->aml_rx_task = kthread_create(aml_rx_task, aml_hw, "aml_rx_task", num_online_cpus() - 1);
+            if (IS_ERR(aml_hw->aml_rx_task)) {
+                kthread_stop(aml_hw->aml_irq_task);
+                aml_hw->aml_rx_task = NULL;
+                ERROR_DEBUG_OUT("create aml_rx_task error!!!!\n");
+                return -1;
+            }
+            kthread_bind(aml_hw->aml_rx_task, num_online_cpus() - 1);
+            wake_up_process(aml_hw->aml_rx_task);
+        }
+#endif
 
     sema_init(&aml_hw->aml_tx_sem, 0);
     aml_hw->aml_tx_task_quit = 0;

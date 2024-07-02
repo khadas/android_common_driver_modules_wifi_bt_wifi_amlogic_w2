@@ -764,19 +764,26 @@ int aml_print_last_rx_info(struct aml_hw *priv, struct aml_sta *sta)
     char hist[] = "##################################################";
     int hist_len = sizeof(hist) - 1;
     u8 nrx;
+    bool bprintk = 1;
     rate_stats = &sta->stats.rx_rate;
     bufsz = (rate_stats->rate_cnt * ( 50 + hist_len) + 200);
-    buf = kmalloc(bufsz + 1, GFP_ATOMIC);
-    if (buf == NULL)
-        return 0;
-
+    if (bprintk == 0) {
+        buf = kmalloc(bufsz + 1, GFP_ATOMIC);
+        if (buf == NULL)
+            return 0;
+    }
     // Get number of RX paths
     nrx = (priv->version_cfm.version_phy_1 & MDM_NRX_MASK) >> MDM_NRX_LSB;
-
-    len += scnprintf(buf, bufsz,
-                        "\nRX rate info for %02X:%02X:%02X:%02X:%02X:%02X:\n",
-                        sta->mac_addr[0], sta->mac_addr[1], sta->mac_addr[2],
-                        sta->mac_addr[3], sta->mac_addr[4], sta->mac_addr[5]);
+    if (bprintk) {
+        printk("\nRX rate info for %02X:%02X:%02X:%02X:%02X:%02X:\n", sta->mac_addr[0], sta->mac_addr[1], sta->mac_addr[2],
+                sta->mac_addr[3], sta->mac_addr[4], sta->mac_addr[5]);
+    }
+    else {
+        len += scnprintf(buf, bufsz,
+                            "\nRX rate info for %02X:%02X:%02X:%02X:%02X:%02X:\n",
+                            sta->mac_addr[0], sta->mac_addr[1], sta->mac_addr[2],
+                            sta->mac_addr[3], sta->mac_addr[4], sta->mac_addr[5]);
+    }
 
     // Display Statistics
     for (i = 0; i < rate_stats->size; i++) {
@@ -789,19 +796,31 @@ int aml_print_last_rx_info(struct aml_hw *priv, struct aml_sta *sta)
 
             idx_to_rate_cfg(i, &rate_config, &ru_size);
             len += print_rate_from_cfg(&buf[len], bufsz - len,
-                                       rate_config.value, NULL, ru_size);
+                                       rate_config.value, NULL, ru_size, bprintk);
             p = div_u64((percent * hist_len), 1000);
-            len += scnprintf(&buf[len], bufsz - len, ": %9d(%2d.%1d%%)%.*s\n",
-                             rate_stats->table[i],
-                             div_u64_rem(percent, 10, &rem), rem, p, hist);
+            //len += scnprintf(&buf[len], bufsz - len, ": %9d(%2d.%1d%%)%.*s\n",
+            //                 rate_stats->table[i],
+            //                 div_u64_rem(percent, 10, &rem), rem, p, hist);
+            if (bprintk) {
+                printk(KERN_CONT ": %9d(%2d.%1d%%)\n", rate_stats->table[i], div_u64_rem(percent, 10, &rem), rem);
+            } else {
+                len += scnprintf(&buf[len], bufsz - len, ": %9d(%2d.%1d%%)\n",
+                                 rate_stats->table[i],
+                                 div_u64_rem(percent, 10, &rem), rem);
+            }
         }
     }
 
     // Display detailed info of the last received rate
     last_rx = &sta->stats.last_rx.rx_vect1;
-    len += scnprintf(&buf[len], bufsz - len,"\nLast received rate\n"
-                     "type               rate     LDPC STBC BEAMFM DCM DOPPLER %s\n",
-                     (nrx > 1) ? "rssi1(dBm) rssi2(dBm)" : "rssi(dBm)");
+    if (bprintk) {
+        printk("\nLast received rate\n"
+               "type               rate     LDPC STBC BEAMFM DCM DOPPLER\n");
+    } else {
+        len += scnprintf(&buf[len], bufsz - len,"\nLast received rate\n"
+                         "type               rate     LDPC STBC BEAMFM DCM DOPPLER %s\n",
+                         (nrx > 1) ? "rssi1(dBm) rssi2(dBm)" : "rssi(dBm)");
+    }
 
     fmt = last_rx->format_mod;
     bw = last_rx->ch_bw;
@@ -827,27 +846,53 @@ int aml_print_last_rx_info(struct aml_hw *priv, struct aml_sta *sta)
         gi = 0;
     }
 
-    len += print_rate(&buf[len], bufsz - len, fmt, nss, mcs, bw, gi, pre, dcm, NULL);
+    len += print_rate(&buf[len], bufsz - len, fmt, nss, mcs, bw, gi, pre, dcm, NULL, bprintk);
 
     /* flags for HT/VHT/HE */
     if (fmt >= FORMATMOD_HE_SU) {
-        len += scnprintf(&buf[len], bufsz - len, "  %c    %c     %c    %c     %c",
-                         last_rx->he.fec ? 'L' : ' ',
-                         last_rx->he.stbc ? 'S' : ' ',
-                         last_rx->he.beamformed ? 'B' : ' ',
-                         last_rx->he.dcm ? 'D' : ' ',
-                         last_rx->he.doppler ? 'D' : ' ');
+        if (bprintk) {
+            printk(KERN_CONT "  %c    %c     %c    %c     %c",
+                     last_rx->he.fec ? 'L' : ' ',
+                     last_rx->he.stbc ? 'S' : ' ',
+                     last_rx->he.beamformed ? 'B' : ' ',
+                     last_rx->he.dcm ? 'D' : ' ',
+                     last_rx->he.doppler ? 'D' : ' ');
+        } else {
+            len += scnprintf(&buf[len], bufsz - len, "  %c    %c     %c    %c     %c",
+                             last_rx->he.fec ? 'L' : ' ',
+                             last_rx->he.stbc ? 'S' : ' ',
+                             last_rx->he.beamformed ? 'B' : ' ',
+                             last_rx->he.dcm ? 'D' : ' ',
+                             last_rx->he.doppler ? 'D' : ' ');
+        }
     } else if (fmt == FORMATMOD_VHT) {
-        len += scnprintf(&buf[len], bufsz - len, "  %c    %c     %c           ",
-                         last_rx->vht.fec ? 'L' : ' ',
-                         last_rx->vht.stbc ? 'S' : ' ',
-                         last_rx->vht.beamformed ? 'B' : ' ');
+        if (bprintk) {
+            printk(KERN_CONT "  %c    %c     %c           ",
+                     last_rx->vht.fec ? 'L' : ' ',
+                     last_rx->vht.stbc ? 'S' : ' ',
+                     last_rx->vht.beamformed ? 'B' : ' ');
+        } else {
+            len += scnprintf(&buf[len], bufsz - len, "  %c    %c     %c           ",
+                             last_rx->vht.fec ? 'L' : ' ',
+                             last_rx->vht.stbc ? 'S' : ' ',
+                             last_rx->vht.beamformed ? 'B' : ' ');
+        }
     } else if (fmt >= FORMATMOD_HT_MF) {
-        len += scnprintf(&buf[len], bufsz - len, "  %c    %c                  ",
-                         last_rx->ht.fec ? 'L' : ' ',
-                         last_rx->ht.stbc ? 'S' : ' ');
+        if (bprintk) {
+            printk(KERN_CONT "  %c    %c                  ",
+                     last_rx->ht.fec ? 'L' : ' ',
+                     last_rx->ht.stbc ? 'S' : ' ');
+        } else {
+            len += scnprintf(&buf[len], bufsz - len, "  %c    %c                  ",
+                             last_rx->ht.fec ? 'L' : ' ',
+                             last_rx->ht.stbc ? 'S' : ' ');
+        }
     } else {
-        len += scnprintf(&buf[len], bufsz - len, "                         ");
+        if (bprintk) {
+            printk(KERN_CONT "                         ");
+        } else {
+            len += scnprintf(&buf[len], bufsz - len, "                         ");
+        }
     }
 
     #if 0
@@ -860,9 +905,10 @@ int aml_print_last_rx_info(struct aml_hw *priv, struct aml_sta *sta)
         len += scnprintf(&buf[len], bufsz - len, "      %d\n", last_rx->rssi1);
     }
     #endif
-
-    aml_print_buf(buf, len);
-    kfree(buf);
+    if (!bprintk) {
+        aml_print_buf(buf, len);
+        kfree(buf);
+    }
 #endif
     return 0;
 }
@@ -1010,7 +1056,7 @@ int aml_print_rate_info( struct aml_hw *aml_hw, struct aml_sta *sta)
         unsigned int tp, eprob;
         len = print_rate_from_cfg(st[i].line, LINE_MAX_SZ,
                                   me_rc_stats_cfm.rate_stats[i].rate_config,
-                                  (int *)&st[i].r_idx, 0);
+                                  (int *)&st[i].r_idx, 0, 0);
 
         if (me_rc_stats_cfm.sw_retry_step != 0) {
             len += scnprintf(&st[i].line[len], LINE_MAX_SZ - len,  "%c",
@@ -1065,7 +1111,7 @@ int aml_print_rate_info( struct aml_hw *aml_hw, struct aml_sta *sta)
         len += scnprintf(&buf[len], bufsz - len,
                 "     type               rate             tpt   eprob    ok(   tot)   ul_length\n     ");
         len += print_rate_from_cfg(&buf[len], bufsz - len, rate_stats->rate_config,
-                                   NULL, ru_index);
+                                   NULL, ru_index, 0);
 
         tp = me_rc_stats_cfm.tp[RC_HE_STATS_IDX] / 10;
         len += scnprintf(&buf[len], bufsz - len, "      %4u.%1u",
@@ -1091,10 +1137,10 @@ int aml_print_rate_info( struct aml_hw *aml_hw, struct aml_sta *sta)
 
     len += scnprintf(&buf[len], bufsz - len, "\n rate upper: ");
     len += print_rate_from_cfg(&buf[len], bufsz - len, me_rc_stats_cfm.upper_rate_cfg,
-                               NULL, 0);
+                               NULL, 0, 0);
     len += scnprintf(&buf[len], bufsz - len, "\n rate lower: ");
     len += print_rate_from_cfg(&buf[len], bufsz - len, me_rc_stats_cfm.lower_rate_cfg,
-                               NULL, 0);
+                               NULL, 0, 0);
     aml_print_buf(buf, len);
     printk("\n");
     kfree(buf);
@@ -1226,23 +1272,28 @@ static int aml_get_chan_list_info(struct net_device *dev)
 
 static void aml_get_rx_regvalue(struct aml_plat *aml_plat)
 {
-    printk("------------ rx buf status ---\n");
+    u32 rssi_indivaul = 0;
+    u32 ba_rssi = 0;
+
+    rssi_indivaul = AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, REG_OF_SYNC_TWO_RSSI);
+    ba_rssi       = AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, REG_OF_SYNC_RSSI);
+
     printk("rx_end     :0x%x\n", AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, 0xc06088));
     printk("frame_ok   :0x%x\n", AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, 0xc06080));
     printk("frame_bad  :0x%x\n", AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, 0xc06084));
     printk("rx_error   :0x%x\n", AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, 0xc0608c));
     printk("phy_error  :0x%x\n", AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, 0xc06098));
 
-    printk("rxbuffer1--->:\n");
     printk("start      :0x%x\n", AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, 0xb081c8));
     printk("end        :0x%x\n", AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, 0xb081cc));
     printk("read       :0x%x\n", AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, 0xb081d0));
     printk("write      :0x%x\n", AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, 0xb081d4));
     printk("SNR        :0x%x\n", AML_REG_READ(aml_plat, AML_ADDR_SYSTEM, 0xc0005c)&0xfff);
-    printk("------------ rx buf status ---\n");
-    printk("\n");
-    printk("------------ rssi ------------\n");
-    printk("data_avg_rssi: %d dBm\n", ((AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, REG_OF_SYNC_RSSI) & 0xffff0000) >> 16) - 256);
+
+    //printk("data_avg_rssi: %d dBm\n", ((AML_REG_READ(aml_plat, AML_ADDR_MAC_PHY, REG_OF_SYNC_RSSI) & 0xffff0000) >> 16) - 256);
+    printk("Last RX Data RSSI  = %d %d \n", ((rssi_indivaul & 0xff000000) >> 24) - 256, ((rssi_indivaul & 0x00ff0000) >> 16)- 256);
+    printk("TX Response RSSI   = %d %d \n", ((ba_rssi & 0xff000000) >> 24) - 256, ((ba_rssi & 0x00ff0000) >> 16)- 256);
+    printk("Beacon RSSI        = %d %d \n", ((rssi_indivaul & 0x0000ff00) >> 8) - 256, (rssi_indivaul & 0x000000ff) - 256);
 }
 
 static void aml_get_bcn_rssi(struct net_device *dev)
@@ -4118,9 +4169,9 @@ int aml_set_usb_trace_enable(struct net_device *dev)
     }
     return 0;
 }
-#ifdef CONFIG_AML_DEBUGS
+
 extern struct log_file_info trace_log_file_info;
-#endif
+
 int aml_set_fwlog_cmd(struct net_device *dev, int mode)
 {
     struct aml_vif *aml_vif = netdev_priv(dev);
@@ -4131,7 +4182,7 @@ int aml_set_fwlog_cmd(struct net_device *dev, int mode)
         AML_INFO("usb trace is disable!");
         return -1;
     }
-#ifdef CONFIG_AML_DEBUGS
+
     if (aml_bus_type != PCIE_MODE && trace_log_file_info.log_buf && trace_log_file_info.ptr) {
         if (mode == 0) {
             ret = aml_traceind(aml_vif->aml_hw->ipc_env->pthis, mode);
@@ -4140,12 +4191,13 @@ int aml_set_fwlog_cmd(struct net_device *dev, int mode)
         }
         aml_send_fwlog_cmd(aml_vif, mode);
         if (aml_bus_type == USB_MODE) {
+#ifdef CONFIG_AML_DEBUGFS
             aml_dbgfs_fw_trace_create(aml_vif->aml_hw);
+#endif
         }
     } else {
         AML_INFO("bus_type err or trace_log_file_info init failed!");
     }
-#endif
     return 0;
 }
 
@@ -4977,6 +5029,9 @@ static int aml_iwpriv_get(struct net_device *dev,
         case AML_IWP_GET_BCN_RSSI:
             aml_get_bcn_rssi(dev);
             break;
+        case AML_COEX_GET_STATUS:
+            aml_coex_get_status(dev);
+            break;
         default:
             printk("%s %d param err\n", __func__, __LINE__);
             break;
@@ -5157,6 +5212,9 @@ static const struct iw_priv_args aml_iwpriv_private_args[] = {
     {
         AML_IWP_GET_BCN_RSSI,
         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_bcn_rssi"},
+    {
+        AML_COEX_GET_STATUS,
+        0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_coex_status"},
     {
         AML_IWP_CLEAR_LAST_RX,
         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "clear_last_rx"},

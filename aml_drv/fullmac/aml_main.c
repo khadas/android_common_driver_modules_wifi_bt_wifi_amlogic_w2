@@ -517,9 +517,8 @@ static const int aml_hwq2uapsd[NL80211_NUM_ACS] = {
 };
 
 extern void aml_print_version(void);
-#ifdef CONFIG_AML_DEBUGFS
 extern int aml_trace_buf_init(void);
-#endif
+
 extern void aml_trace_buf_deinit(void);
 extern struct aml_bus_state_detect bus_state_detect;
 extern struct usb_device *g_udev;
@@ -1565,6 +1564,10 @@ static struct wireless_dev *aml_interface_add(struct aml_hw *aml_hw,
         aml_rps_dev_flow_table_enable(ndev);
         aml_rps_sock_flow_sysctl_enable();
 #endif
+    } else if (aml_bus_type == SDIO_MODE) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
+        aml_rps_cpus_disable(ndev);
+#endif
     }
 #endif
 
@@ -2145,13 +2148,6 @@ static int aml_cfg80211_connect(struct wiphy *wiphy, struct net_device *dev,
             aml_recy_save_assoc_info(sme, aml_vif->vif_index);
 #endif
             aml_connect_flags_set(aml_vif, AML_CONNECTING);
-#ifndef CONFIG_LINUXPC_VERSION
-            if (aml_bus_type == SDIO_MODE || aml_bus_type == USB_MODE) {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0)
-                aml_rps_cpus_disable(dev);
-#endif
-            }
-#endif
             error = 0;
             break;
         case CO_BUSY:
@@ -6567,11 +6563,9 @@ int aml_cfg80211_init(struct aml_plat *aml_plat, void **platform_data)
     aml_sync_trace_init(aml_hw);
 #endif
 
-#ifdef CONFIG_AML_DEBUGFS
     if (ret = aml_trace_buf_init()) {
         AML_INFO("alloc trace buf failed(%d)!\n", ret);
     }
-#endif
 
 #ifdef CONFIG_AML_RECOVERY
     aml_recy_init(aml_hw);

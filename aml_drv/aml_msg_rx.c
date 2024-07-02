@@ -1973,6 +1973,72 @@ static inline int aml_dma_dl_result_ind(struct aml_hw *aml_hw,
 }
 #endif
 
+static inline int aml_coex_get_status_ind(struct aml_hw *aml_hw,
+                                      struct aml_cmd *cmd,
+                                      struct ipc_e2a_msg *msg)
+{
+    struct coex_get_status *ind = (struct coex_get_status *)msg->param;
+    int wifi_act_sum = 0;
+    int wifi_inact_sum = 0;
+    int time_sum = 0;
+    int ratio = 0;
+
+    printk("\nCoex Status Info: \n");
+
+    if (ind->coex_state == 1)
+    {
+        if (ind->wifi_act_sum > 0)
+        {
+            wifi_act_sum = (ind->wifi_act_sum) / 1000;
+            wifi_inact_sum = (ind->wifi_inact_sum) / 1000;
+            time_sum = wifi_act_sum + wifi_inact_sum;
+        }
+        if (wifi_act_sum > 0)
+        {
+            ratio = (wifi_act_sum * 100) / time_sum;
+        }
+        printk("coex work on TDD, work mode: %x; \n", ind->work_mode);
+        printk("In %dms; wifi_time: %dms; bt_time: %dms; wifi ratio: %d%%\n", time_sum, wifi_act_sum, wifi_inact_sum, ratio);
+    }
+    else
+    {
+        printk("coex work on FDD, work mode: %x; \n", ind->work_mode);
+    }
+
+    printk("\nWiFi Calibration Info: \n");
+    printk("%-15s %-10d\n", "POC Cali Status:", ind->poc_cali_status);
+
+    printk("\nLink Cali Status: \n");
+    printk("%-15s %-10s %-10s\n", "     ", "is exist", "is done");
+    printk("%-15s %-10d %-10d\n", "STA Vif", ((ind->link_cali_status & BIT(1))? 1 : 0), ((ind->link_cali_status & BIT(2))? 1 : 0));
+    printk("%-15s %-10d %-10d\n", "SAP Vif", ((ind->link_cali_status & BIT(3))? 1 : 0), ((ind->link_cali_status & BIT(4))? 1 : 0));
+
+
+    printk("\nBT Link Info: \n");
+    if (ind->bt_work_status & BIT(21))
+    {
+        printk("BT work on ESCO mode; \n");
+    }
+    if (ind->bt_work_status & BIT(22))
+    {
+        printk("BT work on SLAVE mode; \n");
+    }
+    if (ind->bt_work_status & BIT(24))
+    {
+        printk("BT work with CLASSIC; \n");
+    }
+    if (ind->bt_work_status & BIT(25))
+    {
+        printk("BT work with BLE; \n");
+    }
+    if (ind->bt_work_status & BIT(26))
+    {
+        printk("BT REQ TDD; \n");
+    }
+
+    return 0;
+}
+
 static inline int aml_scanu_cancel_cfm(struct aml_hw *aml_hw,
                                       struct aml_cmd *cmd,
                                       struct ipc_e2a_msg *msg)
@@ -2250,6 +2316,7 @@ static msg_cb_fct priv_hdlrs[MSG_I(PRIV_SUB_E2A_MAX)] = {
     [MSG_I(PRIV_TRAFFIC_BUSY_IND)]    = aml_traffic_busy_ind,
     [MSG_I(PRIV_SCANU_RESULT_IND)]    = aml_sdio_rx_scanu_result_for_join_ind,
     [MSG_I(PRIV_COEX_STOP_RESTORE_TXQ_IND)] = aml_rx_coexist_stop_restore_txq_ind,
+    [MSG_I(PRIV_COEX_GET_STATUS)]     = aml_coex_get_status_ind,
 };
 
 static msg_cb_fct *msg_hdlrs[] = {

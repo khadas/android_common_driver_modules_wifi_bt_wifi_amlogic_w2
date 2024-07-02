@@ -1373,7 +1373,7 @@ uint32_t aml_filter_sp_mgmt_frame(struct aml_vif *vif, u8 *buf, AML_SP_STATUS_E 
                                 if (sta_vif && sta_vif->sta.ap && (sta_vif->sta.ap->valid)) {
                                     struct cfg80211_chan_def target_chdef;
                                     target_chdef = vif->aml_hw->chanctx_table[sta_vif->ch_index].chan_def;
-                                    AML_INFO("[P2P SCC] p2p channel to:%d", aml_ieee80211_freq_to_chan(target_chdef.chan->center_freq, target_chdef.chan->band));
+                                    //AML_INFO("[P2P SCC] p2p channel to:%d", aml_ieee80211_freq_to_chan(target_chdef.chan->center_freq, target_chdef.chan->band));
                                     AML_SCC_SAVE_P2P_ACTION_FRAME(buf, frame_len);
                                     AML_SCC_SAVE_P2P_ACTION_LEN(frame_len);
                                     aml_change_p2p_chanlist(vif, buf, frame_len, len_diff, target_chdef);

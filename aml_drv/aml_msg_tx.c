@@ -4006,6 +4006,181 @@ int aml_tko_activate(struct aml_hw *aml_hw, struct aml_vif *vif, u8 active)
     return aml_priv_send_msg(aml_hw, req, 0, 0, NULL);
 }
 
+int aml_mdns_set_offload_state(struct aml_hw *aml_hw, int enable)
+{
+    struct mm_mdns_offload_state *req = NULL;
+
+    req = aml_priv_msg_zalloc(MDNS_SET_STATE, sizeof(struct mm_mdns_offload_state));
+    if (!req)
+        return -ENOMEM;
+
+    req->enable = enable;
+
+    return aml_priv_send_msg(aml_hw, req, 0, 0, NULL);
+}
+
+int aml_mdns_set_passthrough_behavior(struct aml_hw *aml_hw, int behavior)
+{
+    struct mm_mdns_offload_behavior *req = NULL;
+
+    req = aml_priv_msg_zalloc(MDNS_SET_BEHAVIOR, sizeof(struct mm_mdns_offload_behavior));
+    if (!req)
+        return -ENOMEM;
+
+    req->behavior = behavior;
+
+    return aml_priv_send_msg(aml_hw, req, 0, 0, NULL);
+}
+
+int aml_mdns_reset_all(struct aml_hw *aml_hw)
+{
+    void *req = NULL;
+
+    req = aml_priv_msg_zalloc(MDNS_RESET_ALL, 0);
+    if (!req)
+        return -ENOMEM;
+
+    return aml_priv_send_msg(aml_hw, req, 0, 0, NULL);
+}
+
+int aml_mdns_add_protocol_data_status(struct aml_hw *aml_hw, void *list_param, uint8_t list_len,
+                                uint16_t data_len)
+{
+    struct mdns_adddata_cfm cfm;
+    int ret;
+    struct mm_mdns_add_data_status *req = aml_priv_msg_zalloc(MDNS_ADD_PROTOCOL_STATUS, sizeof(struct mm_mdns_add_data_status));
+
+    if (!req)
+        return -ENOMEM;
+    printk("%s ok exit   %d\n", __func__, __LINE__);
+
+    if (list_len > MDNS_LIST_CRITERIA_MAX || data_len > MDNS_RAW_DATA_LENGTH_MAX) {
+        aml_priv_msg_free(aml_hw, req);
+        return -ENOMEM;
+    }
+
+    req->list_len = list_len;
+    req->data_len = data_len;
+
+    memcpy(req->list_criteria, list_param, list_len * sizeof(struct match_criteria));
+
+    ret = aml_priv_send_msg(aml_hw, req, 1, PRIV_MDNS_ADDDATA_CFM, &cfm);
+    if (ret != 0)
+        return ret;
+
+    if (cfm.state != CO_OK)
+        return -1;
+
+    return cfm.index;
+}
+
+int aml_mdns_add_protocol_data(struct aml_hw *aml_hw, void *list_param, uint8_t *raw_data, uint8_t index, uint16_t data_len)//开机时设置
+{
+
+    int ret;
+    struct mm_mdns_add_data *req = aml_priv_msg_zalloc(MDNS_ADD_PROTOCOL, sizeof(struct mm_mdns_add_data));
+
+    if (!req)
+        return -ENOMEM;
+    printk("%s ok exit   %d\n", __func__, __LINE__);
+
+    req->index = index;
+    memcpy(req->raw_offload_packet, raw_data, data_len);
+    ret = aml_priv_send_msg(aml_hw, req, 0, 0, NULL);
+
+    return ret;
+}
+
+
+int aml_mdns_remove_protocol_data(struct aml_hw *aml_hw, int index)
+{
+    struct mm_mdns_remove_data *req = NULL;
+
+    req = aml_priv_msg_zalloc(MDNS_REMOVE_PROTOCOL, sizeof(struct mm_mdns_offload_behavior));
+    if (!req)
+        return -ENOMEM;
+
+    req->index = index;
+
+    return aml_priv_send_msg(aml_hw, req, 0, 0, NULL);
+}
+
+int aml_mdns_get_reset_hit_counter(struct aml_hw *aml_hw, int index)
+{
+    struct mdns_get_hit_cfm cfm;
+    struct mm_mdns_get_hit *req;
+    int ret;
+
+    req = aml_priv_msg_zalloc(MDNS_GET_HIT, sizeof(struct mm_mdns_get_hit));
+    if (!req)
+        return -ENOMEM;
+
+    req->index = index;
+
+    ret = aml_priv_send_msg(aml_hw, req, 1, PRIV_MDNS_GET_HIT_CFM, &cfm);
+    if (ret != 0)
+        return ret;
+
+    return cfm.cnt;
+}
+
+int aml_mdns_get_reset_miss_counter(struct aml_hw *aml_hw)
+{
+    struct mdns_get_miss_cfm cfm;
+    struct mm_mdns_get_miss *req;
+    int ret;
+
+    req = aml_priv_msg_zalloc(MDNS_GET_MISS, sizeof(struct mm_mdns_get_miss));
+    if (!req)
+        return -ENOMEM;
+
+    //req->index = index;
+
+    ret = aml_priv_send_msg(aml_hw, req, 1, PRIV_MDNS_GET_MISS_CFM, &cfm);
+    if (ret != 0)
+        return -1;  // need -1 for upper check
+
+    return cfm.cnt;
+}
+
+int aml_mdns_add_passthrough_list(struct aml_hw *aml_hw, uint8_t *qname, int length)
+{
+    struct mm_mdns_passthrough_list *req;
+    struct mdns_adddpassthrough_cfm cfm;
+    int ret;
+
+    req = aml_priv_msg_zalloc(MDNS_ADD_PASS_LIST, sizeof(struct mm_mdns_passthrough_list));
+    if (!req)
+        return -ENOMEM;
+
+    // TODO param check
+    req->length = length;
+    memcpy(req->qname, qname, length);
+
+    ret = aml_priv_send_msg(aml_hw, req, 1, PRIV_MDNS_ADDPASSTHROUGH_CFM, &cfm);
+    if (ret != 0)
+        return -1;
+
+    AML_INFO("state :%d", cfm.state);
+
+    return cfm.state;
+}
+
+int aml_mdns_remove_passthrough_list(struct aml_hw *aml_hw, uint8_t *qname, int length)
+{
+    struct mm_mdns_passthrough_list *req;
+
+    req = aml_priv_msg_zalloc(MDNS_REMOVE_PASS_LIST, sizeof(struct mm_mdns_passthrough_list));
+    if (!req)
+        return -ENOMEM;
+
+    // TODO param check
+    req->length = length;
+    memcpy(req->qname, qname, length);
+
+    return aml_priv_send_msg(aml_hw, req, 0, 0, NULL);
+}
+
 
 #ifdef TEST_MODE
 int aml_pcie_dl_malloc_test(struct aml_hw *aml_hw, int start_addr, int len, u32_l payload)
@@ -4085,6 +4260,22 @@ int aml_coex_cmd(struct net_device *dev, u32_l coex_cmd, u32_l cmd_ctxt_1, u32_l
     printk("%s,%d, coex_cmd: %d, cmd_ctxt_1:%X, cmd_ctxt_2:%X",__func__, __LINE__, coex_cmd, cmd_ctxt_1, cmd_ctxt_2);
     /* coverity[leaked_storage] - coex_cmd_param will be freed later */
     return aml_priv_send_msg(aml_hw, coex_cmd_param, 0, 0, NULL);
+}
+
+int aml_coex_get_status(struct net_device *dev)
+{
+    void *void_param;
+    struct aml_vif *aml_vif = netdev_priv(dev);
+    struct aml_hw *aml_hw = aml_vif->aml_hw;
+
+    void_param = aml_priv_msg_zalloc(MM_SUB_COEX_GET_STATUS, 0);
+
+    if (!void_param)
+        return -ENOMEM;
+
+    printk("%s,%d, coex_get_status;",__func__, __LINE__);
+    /* coverity[leaked_storage] - coex_cmd_param will be freed later */
+    return aml_priv_send_msg(aml_hw, void_param, 0, 0, NULL);
 }
 
 int _aml_set_pt_calibration(struct aml_vif *aml_vif, int pt_cali_val)

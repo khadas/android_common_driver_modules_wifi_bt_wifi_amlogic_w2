@@ -26,6 +26,7 @@
 #include "reg_ipc_app.h"
 #include "sg_common.h"
 #include "wifi_top_addr.h"
+#include "aml_rps.h"
 
 struct vendor_radiotap_hdr {
     u8 oui[3];
@@ -1995,6 +1996,9 @@ void aml_sdio_dynamic_buffer_check(struct aml_hw *aml_hw, struct rxbuf_list *rxb
             if (aml_bus_type == SDIO_MODE) {
                 aml_hw->rx_buf_end = RXBUF_END_ADDR_SMALL;
                 aml_hw->rx_buf_len = RX_BUFFER_LEN_SMALL;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0) // template solution for S905L3A
+                aml_rps_switch_check(aml_hw, RPS_ON);
+#endif
             } else {
                 aml_hw->rx_buf_end = USB_RXBUF_END_ADDR_SMALL;
                 aml_hw->rx_buf_len = USB_RX_BUFFER_LEN_SMALL;
@@ -2014,6 +2018,9 @@ void aml_sdio_dynamic_buffer_check(struct aml_hw *aml_hw, struct rxbuf_list *rxb
             if (aml_bus_type == SDIO_MODE) {
                 aml_hw->rx_buf_end = RXBUF_END_ADDR_LARGE;
                 aml_hw->rx_buf_len = RX_BUFFER_LEN_LARGE;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0) // template solution for S905L3A
+                aml_rps_switch_check(aml_hw, RPS_OFF);
+#endif
             } else{
                 aml_hw->rx_buf_end = USB_RXBUF_END_ADDR_LARGE;
                 aml_hw->rx_buf_len = USB_RX_BUFFER_LEN_LARGE;
@@ -2155,9 +2162,9 @@ s8 aml_sdio_rxdataind(void *pthis, void *arg)
                 }
             }
 
-            spin_lock(&aml_hw->used_list_lock);
+            spin_lock_bh(&aml_hw->used_list_lock);
             list_add_tail(&temp_list->list, &aml_hw->rxbuf_used_list);
-            spin_unlock(&aml_hw->used_list_lock);
+            spin_unlock_bh(&aml_hw->used_list_lock);
 
             aml_trigger_rst_rxd(aml_hw, aml_hw->fw_new_pos);
             aml_hw->fw_buf_pos = aml_hw->fw_new_pos;
@@ -2322,9 +2329,9 @@ int aml_rx_task(void *data)
 #endif
 #endif
 
-            spin_lock(&aml_hw->free_list_lock);
+            spin_lock_bh(&aml_hw->free_list_lock);
             list_add_tail(&temp_list->list, &aml_hw->rxbuf_free_list);
-            spin_unlock(&aml_hw->free_list_lock);
+            spin_unlock_bh(&aml_hw->free_list_lock);
         }
     }
     if (aml_hw->aml_rx_completion_init) {
